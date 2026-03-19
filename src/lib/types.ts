@@ -11,3 +11,6 @@ export interface Session {
   current_tool: ToolEvent | null;
   tool_history: ToolEvent[];
 }
+
+export type HookStatus = 'not_installed' | 'installed' | 'outdated';
+export type HookScope = 'user' | 'project';
