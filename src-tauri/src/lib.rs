@@ -19,6 +19,42 @@ fn dismiss_session(session_id: String, state: tauri::State<'_, Arc<AppState>>, a
     crate::tray::update_tray(&app, &session_list);
 }
 
+#[tauri::command]
+fn check_hooks_status(
+    scope: hooks::HookScope,
+    cwd: Option<String>,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<hooks::HookStatus, String> {
+    let path = hooks::get_settings_path(&scope, cwd.as_deref())?;
+    let settings = hooks::read_settings(&path)?;
+    Ok(hooks::check_status(&settings, state.port))
+}
+
+#[tauri::command]
+fn install_hooks(
+    scope: hooks::HookScope,
+    cwd: Option<String>,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<String, String> {
+    let path = hooks::get_settings_path(&scope, cwd.as_deref())?;
+    let mut settings = hooks::read_settings(&path)?;
+    hooks::install(&mut settings, state.port)?;
+    hooks::write_settings(&path, &settings)?;
+    Ok(format!("Hooks installed to {}", path.display()))
+}
+
+#[tauri::command]
+fn uninstall_hooks(
+    scope: hooks::HookScope,
+    cwd: Option<String>,
+) -> Result<String, String> {
+    let path = hooks::get_settings_path(&scope, cwd.as_deref())?;
+    let mut settings = hooks::read_settings(&path)?;
+    hooks::uninstall(&mut settings);
+    hooks::write_settings(&path, &settings)?;
+    Ok(format!("Hooks removed from {}", path.display()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = Arc::new(AppState::new(9876));
@@ -41,7 +77,7 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![dismiss_session])
+        .invoke_handler(tauri::generate_handler![dismiss_session, check_hooks_status, install_hooks, uninstall_hooks])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
