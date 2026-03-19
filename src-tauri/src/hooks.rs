@@ -173,7 +173,8 @@ pub fn install(settings: &mut Value, port: u16) -> Result<(), String> {
             .entry(*event_name)
             .or_insert_with(|| serde_json::json!([]));
 
-        let arr = event_array.as_array_mut().unwrap();
+        let arr = event_array.as_array_mut()
+            .ok_or_else(|| format!("'{}' hook event is not an array", event_name))?;
 
         // Remove any existing Jackdaw matcher groups (update in place)
         arr.retain(|mg| !is_jackdaw_matcher_group(mg));
