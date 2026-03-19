@@ -71,3 +71,61 @@ pub fn write_settings(path: &PathBuf, settings: &Value) -> Result<(), String> {
 
     Ok(())
 }
+
+/// Check whether Jackdaw hooks are installed in the given settings
+pub fn check_status(settings: &Value, port: u16) -> HookStatus {
+    let hooks = match settings.get("hooks") {
+        Some(h) if h.is_object() => h,
+        _ => return HookStatus::NotInstalled,
+    };
+
+    let expected_url = jackdaw_hook_url(port);
+    let mut found_count = 0;
+
+    for event_name in HOOK_EVENTS {
+        if let Some(event_array) = hooks.get(event_name).and_then(|v| v.as_array()) {
+            let has_jackdaw_hook = event_array.iter().any(|matcher_group| {
+                if let Some(hook_list) = matcher_group.get("hooks").and_then(|v| v.as_array()) {
+                    hook_list.iter().any(|hook| {
+                        hook.get("type").and_then(|t| t.as_str()) == Some("http")
+                            && hook.get("url").and_then(|u| u.as_str()) == Some(&expected_url)
+                    })
+                } else {
+                    false
+                }
+            });
+            if has_jackdaw_hook {
+                found_count += 1;
+            }
+        }
+    }
+
+    if found_count == HOOK_EVENTS.len() {
+        HookStatus::Installed
+    } else if found_count > 0 {
+        HookStatus::Outdated
+    } else {
+        // Check if there are hooks with a different port (localhost:*/events pattern)
+        let has_old_jackdaw = HOOK_EVENTS.iter().any(|event_name| {
+            hooks.get(event_name)
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().any(|mg| {
+                    mg.get("hooks")
+                        .and_then(|v| v.as_array())
+                        .map(|hooks| hooks.iter().any(|h| {
+                            h.get("type").and_then(|t| t.as_str()) == Some("http")
+                                && h.get("url").and_then(|u| u.as_str())
+                                    .map(|url| url.contains("localhost") && url.ends_with("/events"))
+                                    .unwrap_or(false)
+                        }))
+                        .unwrap_or(false)
+                }))
+                .unwrap_or(false)
+        });
+        if has_old_jackdaw {
+            HookStatus::Outdated
+        } else {
+            HookStatus::NotInstalled
+        }
+    }
+}
