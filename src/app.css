@@ -1,0 +1,30 @@
+:root {
+  --bg: #0d1117;
+  --card-bg: #161b22;
+  --border: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --blue: #58a6ff;
+  --tool-bg: #1c2432;
+  --tool-border: #1f3a5f;
+  --badge-running-bg: #1f2a1f;
+  --badge-running-border: #2d5a2d;
+  --badge-waiting-bg: #2a2418;
+  --badge-waiting-border: #5a4a1f;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
