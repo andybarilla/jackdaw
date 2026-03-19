@@ -1,3 +1,4 @@
+mod hooks;
 mod server;
 mod state;
 mod tray;
