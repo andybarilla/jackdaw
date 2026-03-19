@@ -35,6 +35,57 @@ Hook (curl POST) → Tauri Rust HTTP server → Tauri event → Svelte UI
 - Renders a vertical list of session cards.
 - Reactive — updates immediately on each event.
 
+## Hook Payload Schema
+
+Claude Code sends a JSON object to hook stdin. The shape varies by event type but all share common fields:
+
+### Common Fields (all events)
+
+```json
+{
+  "session_id": "abc-123-def",
+  "cwd": "/home/user/dev/project",
+  "hook_event_name": "PreToolUse"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `session_id` | `string` | Unique session identifier, consistent across all events in a session |
+| `cwd` | `string` | Working directory of the Claude Code session |
+| `hook_event_name` | `string` | One of: `"SessionStart"`, `"SessionStop"`, `"PreToolUse"`, `"PostToolUse"` |
+
+### Tool Use Fields (PreToolUse / PostToolUse only)
+
+```json
+{
+  "session_id": "abc-123-def",
+  "cwd": "/home/user/dev/project",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/home/user/dev/project/src/main.rs",
+    "old_string": "...",
+    "new_string": "..."
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tool_name` | `string` | The tool being called: "Bash", "Edit", "Read", "Write", "Glob", "Grep", "Agent", etc. |
+| `tool_input` | `object` | Tool-specific parameters. Shape varies per tool. |
+
+The Rust backend uses `hook_event_name` to discriminate the event type. All four hook types POST to the same `POST /events` endpoint — the payload itself carries the type.
+
+### Event Processing Rules
+
+- **Unknown fields are ignored** — the payload may contain additional fields not listed above
+- **Missing `session_id`** — reject the event (return 400)
+- **`PreToolUse` for unknown session** — create the session implicitly (handles case where SessionStart was missed)
+- **`PostToolUse` without matching `PreToolUse`** — add directly to tool_history, leave `current_tool` as None
+- **Malformed JSON** — return 400, log warning
+
 ## Data Model
 
 ### Session
@@ -123,7 +174,7 @@ Users add this to `~/.claude/settings.json`:
 
 - Same command for all hook types — `cat` reads the JSON from stdin, pipes to `curl`
 - Fails silently if Jackdaw isn't running (curl gets connection refused, hook exits, Claude Code continues)
-- A `jackdaw install-hooks` CLI command could automate this setup
+- A `jackdaw install-hooks` CLI command is a future nice-to-have, not a v1 deliverable
 
 ## Dashboard UI
 
@@ -140,7 +191,7 @@ Each card displays:
   - **Running** (green) — `current_tool` is set
   - **Waiting** (yellow) — session is active but no tool in progress
 - **Current tool** — highlighted in a blue box when active, showing tool name and summary
-- **Recent tool history** — last few completed tools with relative timestamps
+- **Recent tool history** — last 5 completed tools with relative timestamps (backend stores up to 50 for potential future use)
 
 ### Session Lifecycle
 
@@ -177,10 +228,25 @@ Shows count summary: "Jackdaw — 1 running, 2 waiting" or "Jackdaw — idle"
 - **Svelte** — Frontend: dashboard UI
 - **Vite** — Frontend build tooling (Tauri default with Svelte)
 
+## Window Behavior
+
+- **Default size** — 400px wide, 600px tall
+- **Resizable** — yes
+- **On launch** — starts hidden in tray, no window shown
+- **Left click tray** — toggles window visibility
+- **Close button** — hides window to tray (does not quit)
+
+## Error Handling
+
+- **Port in use** — show a system notification: "Jackdaw: port 9876 is in use. Change the port in settings." App stays in tray but shows gray icon.
+- **Malformed payload** — return HTTP 400, log to stderr. Do not crash.
+- **Session crash (no SessionStop)** — acknowledged limitation in v1. Sessions may appear as "Waiting" indefinitely. Each card has a dismiss button (x) to manually remove stale sessions.
+
 ## Non-Goals (v1)
 
 - Persistence across app restarts
 - Team/multi-user support
 - Token usage or cost tracking
 - Conversation content or message flow
-- Timeout-based session expiry (relying on explicit SessionStart/Stop)
+- Timeout-based session expiry (relying on explicit SessionStart/Stop, with manual dismiss as fallback)
+- Authentication on the HTTP endpoint (localhost-only binding is sufficient for personal use)
