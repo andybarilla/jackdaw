@@ -15,6 +15,8 @@ pub struct HookPayload {
     pub tool_input: Option<serde_json::Value>,
     #[serde(default)]
     pub tool_use_id: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 /// Internal session state
@@ -25,6 +27,7 @@ pub struct Session {
     pub started_at: DateTime<Utc>,
     pub current_tool: Option<ToolEvent>,
     pub tool_history: Vec<ToolEvent>,
+    pub active_subagents: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -75,6 +78,7 @@ impl Session {
             started_at: Utc::now(),
             current_tool: None,
             tool_history: Vec::new(),
+            active_subagents: 0,
         }
     }
 

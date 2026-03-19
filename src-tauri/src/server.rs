@@ -89,6 +89,16 @@ async fn handle_event(
             // Session already ensured above — nothing else to do.
             // This just keeps the session visible when idle.
         }
+        "SubagentStart" => {
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.active_subagents = session.active_subagents.saturating_add(1);
+            }
+        }
+        "SubagentStop" => {
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.active_subagents = session.active_subagents.saturating_sub(1);
+            }
+        }
         _ => {
             // Unknown event — still emit update since session was ensured above
         }

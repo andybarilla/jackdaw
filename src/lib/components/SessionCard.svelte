@@ -8,7 +8,7 @@
 
   let { session, onDismiss }: Props = $props();
 
-  let isRunning = $derived(session.current_tool !== null);
+  let isRunning = $derived(session.current_tool !== null || session.active_subagents > 0);
   let uptime = $derived(getUptime(session.started_at));
   let recentHistory = $derived(session.tool_history.slice(-5).reverse());
 
@@ -55,6 +55,12 @@
       {#if session.current_tool.summary}
         <span class="tool-summary">{session.current_tool.summary}</span>
       {/if}
+    </div>
+  {/if}
+
+  {#if session.active_subagents > 0}
+    <div class="subagents">
+      {session.active_subagents} subagent{session.active_subagents === 1 ? '' : 's'} running
     </div>
   {/if}
 
@@ -153,6 +159,13 @@
   .dismiss:hover {
     background: var(--border);
     color: var(--text-primary);
+  }
+
+  .subagents {
+    font-size: 11px;
+    color: var(--blue);
+    padding: 4px 0;
+    margin-bottom: 6px;
   }
 
   .current-tool {

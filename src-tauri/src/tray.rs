@@ -123,8 +123,8 @@ pub fn update_tray(app: &AppHandle, sessions: &[Session]) {
         None => return,
     };
 
-    let running = sessions.iter().filter(|s| s.current_tool.is_some()).count();
-    let waiting = sessions.iter().filter(|s| s.current_tool.is_none()).count();
+    let running = sessions.iter().filter(|s| s.current_tool.is_some() || s.active_subagents > 0).count();
+    let waiting = sessions.iter().filter(|s| s.current_tool.is_none() && s.active_subagents == 0).count();
     let total = sessions.len();
 
     let (icon_bytes, tooltip) = if total == 0 {
