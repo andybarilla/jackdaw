@@ -43,7 +43,7 @@ async fn handle_event(
             let session = Session::new(session_id.clone(), cwd);
             sessions.insert(session_id, session);
         }
-        "SessionStop" => {
+        "Stop" => {
             sessions.remove(&session_id);
         }
         "PreToolUse" => {
