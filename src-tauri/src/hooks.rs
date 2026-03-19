@@ -129,3 +129,90 @@ pub fn check_status(settings: &Value, port: u16) -> HookStatus {
         }
     }
 }
+
+/// Build the Jackdaw hook entry for a single event
+fn jackdaw_matcher_group(port: u16) -> Value {
+    serde_json::json!({
+        "hooks": [{
+            "type": "http",
+            "url": jackdaw_hook_url(port),
+            "timeout": 5
+        }]
+    })
+}
+
+/// Returns true if a matcher group contains a Jackdaw hook (any localhost:*/events URL)
+fn is_jackdaw_matcher_group(mg: &Value) -> bool {
+    mg.get("hooks")
+        .and_then(|v| v.as_array())
+        .map(|hooks| hooks.iter().any(|h| {
+            h.get("type").and_then(|t| t.as_str()) == Some("http")
+                && h.get("url").and_then(|u| u.as_str())
+                    .map(|url| url.contains("localhost") && url.ends_with("/events"))
+                    .unwrap_or(false)
+        }))
+        .unwrap_or(false)
+}
+
+/// Install or update Jackdaw hooks in a settings Value.
+/// Preserves all existing non-Jackdaw hooks.
+pub fn install(settings: &mut Value, port: u16) -> Result<(), String> {
+    let settings_obj = settings
+        .as_object_mut()
+        .ok_or("Settings file root is not a JSON object")?;
+
+    let hooks = settings_obj
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}));
+
+    let hooks_obj = hooks.as_object_mut()
+        .ok_or("'hooks' field is not a JSON object")?;
+
+    for event_name in HOOK_EVENTS {
+        let event_array = hooks_obj
+            .entry(*event_name)
+            .or_insert_with(|| serde_json::json!([]));
+
+        let arr = event_array.as_array_mut().unwrap();
+
+        // Remove any existing Jackdaw matcher groups (update in place)
+        arr.retain(|mg| !is_jackdaw_matcher_group(mg));
+
+        // Append the new one
+        arr.push(jackdaw_matcher_group(port));
+    }
+
+    Ok(())
+}
+
+/// Remove all Jackdaw hooks from a settings Value.
+/// Preserves all other hooks. Removes empty event arrays.
+pub fn uninstall(settings: &mut Value) {
+    let hooks = match settings.get_mut("hooks").and_then(|v| v.as_object_mut()) {
+        Some(h) => h,
+        None => return,
+    };
+
+    for event_name in HOOK_EVENTS {
+        if let Some(event_array) = hooks.get_mut(*event_name).and_then(|v| v.as_array_mut()) {
+            event_array.retain(|mg| !is_jackdaw_matcher_group(mg));
+        }
+    }
+
+    // Clean up empty event arrays
+    let empty_keys: Vec<String> = hooks
+        .iter()
+        .filter(|(_, v)| v.as_array().map(|a| a.is_empty()).unwrap_or(false))
+        .map(|(k, _)| k.clone())
+        .collect();
+    for key in empty_keys {
+        hooks.remove(&key);
+    }
+
+    // Remove hooks object entirely if empty
+    if hooks.is_empty() {
+        if let Some(obj) = settings.as_object_mut() {
+            obj.remove("hooks");
+        }
+    }
+}
