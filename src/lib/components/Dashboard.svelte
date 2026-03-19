@@ -1,6 +1,7 @@
 <script lang="ts">
   import Header from './Header.svelte';
   import SessionCard from './SessionCard.svelte';
+  import HookSetup from './HookSetup.svelte';
   import { sessionStore, initSessionListener } from '$lib/stores/sessions.svelte';
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -21,8 +22,7 @@
   <div class="session-list">
     {#if sessionStore.sessions.length === 0}
       <div class="empty">
-        <p class="empty-title">No active sessions</p>
-        <p class="empty-subtitle">Sessions will appear here when Claude Code sends hook events</p>
+        <HookSetup />
       </div>
     {:else}
       {#each sessionStore.sessions as session (session.session_id)}
@@ -59,14 +59,5 @@
     padding: 40px;
   }
 
-  .empty-title {
-    font-size: 14px;
-    color: var(--text-secondary);
-    margin-bottom: 4px;
-  }
 
-  .empty-subtitle {
-    font-size: 12px;
-    color: var(--text-muted);
-  }
 </style>
