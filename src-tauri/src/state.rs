@@ -13,6 +13,8 @@ pub struct HookPayload {
     pub tool_name: Option<String>,
     #[serde(default)]
     pub tool_input: Option<serde_json::Value>,
+    #[serde(default)]
+    pub tool_use_id: Option<String>,
 }
 
 /// Internal session state
@@ -30,6 +32,8 @@ pub struct ToolEvent {
     pub tool_name: String,
     pub timestamp: DateTime<Utc>,
     pub summary: Option<String>,
+    #[serde(skip_serializing)]
+    pub tool_use_id: Option<String>,
 }
 
 /// Shared app state wrapped in Mutex for thread safety
@@ -75,21 +79,34 @@ impl Session {
     }
 
     pub fn set_current_tool(&mut self, tool: ToolEvent) {
+        // If there's already a current tool, move it to history first
+        if let Some(prev) = self.current_tool.take() {
+            self.push_history(prev);
+        }
         self.current_tool = Some(tool);
     }
 
-    pub fn complete_current_tool(&mut self, tool: ToolEvent) {
-        // If there's a current tool, move it to history
-        if let Some(current) = self.current_tool.take() {
-            self.tool_history.push(current);
-        } else {
-            // PostToolUse without PreToolUse — add directly
-            self.tool_history.push(tool);
-            if self.tool_history.len() > MAX_TOOL_HISTORY {
-                self.tool_history.remove(0);
+    pub fn complete_tool(&mut self, tool_use_id: Option<&str>, tool: ToolEvent) {
+        match (&self.current_tool, tool_use_id) {
+            // If we have a tool_use_id, only complete if it matches
+            (Some(current), Some(id)) if current.tool_use_id.as_deref() == Some(id) => {
+                let completed = self.current_tool.take().unwrap();
+                self.push_history(completed);
             }
-            return;
+            // If no tool_use_id on the event, fall back to name matching
+            (Some(current), None) if current.tool_name == tool.tool_name => {
+                let completed = self.current_tool.take().unwrap();
+                self.push_history(completed);
+            }
+            // No current tool or mismatch — just add to history
+            _ => {
+                self.push_history(tool);
+            }
         }
+    }
+
+    fn push_history(&mut self, tool: ToolEvent) {
+        self.tool_history.push(tool);
         if self.tool_history.len() > MAX_TOOL_HISTORY {
             self.tool_history.remove(0);
         }

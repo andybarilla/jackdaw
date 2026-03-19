@@ -25,7 +25,7 @@ fn jackdaw_hook_url(port: u16) -> String {
 }
 
 /// Events we install hooks for
-const HOOK_EVENTS: &[&str] = &["SessionStart", "PreToolUse", "PostToolUse", "Stop"];
+const HOOK_EVENTS: &[&str] = &["SessionStart", "PreToolUse", "PostToolUse", "Stop", "UserPromptSubmit"];
 
 /// Resolve the settings.json path for the given scope
 pub fn get_settings_path(scope: &HookScope, cwd: Option<&str>) -> Result<PathBuf, String> {
