@@ -4,6 +4,7 @@ mod tray;
 
 use state::AppState;
 use std::sync::Arc;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,6 +19,17 @@ pub fn run() {
                 server::start_server(handle, state).await;
             });
             tray::create_tray(app.handle())?;
+
+            if let Some(window) = app.get_webview_window("main") {
+                let window_clone = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window_clone.hide();
+                    }
+                });
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())
