@@ -1,5 +1,6 @@
 mod server;
 mod state;
+mod tray;
 
 use state::AppState;
 use std::sync::Arc;
@@ -16,6 +17,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 server::start_server(handle, state).await;
             });
+            tray::create_tray(app.handle())?;
             Ok(())
         })
         .run(tauri::generate_context!())

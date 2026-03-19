@@ -92,7 +92,7 @@ async fn handle_event(
     drop(sessions); // release lock before emitting
 
     let _ = app_handle.emit("session-update", &session_list);
-    // TODO: crate::tray::update_tray(&app_handle, &session_list); (Task 4)
+    crate::tray::update_tray(&app_handle, &session_list);
 
     StatusCode::OK
 }
