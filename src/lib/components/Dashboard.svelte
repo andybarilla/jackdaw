@@ -3,6 +3,7 @@
   import SessionCard from './SessionCard.svelte';
   import { sessionStore, initSessionListener } from '$lib/stores/sessions.svelte';
   import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
 
   onMount(() => {
     const cleanup = initSessionListener();
@@ -10,7 +11,7 @@
   });
 
   function handleDismiss(sessionId: string) {
-    // TODO: send dismiss command to Rust backend via Tauri command
+    invoke('dismiss_session', { sessionId });
   }
 </script>
 
