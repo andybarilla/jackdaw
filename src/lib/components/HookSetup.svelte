@@ -59,11 +59,10 @@
   });
 
   // Debounce project path changes to avoid firing on every keystroke
-  let pathTimeout: ReturnType<typeof setTimeout>;
   $effect(() => {
     projectPath;
-    clearTimeout(pathTimeout);
-    pathTimeout = setTimeout(() => checkStatus(), 500);
+    const timeout = setTimeout(() => checkStatus(), 500);
+    return () => clearTimeout(timeout);
   });
 </script>
 

@@ -60,7 +60,8 @@ pub fn write_settings(path: &PathBuf, settings: &Value) -> Result<(), String> {
             .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
     }
     let json = serde_json::to_string_pretty(settings)
-        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?
+        + "\n";
 
     // Atomic write: write to temp file then rename
     let temp_path = path.with_extension("json.tmp");
