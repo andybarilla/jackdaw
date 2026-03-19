@@ -15,10 +15,20 @@ const ICON_YELLOW: &[u8] = include_bytes!("../../static/icons/tray-yellow.png");
 const ICON_GRAY: &[u8] = include_bytes!("../../static/icons/tray-gray.png");
 
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{PredefinedMenuItem, SubmenuBuilder};
+
     let show = MenuItemBuilder::with_id("show", "Show Dashboard").build(app)?;
+    let install_user = MenuItemBuilder::with_id("install_hooks_user", "User-level (global)").build(app)?;
+    let uninstall = MenuItemBuilder::with_id("uninstall_hooks", "Uninstall").build(app)?;
+    let hooks_submenu = SubmenuBuilder::with_id(app, "hooks_submenu", "Install Claude Hooks")
+        .items(&[&install_user, &uninstall])
+        .build()?;
+    let separator = PredefinedMenuItem::separator(app)?;
     let settings = MenuItemBuilder::with_id("settings", "Settings").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-    let menu = MenuBuilder::new(app).items(&[&show, &settings, &quit]).build()?;
+    let menu = MenuBuilder::new(app)
+        .items(&[&show, &hooks_submenu, &separator, &settings, &quit])
+        .build()?;
 
     let icon = Image::from_bytes(ICON_GRAY).expect("embedded gray icon");
 
@@ -31,6 +41,53 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.set_focus();
+                }
+            }
+            "install_hooks_user" => {
+                let state = app.state::<std::sync::Arc<crate::state::AppState>>();
+                let port = state.port;
+                match crate::hooks::get_settings_path(&crate::hooks::HookScope::User, None) {
+                    Ok(path) => {
+                        match crate::hooks::read_settings(&path) {
+                            Ok(mut settings) => {
+                                if let Err(e) = crate::hooks::install(&mut settings, port) {
+                                    eprintln!("Jackdaw: failed to install hooks: {}", e);
+                                    return;
+                                }
+                                match crate::hooks::write_settings(&path, &settings) {
+                                    Ok(_) => {
+                                        if let Some(tray) = app.tray_by_id(TRAY_ID) {
+                                            let _ = tray.set_tooltip(Some("Jackdaw — hooks installed"));
+                                        }
+                                    }
+                                    Err(e) => eprintln!("Jackdaw: failed to install hooks: {}", e),
+                                }
+                            }
+                            Err(e) => eprintln!("Jackdaw: failed to read settings: {}", e),
+                        }
+                    }
+                    Err(e) => eprintln!("Jackdaw: failed to resolve settings path: {}", e),
+                }
+            }
+            "uninstall_hooks" => {
+                match crate::hooks::get_settings_path(&crate::hooks::HookScope::User, None) {
+                    Ok(path) => {
+                        match crate::hooks::read_settings(&path) {
+                            Ok(mut settings) => {
+                                crate::hooks::uninstall(&mut settings);
+                                match crate::hooks::write_settings(&path, &settings) {
+                                    Ok(_) => {
+                                        if let Some(tray) = app.tray_by_id(TRAY_ID) {
+                                            let _ = tray.set_tooltip(Some("Jackdaw — hooks removed"));
+                                        }
+                                    }
+                                    Err(e) => eprintln!("Jackdaw: failed to uninstall hooks: {}", e),
+                                }
+                            }
+                            Err(e) => eprintln!("Jackdaw: failed to read settings: {}", e),
+                        }
+                    }
+                    Err(e) => eprintln!("Jackdaw: failed to resolve settings path: {}", e),
                 }
             }
             "settings" => {
