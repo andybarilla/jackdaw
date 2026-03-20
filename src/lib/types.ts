@@ -11,6 +11,7 @@ export interface Session {
   current_tool: ToolEvent | null;
   tool_history: ToolEvent[];
   active_subagents: number;
+  pending_approval: boolean;
 }
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';

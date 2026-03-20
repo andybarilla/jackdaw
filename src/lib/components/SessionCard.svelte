@@ -8,7 +8,8 @@
 
   let { session, onDismiss }: Props = $props();
 
-  let isRunning = $derived(session.current_tool !== null || session.active_subagents > 0);
+  let isPending = $derived(session.pending_approval);
+  let isRunning = $derived(!isPending && (session.current_tool !== null || session.active_subagents > 0));
   let uptime = $derived(getUptime(session.started_at));
   let recentHistory = $derived(session.tool_history.slice(-5).reverse());
 
@@ -36,14 +37,20 @@
   <div class="card-header">
     <div class="card-info">
       <div class="card-title">
-        <span class="status-dot" class:running={isRunning}></span>
+        <span class="status-dot" class:running={isRunning} class:pending={isPending}></span>
         <span class="project-dir">{shortenPath(session.cwd)}</span>
       </div>
       <span class="meta">Session {shortenSessionId(session.session_id)} · started {uptime}</span>
     </div>
     <div class="card-actions">
-      <span class="badge" class:running={isRunning}>
-        {isRunning ? '⚡ Running' : '⏸ Waiting'}
+      <span class="badge" class:running={isRunning} class:pending={isPending}>
+        {#if isPending}
+          🔒 Approval
+        {:else if isRunning}
+          ⚡ Running
+        {:else}
+          ⏸ Waiting
+        {/if}
       </span>
       <button class="dismiss" onclick={() => onDismiss(session.session_id)} title="Dismiss session">×</button>
     </div>
@@ -108,6 +115,11 @@
     background: var(--yellow);
   }
 
+  .status-dot.pending {
+    background: var(--blue);
+    animation: pulse 2s infinite;
+  }
+
   .status-dot.running {
     background: var(--green);
     animation: pulse 2s infinite;
@@ -138,6 +150,12 @@
     background: var(--badge-waiting-bg);
     border: 1px solid var(--badge-waiting-border);
     color: var(--yellow);
+  }
+
+  .badge.pending {
+    background: #1c2438;
+    border-color: #1f3a5f;
+    color: var(--blue);
   }
 
   .badge.running {

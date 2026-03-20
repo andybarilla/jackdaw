@@ -65,6 +65,7 @@ async fn handle_event(
             };
 
             if let Some(session) = sessions.get_mut(&session_id) {
+                session.pending_approval = false;
                 session.set_current_tool(tool_event);
             }
         }
@@ -82,12 +83,20 @@ async fn handle_event(
             };
 
             if let Some(session) = sessions.get_mut(&session_id) {
+                session.pending_approval = false;
                 session.complete_tool(payload.tool_use_id.as_deref(), tool_event);
             }
         }
         "UserPromptSubmit" => {
-            // Session already ensured above — nothing else to do.
-            // This just keeps the session visible when idle.
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.pending_approval = false;
+            }
+        }
+        "Notification" => {
+            // permission_prompt notification means session is waiting for user approval
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.pending_approval = true;
+            }
         }
         "SubagentStart" => {
             if let Some(session) = sessions.get_mut(&session_id) {
