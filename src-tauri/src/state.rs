@@ -192,4 +192,92 @@ mod tests {
         let result = extract_summary("Bash", &input).unwrap();
         assert_eq!(result.len(), 120);
     }
+
+    #[test]
+    fn session_new_defaults() {
+        let s = Session::new("sess-1".into(), "/home/test".into());
+        assert_eq!(s.session_id, "sess-1");
+        assert_eq!(s.cwd, "/home/test");
+        assert!(s.current_tool.is_none());
+        assert!(s.tool_history.is_empty());
+        assert_eq!(s.active_subagents, 0);
+        assert!(!s.pending_approval);
+        assert!(!s.processing);
+    }
+
+    fn make_tool(name: &str, id: Option<&str>) -> ToolEvent {
+        ToolEvent {
+            tool_name: name.into(),
+            timestamp: Utc::now(),
+            summary: None,
+            tool_use_id: id.map(String::from),
+        }
+    }
+
+    #[test]
+    fn set_current_tool_when_none() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.set_current_tool(make_tool("Bash", Some("id-1")));
+        assert_eq!(s.current_tool.as_ref().unwrap().tool_name, "Bash");
+        assert!(s.tool_history.is_empty());
+    }
+
+    #[test]
+    fn set_current_tool_moves_previous_to_history() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.set_current_tool(make_tool("Bash", Some("id-1")));
+        s.set_current_tool(make_tool("Read", Some("id-2")));
+        assert_eq!(s.current_tool.as_ref().unwrap().tool_name, "Read");
+        assert_eq!(s.tool_history.len(), 1);
+        assert_eq!(s.tool_history[0].tool_name, "Bash");
+    }
+
+    #[test]
+    fn complete_tool_id_match() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.set_current_tool(make_tool("Bash", Some("id-1")));
+        s.complete_tool(Some("id-1"), make_tool("Bash", Some("id-1")));
+        assert!(s.current_tool.is_none());
+        assert_eq!(s.tool_history.len(), 1);
+        assert_eq!(s.tool_history[0].tool_name, "Bash");
+    }
+
+    #[test]
+    fn complete_tool_name_fallback_when_no_event_id() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.set_current_tool(make_tool("Bash", Some("id-1")));
+        s.complete_tool(None, make_tool("Bash", None));
+        assert!(s.current_tool.is_none());
+        assert_eq!(s.tool_history.len(), 1);
+        assert_eq!(s.tool_history[0].tool_name, "Bash");
+    }
+
+    #[test]
+    fn complete_tool_id_mismatch_keeps_current() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.set_current_tool(make_tool("Bash", Some("id-1")));
+        s.complete_tool(Some("wrong-id"), make_tool("Read", Some("wrong-id")));
+        assert_eq!(s.current_tool.as_ref().unwrap().tool_name, "Bash");
+        assert_eq!(s.tool_history.len(), 1);
+        assert_eq!(s.tool_history[0].tool_name, "Read");
+    }
+
+    #[test]
+    fn complete_tool_no_current() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.complete_tool(Some("id-1"), make_tool("Bash", Some("id-1")));
+        assert!(s.current_tool.is_none());
+        assert_eq!(s.tool_history.len(), 1);
+    }
+
+    #[test]
+    fn push_history_caps_at_50() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        for i in 0..55 {
+            s.set_current_tool(make_tool(&format!("Tool{}", i), None));
+        }
+        assert_eq!(s.tool_history.len(), 50);
+        assert_eq!(s.tool_history[0].tool_name, "Tool4");
+        assert_eq!(s.tool_history[49].tool_name, "Tool53");
+    }
 }
