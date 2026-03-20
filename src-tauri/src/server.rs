@@ -49,6 +49,10 @@ async fn handle_event(
             // Session already created above via entry().or_insert_with()
         }
         "Stop" => {
+            // Clear processing before removing so tray counts are correct
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.processing = false;
+            }
             sessions.remove(&session_id);
         }
         "PreToolUse" => {
@@ -90,6 +94,7 @@ async fn handle_event(
         "UserPromptSubmit" => {
             if let Some(session) = sessions.get_mut(&session_id) {
                 session.pending_approval = false;
+                session.processing = true;
             }
         }
         "Notification" => {

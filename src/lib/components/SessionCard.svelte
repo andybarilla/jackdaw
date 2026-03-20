@@ -9,7 +9,7 @@
   let { session, onDismiss }: Props = $props();
 
   let isPending = $derived(session.pending_approval);
-  let isRunning = $derived(!isPending && (session.current_tool !== null || session.active_subagents > 0));
+  let isRunning = $derived(!isPending && (session.current_tool !== null || session.active_subagents > 0 || session.processing));
   let uptime = $derived(getUptime(session.started_at));
   let recentHistory = $derived(session.tool_history.slice(-5).reverse());
 

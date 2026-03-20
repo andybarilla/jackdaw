@@ -29,6 +29,7 @@ pub struct Session {
     pub tool_history: Vec<ToolEvent>,
     pub active_subagents: u32,
     pub pending_approval: bool,
+    pub processing: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -81,6 +82,7 @@ impl Session {
             tool_history: Vec::new(),
             active_subagents: 0,
             pending_approval: false,
+            processing: false,
         }
     }
 
