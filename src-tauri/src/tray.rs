@@ -123,8 +123,7 @@ pub fn update_tray(app: &AppHandle, sessions: &[Session]) {
         None => return,
     };
 
-    let running = sessions.iter().filter(|s| s.current_tool.is_some() || s.active_subagents > 0 || s.processing).count();
-    let waiting = sessions.iter().filter(|s| s.current_tool.is_none() && s.active_subagents == 0 && !s.processing).count();
+    let (running, waiting) = compute_tray_state(sessions);
     let total = sessions.len();
 
     let (icon_bytes, tooltip) = if total == 0 {
@@ -145,4 +144,80 @@ pub fn update_tray(app: &AppHandle, sessions: &[Session]) {
         let _ = tray.set_icon(Some(icon));
     }
     let _ = tray.set_tooltip(Some(&tooltip));
+}
+
+/// Compute running/waiting counts from session list.
+pub fn compute_tray_state(sessions: &[Session]) -> (usize, usize) {
+    let running = sessions.iter().filter(|s| s.current_tool.is_some() || s.active_subagents > 0 || s.processing).count();
+    let waiting = sessions.iter().filter(|s| s.current_tool.is_none() && s.active_subagents == 0 && !s.processing).count();
+    (running, waiting)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use crate::state::ToolEvent;
+
+    fn idle_session() -> Session {
+        Session::new("s1".into(), "/tmp".into())
+    }
+
+    fn running_session_with_tool() -> Session {
+        let mut s = Session::new("s2".into(), "/tmp".into());
+        s.set_current_tool(ToolEvent {
+            tool_name: "Bash".into(),
+            timestamp: Utc::now(),
+            summary: None,
+            tool_use_id: None,
+        });
+        s
+    }
+
+    fn running_session_with_subagents() -> Session {
+        let mut s = Session::new("s3".into(), "/tmp".into());
+        s.active_subagents = 1;
+        s
+    }
+
+    fn running_session_processing() -> Session {
+        let mut s = Session::new("s4".into(), "/tmp".into());
+        s.processing = true;
+        s
+    }
+
+    fn pending_only_session() -> Session {
+        let mut s = Session::new("s5".into(), "/tmp".into());
+        s.pending_approval = true;
+        s
+    }
+
+    #[test]
+    fn tray_state_no_sessions() {
+        assert_eq!(compute_tray_state(&[]), (0, 0));
+    }
+
+    #[test]
+    fn tray_state_all_running() {
+        let sessions = vec![running_session_with_tool(), running_session_with_subagents()];
+        assert_eq!(compute_tray_state(&sessions), (2, 0));
+    }
+
+    #[test]
+    fn tray_state_all_waiting() {
+        let sessions = vec![idle_session(), idle_session()];
+        assert_eq!(compute_tray_state(&sessions), (0, 2));
+    }
+
+    #[test]
+    fn tray_state_mixed() {
+        let sessions = vec![running_session_with_tool(), idle_session(), running_session_processing()];
+        assert_eq!(compute_tray_state(&sessions), (2, 1));
+    }
+
+    #[test]
+    fn tray_state_pending_only_counts_as_waiting() {
+        let sessions = vec![pending_only_session()];
+        assert_eq!(compute_tray_state(&sessions), (0, 1));
+    }
 }
