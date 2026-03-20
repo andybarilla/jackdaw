@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Session } from '$lib/types';
+  import { getUptime, shortenPath, shortenSessionId } from '$lib/utils';
 
   interface Props {
     session: Session;
@@ -12,25 +13,6 @@
   let isRunning = $derived(!isPending && (session.current_tool !== null || session.active_subagents > 0 || session.processing));
   let uptime = $derived(getUptime(session.started_at));
   let recentHistory = $derived(session.tool_history.slice(-5).reverse());
-
-  function getUptime(startedAt: string): string {
-    const start = new Date(startedAt);
-    const now = new Date();
-    const diffMs = now.getTime() - start.getTime();
-    const mins = Math.floor(diffMs / 60000);
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    return `${hours}h ${mins % 60}m ago`;
-  }
-
-  function shortenPath(path: string): string {
-    const home = path.replace(/^\/home\/[^/]+/, '~');
-    return home;
-  }
-
-  function shortenSessionId(id: string): string {
-    return id.length > 8 ? id.substring(0, 8) : id;
-  }
 </script>
 
 <div class="card">
