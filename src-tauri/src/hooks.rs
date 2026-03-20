@@ -378,5 +378,55 @@ mod tests {
         uninstall(&mut settings);
         assert_eq!(settings, json!({"other": "data"}));
     }
+
+    #[test]
+    fn read_settings_file_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"hooks":{}}"#).unwrap();
+        let result = read_settings(&path).unwrap();
+        assert_eq!(result, json!({"hooks": {}}));
+    }
+
+    #[test]
+    fn read_settings_file_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nonexistent.json");
+        let result = read_settings(&path).unwrap();
+        assert_eq!(result, json!({}));
+    }
+
+    #[test]
+    fn write_settings_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("dir").join("settings.json");
+        let settings = json!({"hooks": {}});
+        write_settings(&path, &settings).unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let parsed: Value = serde_json::from_str(&contents).unwrap();
+        assert_eq!(parsed, settings);
+    }
+
+    #[test]
+    fn write_settings_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut settings = json!({});
+        install(&mut settings, 9876).unwrap();
+        write_settings(&path, &settings).unwrap();
+        let loaded = read_settings(&path).unwrap();
+        assert!(matches!(check_status(&loaded, 9876), HookStatus::Installed));
+    }
+
+    #[test]
+    fn write_settings_atomic_no_temp_file_left() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let settings = json!({"test": true});
+        write_settings(&path, &settings).unwrap();
+        let temp_path = path.with_extension("json.tmp");
+        assert!(!temp_path.exists());
+        assert!(path.exists());
+    }
 }
 
