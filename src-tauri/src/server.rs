@@ -38,10 +38,12 @@ async fn handle_event(
 
     // Ensure session exists for any event (except Stop).
     // This makes sessions visible even if we missed SessionStart.
+    // Mark as processing since any event means the session is active.
     if event_name != "Stop" {
-        sessions
+        let session = sessions
             .entry(session_id.clone())
             .or_insert_with(|| Session::new(session_id.clone(), cwd.clone()));
+        session.processing = true;
     }
 
     match event_name.as_str() {
