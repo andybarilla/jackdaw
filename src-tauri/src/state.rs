@@ -120,3 +120,76 @@ impl Session {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn extract_summary_bash_command() {
+        let input = Some(json!({"command": "ls -la"}));
+        assert_eq!(extract_summary("Bash", &input), Some("ls -la".into()));
+    }
+
+    #[test]
+    fn extract_summary_read_file_path() {
+        let input = Some(json!({"file_path": "/src/main.rs"}));
+        assert_eq!(extract_summary("Read", &input), Some("/src/main.rs".into()));
+    }
+
+    #[test]
+    fn extract_summary_edit_file_path() {
+        let input = Some(json!({"file_path": "/src/lib.rs"}));
+        assert_eq!(extract_summary("Edit", &input), Some("/src/lib.rs".into()));
+    }
+
+    #[test]
+    fn extract_summary_write_file_path() {
+        let input = Some(json!({"file_path": "/src/new.rs"}));
+        assert_eq!(extract_summary("Write", &input), Some("/src/new.rs".into()));
+    }
+
+    #[test]
+    fn extract_summary_glob_pattern() {
+        let input = Some(json!({"pattern": "**/*.rs"}));
+        assert_eq!(extract_summary("Glob", &input), Some("**/*.rs".into()));
+    }
+
+    #[test]
+    fn extract_summary_grep_pattern() {
+        let input = Some(json!({"pattern": "fn main"}));
+        assert_eq!(extract_summary("Grep", &input), Some("fn main".into()));
+    }
+
+    #[test]
+    fn extract_summary_agent_description() {
+        let input = Some(json!({"description": "Search for files"}));
+        assert_eq!(extract_summary("Agent", &input), Some("Search for files".into()));
+    }
+
+    #[test]
+    fn extract_summary_none_input() {
+        assert_eq!(extract_summary("Bash", &None), None);
+    }
+
+    #[test]
+    fn extract_summary_missing_field() {
+        let input = Some(json!({"other_field": "value"}));
+        assert_eq!(extract_summary("Bash", &input), None);
+    }
+
+    #[test]
+    fn extract_summary_unknown_tool() {
+        let input = Some(json!({"command": "test"}));
+        assert_eq!(extract_summary("UnknownTool", &input), None);
+    }
+
+    #[test]
+    fn extract_summary_truncates_at_120_chars() {
+        let long_cmd = "a".repeat(200);
+        let input = Some(json!({"command": long_cmd}));
+        let result = extract_summary("Bash", &input).unwrap();
+        assert_eq!(result.len(), 120);
+    }
+}
