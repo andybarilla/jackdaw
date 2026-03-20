@@ -36,25 +36,28 @@ async fn handle_event(
 
     let mut sessions = state.sessions.lock().unwrap();
 
-    // Ensure session exists for any event (except Stop).
-    // This makes sessions visible even if we missed SessionStart.
-    // Mark as processing since any event means the session is active.
-    if event_name != "Stop" {
-        let session = sessions
+    // Ensure session exists for any event (except SessionEnd which removes it).
+    if event_name != "SessionEnd" {
+        sessions
             .entry(session_id.clone())
             .or_insert_with(|| Session::new(session_id.clone(), cwd.clone()));
-        session.processing = true;
     }
 
     match event_name.as_str() {
         "SessionStart" => {
-            // Session already created above via entry().or_insert_with()
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.processing = true;
+            }
         }
         "Stop" => {
-            // Clear processing before removing so tray counts are correct
+            // End of Claude's response turn — session goes idle, waiting for user input
             if let Some(session) = sessions.get_mut(&session_id) {
                 session.processing = false;
+                session.pending_approval = false;
             }
+        }
+        "SessionEnd" => {
+            // Session actually exiting — remove it
             sessions.remove(&session_id);
         }
         "PreToolUse" => {
@@ -72,6 +75,7 @@ async fn handle_event(
 
             if let Some(session) = sessions.get_mut(&session_id) {
                 session.pending_approval = false;
+                session.processing = true;
                 session.set_current_tool(tool_event);
             }
         }
@@ -100,7 +104,6 @@ async fn handle_event(
             }
         }
         "Notification" => {
-            // permission_prompt notification means session is waiting for user approval
             if let Some(session) = sessions.get_mut(&session_id) {
                 session.pending_approval = true;
             }
@@ -115,9 +118,7 @@ async fn handle_event(
                 session.active_subagents = session.active_subagents.saturating_sub(1);
             }
         }
-        _ => {
-            // Unknown event — still emit update since session was ensured above
-        }
+        _ => {}
     }
 
     // Emit updated session list to frontend, sorted newest first
