@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Jackdaw is a Tauri v2 + Svelte 5 desktop tray app that monitors Claude Code sessions in real-time. Claude Code sends hook events via HTTP POST to an Axum server running on `localhost:9876`, which updates in-memory session state and pushes changes to the Svelte frontend via Tauri events.
+Jackdaw is a Tauri v2 + Svelte 5 desktop tray app that monitors Claude Code sessions in real-time. Claude Code sends hook events via a `command`-type hook that invokes `jackdaw-send`, which forwards JSON payloads over a Unix domain socket (or Windows named pipe) to the Jackdaw daemon. The daemon updates in-memory session state and pushes changes to the Svelte frontend via Tauri events.
 
 ## Commands
 
@@ -37,19 +37,22 @@ cd src-tauri && cargo test  # Run backend tests
 ## Architecture
 
 ```
-Claude Code hooks → POST /events → Axum server (server.rs)
-  → AppState updated (state.rs, Arc<Mutex<HashMap<session_id, Session>>>)
+Claude Code hooks (command type) → runs `jackdaw-send`
+  → jackdaw-send reads stdin, connects to IPC socket, writes JSON + newline
+  → Daemon reads from socket, updates AppState (state.rs, Arc<Mutex<HashMap>>)
   → Tauri "session-update" event emitted → Svelte frontend re-renders
   → Tray icon updated (tray.rs: green=running, yellow=waiting, gray=idle)
 ```
 
 ### Backend (src-tauri/src/)
 
-- **lib.rs** — Tauri setup, spawns Axum server, defines 4 commands: `dismiss_session`, `check_hooks_status`, `install_hooks`, `uninstall_hooks`. Window close hides instead of quitting.
-- **server.rs** — Axum HTTP server on port 9876. Single `POST /events` endpoint handling 9 hook event types (SessionStart, PreToolUse, PostToolUse, Stop, SessionEnd, UserPromptSubmit, Notification, SubagentStart, SubagentStop).
+- **lib.rs** — Tauri setup, spawns IPC listener, defines 4 commands: `dismiss_session`, `check_hooks_status`, `install_hooks`, `uninstall_hooks`. Window close hides instead of quitting.
+- **server.rs** — IPC socket listener (Unix domain socket on Linux/macOS, named pipe on Windows). Accepts connections, reads NDJSON lines, handles 9 hook event types (SessionStart, PreToolUse, PostToolUse, Stop, SessionEnd, UserPromptSubmit, Notification, SubagentStart, SubagentStop).
+- **ipc.rs** — Platform-specific IPC socket path resolution. Unix: `~/.jackdaw/jackdaw.sock`. Windows: `\\.\pipe\jackdaw`. Handles socket dir creation and stale socket cleanup.
 - **state.rs** — `AppState`, `Session`, `ToolEvent`, `HookPayload` structs. `extract_summary()` pulls human-readable context from tool_input by tool type (Bash→command, Read/Write/Edit→file_path, Glob/Grep→pattern, Agent→description). Tool history capped at 50.
 - **tray.rs** — System tray with compile-time embedded icons. Menu handles hook install/uninstall directly.
-- **hooks.rs** — Reads/writes Claude Code `settings.json` (user-level `~/.claude/` or project-level `.claude/`). Atomic writes via temp file + rename.
+- **hooks.rs** — Reads/writes Claude Code `settings.json` (user-level `~/.claude/` or project-level `.claude/`). Installs `command`-type hooks pointing to `jackdaw-send`. Detects both new command-type and old HTTP-type hooks. Atomic writes via temp file + rename.
+- **bin/jackdaw-send.rs** — Thin CLI binary: reads JSON from stdin, connects to IPC socket, writes payload + newline. Used as Claude Code `command` hook and callable by other tools.
 
 ### Frontend (src/)
 
@@ -64,7 +67,7 @@ Claude Code hooks → POST /events → Axum server (server.rs)
 - **Thread safety**: Lock mutex → update state → drop lock → emit event.
 - **In-memory only**: No persistence. Sessions reset on restart.
 - **SPA mode**: SSR disabled (`+layout.ts`), static adapter builds to `build/`.
-- **Port 9876 is hardcoded** in `lib.rs` and in hook URLs written to settings.json.
+- **IPC socket at `~/.jackdaw/jackdaw.sock`** (Unix) or `\\.\pipe\jackdaw` (Windows). Stale socket removed on startup.
 - **Tray icons are embedded at compile time** — rebuild required after icon changes.
 
 ## Frontend-Backend Communication
@@ -73,4 +76,4 @@ Claude Code hooks → POST /events → Axum server (server.rs)
 
 **Events** (backend → frontend via `listen()`): `"session-update"` emits full `Session[]` sorted by `started_at` descending.
 
-**Webhooks** (Claude Code → backend): `POST http://localhost:9876/events` with `HookPayload` JSON containing `session_id`, `cwd`, `hook_event_name`, and optional `tool_name`/`tool_input`/`tool_use_id`/`agent_id`.
+**IPC** (Claude Code → backend): `command`-type hooks run `jackdaw-send`, which reads `HookPayload` JSON from stdin and sends it over the IPC socket. Payload contains `session_id`, `cwd`, `hook_event_name`, and optional `tool_name`/`tool_input`/`tool_use_id`/`agent_id`. Other tools can also pipe JSON to `jackdaw-send` or connect to the socket directly.
