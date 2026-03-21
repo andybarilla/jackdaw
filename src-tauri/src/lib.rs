@@ -1,3 +1,4 @@
+mod db;
 mod hooks;
 pub mod ipc;
 mod server;
