@@ -22,7 +22,7 @@
 
   async function switchTab(tab: 'active' | 'history') {
     activeTab = tab;
-    if (tab === 'history' && historySessions.length === 0) {
+    if (tab === 'history') {
       await loadHistory();
     }
   }

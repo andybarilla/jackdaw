@@ -138,16 +138,17 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                 }
             };
             let summary = extract_summary(&tool_name, &payload.tool_input);
+            let now = Utc::now();
             let tool_event = ToolEvent {
                 tool_name: tool_name.clone(),
-                timestamp: Utc::now(),
+                timestamp: now,
                 summary: summary.clone(),
                 tool_use_id: payload.tool_use_id.clone(),
             };
 
             db_tool_name = Some(tool_name);
             db_tool_summary = summary;
-            db_tool_timestamp = Some(Utc::now().to_rfc3339());
+            db_tool_timestamp = Some(now.to_rfc3339());
 
             if let Some(session) = sessions.get_mut(&session_id) {
                 session.pending_approval = false;
@@ -188,8 +189,21 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
 
     // DB persistence (best-effort, non-blocking)
 
-    // 1. Ensure session exists in DB (for any non-SessionEnd event)
-    if event_name != "SessionEnd" {
+    if let (Some(tn), Some(ts)) = (db_tool_name, db_tool_timestamp) {
+        // PostToolUse: save session + tool event in one blocking call to avoid FK race
+        if let Some(started_at) = session_started_at {
+            let sc = state.clone();
+            let sid = session_id.clone();
+            let cwd_clone = cwd.clone();
+            let sum = db_tool_summary;
+            tokio::task::spawn_blocking(move || {
+                let db = sc.db.lock().unwrap();
+                crate::db::save_session(&db, &sid, &cwd_clone, &started_at);
+                crate::db::save_tool_event(&db, &sid, &tn, sum.as_deref(), &ts);
+            });
+        }
+    } else if event_name != "SessionEnd" {
+        // Non-PostToolUse, non-SessionEnd: ensure session row exists
         if let Some(started_at) = session_started_at {
             let sc = state.clone();
             let sid = session_id.clone();
@@ -199,17 +213,6 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                 crate::db::save_session(&db, &sid, &cwd_clone, &started_at);
             });
         }
-    }
-
-    // 2. Save completed tool event (PostToolUse only)
-    if let (Some(tn), Some(ts)) = (db_tool_name, db_tool_timestamp) {
-        let sc = state.clone();
-        let sid = session_id.clone();
-        let sum = db_tool_summary;
-        tokio::task::spawn_blocking(move || {
-            let db = sc.db.lock().unwrap();
-            crate::db::save_tool_event(&db, &sid, &tn, sum.as_deref(), &ts);
-        });
     }
 
     // 3. End session in DB
