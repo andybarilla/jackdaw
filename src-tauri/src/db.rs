@@ -126,6 +126,29 @@ pub fn load_history(conn: &Connection, limit: u32, offset: u32) -> Vec<HistorySe
         .collect()
 }
 
+pub fn get_retention_days(conn: &Connection) -> u32 {
+    conn.query_row(
+        "SELECT value FROM config WHERE key = 'retention_days'",
+        [],
+        |r| {
+            let v: String = r.get(0)?;
+            Ok(v.parse::<u32>().unwrap_or(30))
+        },
+    )
+    .unwrap_or(30)
+}
+
+pub fn set_retention_days(conn: &Connection, days: u32) {
+    conn.execute(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('retention_days', ?1)",
+        rusqlite::params![days.to_string()],
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("Jackdaw: failed to set retention days: {}", e);
+        0
+    });
+}
+
 pub fn prune_old_sessions(conn: &Connection, retention_days: u32) {
     conn.execute(
         "DELETE FROM sessions WHERE ended_at IS NOT NULL
@@ -370,6 +393,19 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn get_retention_days_default() {
+        let conn = init_memory();
+        assert_eq!(get_retention_days(&conn), 30);
+    }
+
+    #[test]
+    fn set_and_get_retention_days() {
+        let conn = init_memory();
+        set_retention_days(&conn, 90);
+        assert_eq!(get_retention_days(&conn), 90);
     }
 
     #[test]
