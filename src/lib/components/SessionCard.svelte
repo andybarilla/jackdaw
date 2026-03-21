@@ -1,19 +1,23 @@
 <script lang="ts">
   import type { Session } from '$lib/types';
-  import { getUptime, getProjectName, shortenSessionId } from '$lib/utils';
+  import { getUptime, getProjectName, shortenSessionId, formatEndedAt } from '$lib/utils';
   import { slide } from 'svelte/transition';
 
   interface Props {
     session: Session;
     onDismiss: (sessionId: string) => void;
+    historyMode?: boolean;
+    endedAt?: string;
   }
 
-  let { session, onDismiss }: Props = $props();
+  let { session, onDismiss, historyMode = false, endedAt }: Props = $props();
 
   let expanded = $state(false);
   let isPending = $derived(session.pending_approval);
   let isActive = $derived(!isPending && (session.current_tool !== null || session.active_subagents > 0 || session.processing));
-  let uptime = $derived(getUptime(session.started_at));
+  let uptime = $derived(historyMode && endedAt
+    ? formatEndedAt(endedAt)
+    : getUptime(session.started_at));
   let recentHistory = $derived(session.tool_history.slice(-5).reverse());
 
   // Last completed tool for dimmed state between rapid tool calls
@@ -75,7 +79,9 @@
     <div class="expanded-section" transition:slide={{ duration: 150 }}>
       <div class="expanded-header">
         <span class="session-id">Session {shortenSessionId(session.session_id)}</span>
-        <button class="dismiss" onclick={() => onDismiss(session.session_id)}>Dismiss</button>
+        {#if !historyMode}
+          <button class="dismiss" onclick={() => onDismiss(session.session_id)}>Dismiss</button>
+        {/if}
       </div>
       {#if recentHistory.length > 0}
         <div class="history">
