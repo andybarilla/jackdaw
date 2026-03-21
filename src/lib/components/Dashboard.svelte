@@ -5,6 +5,11 @@
   import { sessionStore, initSessionListener } from '$lib/stores/sessions.svelte';
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import type { HistorySession } from '$lib/types';
+
+  let activeTab = $state<'active' | 'history'>('active');
+  let historySessions = $state<HistorySession[]>([]);
+  let historyLoading = $state(false);
 
   onMount(() => {
     const cleanup = initSessionListener();
@@ -14,20 +19,75 @@
   function handleDismiss(sessionId: string) {
     invoke('dismiss_session', { sessionId });
   }
+
+  async function switchTab(tab: 'active' | 'history') {
+    activeTab = tab;
+    if (tab === 'history' && historySessions.length === 0) {
+      await loadHistory();
+    }
+  }
+
+  async function loadHistory() {
+    historyLoading = true;
+    try {
+      historySessions = await invoke<HistorySession[]>('get_session_history', {
+        limit: 50,
+        offset: 0,
+      });
+    } catch (e) {
+      console.error('Failed to load history:', e);
+    } finally {
+      historyLoading = false;
+    }
+  }
 </script>
 
 <div class="dashboard">
   <Header sessionCount={sessionStore.count} runningCount={sessionStore.runningCount} />
 
+  <div class="tabs">
+    <button class="tab" class:active={activeTab === 'active'} onclick={() => switchTab('active')}>
+      Active{#if sessionStore.count > 0} ({sessionStore.count}){/if}
+    </button>
+    <button class="tab" class:active={activeTab === 'history'} onclick={() => switchTab('history')}>
+      History
+    </button>
+  </div>
+
   <div class="session-list">
-    {#if sessionStore.sessions.length === 0}
-      <div class="empty">
-        <HookSetup />
-      </div>
+    {#if activeTab === 'active'}
+      {#if sessionStore.sessions.length === 0}
+        <div class="empty">
+          <HookSetup />
+        </div>
+      {:else}
+        {#each sessionStore.sessions as session (session.session_id)}
+          <SessionCard {session} onDismiss={handleDismiss} />
+        {/each}
+      {/if}
     {:else}
-      {#each sessionStore.sessions as session (session.session_id)}
-        <SessionCard {session} onDismiss={handleDismiss} />
-      {/each}
+      {#if historyLoading}
+        <div class="empty"><span class="loading-text">Loading history...</span></div>
+      {:else if historySessions.length === 0}
+        <div class="empty"><span class="empty-text">No session history yet</span></div>
+      {:else}
+        {#each historySessions as session (session.session_id)}
+          <SessionCard session={{
+            session_id: session.session_id,
+            cwd: session.cwd,
+            started_at: session.started_at,
+            current_tool: null,
+            tool_history: session.tool_history.map(t => ({
+              tool_name: t.tool_name,
+              summary: t.summary,
+              timestamp: t.timestamp,
+            })),
+            active_subagents: 0,
+            pending_approval: false,
+            processing: false,
+          }} onDismiss={handleDismiss} historyMode={true} endedAt={session.ended_at} />
+        {/each}
+      {/if}
     {/if}
   </div>
 </div>
@@ -38,6 +98,39 @@
     flex-direction: column;
     height: 100vh;
     background: var(--bg);
+  }
+
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    padding: 0 12px;
+    gap: 0;
+  }
+
+  .tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 8px 16px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .tab:hover {
+    color: var(--text-secondary);
+  }
+
+  .tab.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--blue);
+  }
+
+  .loading-text,
+  .empty-text {
+    color: var(--text-muted);
+    font-size: 13px;
   }
 
   .session-list {
@@ -58,6 +151,4 @@
     text-align: center;
     padding: 40px;
   }
-
-
 </style>
