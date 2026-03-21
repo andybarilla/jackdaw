@@ -93,6 +93,7 @@ fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: &str) 
             if let Some(session) = sessions.get_mut(&session_id) {
                 session.processing = false;
                 session.pending_approval = false;
+                session.clear_current_tool();
             }
         }
         "SessionEnd" => {

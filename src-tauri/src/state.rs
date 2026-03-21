@@ -15,8 +15,6 @@ pub struct HookPayload {
     pub tool_input: Option<serde_json::Value>,
     #[serde(default)]
     pub tool_use_id: Option<String>,
-    #[serde(default)]
-    pub agent_id: Option<String>,
 }
 
 /// Internal session state
@@ -108,6 +106,12 @@ impl Session {
             _ => {
                 self.push_history(tool);
             }
+        }
+    }
+
+    pub fn clear_current_tool(&mut self) {
+        if let Some(tool) = self.current_tool.take() {
+            self.push_history(tool);
         }
     }
 
@@ -266,6 +270,24 @@ mod tests {
         s.complete_tool(Some("id-1"), make_tool("Bash", Some("id-1")));
         assert!(s.current_tool.is_none());
         assert_eq!(s.tool_history.len(), 1);
+    }
+
+    #[test]
+    fn clear_current_tool_moves_to_history() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.set_current_tool(make_tool("Bash", Some("id-1")));
+        s.clear_current_tool();
+        assert!(s.current_tool.is_none());
+        assert_eq!(s.tool_history.len(), 1);
+        assert_eq!(s.tool_history[0].tool_name, "Bash");
+    }
+
+    #[test]
+    fn clear_current_tool_noop_when_none() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.clear_current_tool();
+        assert!(s.current_tool.is_none());
+        assert!(s.tool_history.is_empty());
     }
 
     #[test]
