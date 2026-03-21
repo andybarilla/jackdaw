@@ -30,3 +30,7 @@ interprocess = { version = "2", features = ["tokio"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[[bin]]
+name = "jackdaw-send"
+path = "src/bin/jackdaw-send.rs"
