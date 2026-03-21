@@ -26,6 +26,11 @@ pub fn ensure_socket_dir() {
     }
 }
 
+/// Build a socket path in a given directory (for testing).
+pub fn socket_path_in(dir: &std::path::Path) -> String {
+    dir.join("jackdaw.sock").to_string_lossy().into_owned()
+}
+
 /// Remove stale socket file if it exists (Unix only).
 pub fn remove_stale_socket() {
     if !cfg!(windows) {
