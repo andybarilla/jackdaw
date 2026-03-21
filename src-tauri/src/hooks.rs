@@ -117,17 +117,7 @@ pub fn check_status(settings: &Value) -> HookStatus {
     } else if found_count > 0 {
         HookStatus::Outdated
     } else {
-        let has_old_jackdaw = HOOK_EVENTS.iter().any(|event_name| {
-            hooks.get(event_name)
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().any(|mg| is_jackdaw_matcher_group(mg)))
-                .unwrap_or(false)
-        });
-        if has_old_jackdaw {
-            HookStatus::Outdated
-        } else {
-            HookStatus::NotInstalled
-        }
+        HookStatus::NotInstalled
     }
 }
 
@@ -142,25 +132,15 @@ fn jackdaw_matcher_group() -> Value {
     })
 }
 
-/// Returns true if a matcher group contains a Jackdaw hook (command-type or old HTTP-type)
+/// Returns true if a matcher group contains a Jackdaw hook (command containing "jackdaw-send")
 fn is_jackdaw_matcher_group(mg: &Value) -> bool {
     mg.get("hooks")
         .and_then(|v| v.as_array())
         .map(|hooks| hooks.iter().any(|h| {
-            let hook_type = h.get("type").and_then(|t| t.as_str());
-            match hook_type {
-                Some("command") => {
-                    h.get("command").and_then(|c| c.as_str())
-                        .map(|cmd| cmd.contains("jackdaw-send"))
-                        .unwrap_or(false)
-                }
-                Some("http") => {
-                    h.get("url").and_then(|u| u.as_str())
-                        .map(|url| url.contains("localhost") && url.ends_with("/events"))
-                        .unwrap_or(false)
-                }
-                _ => false,
-            }
+            h.get("type").and_then(|t| t.as_str()) == Some("command")
+                && h.get("command").and_then(|c| c.as_str())
+                    .map(|cmd| cmd.contains("jackdaw-send"))
+                    .unwrap_or(false)
         }))
         .unwrap_or(false)
 }
@@ -251,25 +231,9 @@ mod tests {
     }
 
     #[test]
-    fn is_jackdaw_matcher_group_old_http_format() {
-        let mg = json!({
-            "hooks": [{"type": "http", "url": "http://localhost:9876/events", "timeout": 5}]
-        });
-        assert!(is_jackdaw_matcher_group(&mg));
-    }
-
-    #[test]
     fn is_jackdaw_matcher_group_non_jackdaw_command() {
         let mg = json!({
             "hooks": [{"type": "command", "command": "other-tool"}]
-        });
-        assert!(!is_jackdaw_matcher_group(&mg));
-    }
-
-    #[test]
-    fn is_jackdaw_matcher_group_non_jackdaw_url() {
-        let mg = json!({
-            "hooks": [{"type": "http", "url": "http://example.com/webhook"}]
         });
         assert!(!is_jackdaw_matcher_group(&mg));
     }
@@ -333,22 +297,6 @@ mod tests {
     }
 
     #[test]
-    fn check_status_old_http_hooks_detected_as_outdated() {
-        let url = "http://localhost:9876/events";
-        let events = ["SessionStart", "PreToolUse", "PostToolUse", "Stop",
-                       "SessionEnd", "UserPromptSubmit", "SubagentStart",
-                       "SubagentStop", "Notification"];
-        let mut hooks = serde_json::Map::new();
-        for event in events {
-            hooks.insert(event.into(), json!([{
-                "hooks": [{"type": "http", "url": url, "timeout": 5}]
-            }]));
-        }
-        let settings = json!({"hooks": hooks});
-        assert!(matches!(check_status(&settings), HookStatus::Outdated));
-    }
-
-    #[test]
     fn install_empty_settings() {
         let mut settings = json!({});
         install(&mut settings).unwrap();
@@ -370,23 +318,6 @@ mod tests {
         let pre_tool = settings["hooks"]["PreToolUse"].as_array().unwrap();
         assert_eq!(pre_tool.len(), 2);
         assert_eq!(pre_tool[0]["hooks"][0]["url"], "http://other-service.com/hook");
-    }
-
-    #[test]
-    fn install_replaces_old_http_hooks() {
-        let url = "http://localhost:9876/events";
-        let mut hooks_map = serde_json::Map::new();
-        for event in HOOK_EVENTS {
-            hooks_map.insert(event.to_string(), json!([{
-                "hooks": [{"type": "http", "url": url, "timeout": 5}]
-            }]));
-        }
-        let mut settings = json!({"hooks": hooks_map});
-        install(&mut settings).unwrap();
-        assert!(matches!(check_status(&settings), HookStatus::Installed));
-        let arr = settings["hooks"]["SessionStart"].as_array().unwrap();
-        assert_eq!(arr.len(), 1);
-        assert_eq!(arr[0]["hooks"][0]["type"], "command");
     }
 
     #[test]
@@ -412,19 +343,6 @@ mod tests {
         let pre_tool = settings["hooks"]["PreToolUse"].as_array().unwrap();
         assert_eq!(pre_tool.len(), 1);
         assert_eq!(pre_tool[0]["hooks"][0]["url"], "http://other.com/hook");
-    }
-
-    #[test]
-    fn uninstall_removes_old_http_hooks_too() {
-        let mut settings = json!({
-            "hooks": {
-                "PreToolUse": [
-                    {"hooks": [{"type": "http", "url": "http://localhost:9876/events", "timeout": 5}]}
-                ]
-            }
-        });
-        uninstall(&mut settings);
-        assert!(settings.get("hooks").is_none());
     }
 
     #[test]
