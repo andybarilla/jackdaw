@@ -126,6 +126,18 @@ pub fn load_history(conn: &Connection, limit: u32, offset: u32) -> Vec<HistorySe
         .collect()
 }
 
+pub fn prune_old_sessions(conn: &Connection, retention_days: u32) {
+    conn.execute(
+        "DELETE FROM sessions WHERE ended_at IS NOT NULL
+         AND ended_at < datetime('now', ?1)",
+        rusqlite::params![format!("-{} days", retention_days)],
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("Jackdaw: failed to prune sessions: {}", e);
+        0
+    });
+}
+
 fn setup_connection(conn: &Connection) {
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     conn.execute_batch(
@@ -321,6 +333,43 @@ mod tests {
         end_session(&conn, "s1", "2026-03-21T02:00:00Z");
         let history = load_history(&conn, 50, 0);
         assert_eq!(history[0].tool_history.len(), 50);
+    }
+
+    #[test]
+    fn prune_deletes_expired_sessions() {
+        let conn = init_memory();
+        save_session(&conn, "old", "/tmp", "2026-01-01T00:00:00Z");
+        end_session(&conn, "old", "2026-01-01T01:00:00Z");
+        save_session(&conn, "new", "/tmp", "2026-03-20T00:00:00Z");
+        end_session(&conn, "new", "2026-03-20T01:00:00Z");
+        prune_old_sessions(&conn, 30);
+        let history = load_history(&conn, 50, 0);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].session_id, "new");
+    }
+
+    #[test]
+    fn prune_cascades_to_tool_events() {
+        let conn = init_memory();
+        save_session(&conn, "old", "/tmp", "2026-01-01T00:00:00Z");
+        save_tool_event(&conn, "old", "Bash", Some("ls"), "2026-01-01T00:01:00Z");
+        end_session(&conn, "old", "2026-01-01T01:00:00Z");
+        prune_old_sessions(&conn, 30);
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tool_events", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn prune_does_not_delete_sessions_without_ended_at() {
+        let conn = init_memory();
+        save_session(&conn, "active", "/tmp", "2026-01-01T00:00:00Z");
+        prune_old_sessions(&conn, 30);
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]
