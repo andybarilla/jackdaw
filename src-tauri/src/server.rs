@@ -49,7 +49,7 @@ pub async fn start_server(app_handle: AppHandle, state: Arc<AppState>) {
                     use tokio::io::AsyncBufReadExt;
                     let mut lines = reader.lines();
                     while let Ok(Some(line)) = lines.next_line().await {
-                        handle_event(&app_handle, &state, &line);
+                        handle_event(&app_handle, &state, &line).await;
                     }
                 });
             }
@@ -60,7 +60,7 @@ pub async fn start_server(app_handle: AppHandle, state: Arc<AppState>) {
     }
 }
 
-fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: &str) {
+async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: &str) {
     let payload: HookPayload = match serde_json::from_str(json_line) {
         Ok(p) => p,
         Err(e) => {
@@ -81,6 +81,13 @@ fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: &str) 
             .entry(session_id.clone())
             .or_insert_with(|| Session::new(session_id.clone(), cwd.clone()));
     }
+
+    let session_started_at = sessions.get(&session_id).map(|s| s.started_at.to_rfc3339());
+
+    // Option variables for PostToolUse DB persistence; set inside the arm below.
+    let mut db_tool_name: Option<String> = None;
+    let mut db_tool_summary: Option<String> = None;
+    let mut db_tool_timestamp: Option<String> = None;
 
     match event_name.as_str() {
         "SessionStart" => {
@@ -132,11 +139,15 @@ fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: &str) 
             };
             let summary = extract_summary(&tool_name, &payload.tool_input);
             let tool_event = ToolEvent {
-                tool_name,
+                tool_name: tool_name.clone(),
                 timestamp: Utc::now(),
-                summary,
+                summary: summary.clone(),
                 tool_use_id: payload.tool_use_id.clone(),
             };
+
+            db_tool_name = Some(tool_name);
+            db_tool_summary = summary;
+            db_tool_timestamp = Some(Utc::now().to_rfc3339());
 
             if let Some(session) = sessions.get_mut(&session_id) {
                 session.pending_approval = false;
@@ -174,4 +185,59 @@ fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: &str) 
 
     let _ = app_handle.emit("session-update", &session_list);
     crate::tray::update_tray(app_handle, &session_list);
+
+    // DB persistence (best-effort, non-blocking)
+
+    // 1. Ensure session exists in DB (for any non-SessionEnd event)
+    if event_name != "SessionEnd" {
+        if let Some(started_at) = session_started_at {
+            let sc = state.clone();
+            let sid = session_id.clone();
+            let cwd_clone = cwd.clone();
+            tokio::task::spawn_blocking(move || {
+                let db = sc.db.lock().unwrap();
+                crate::db::save_session(&db, &sid, &cwd_clone, &started_at);
+            });
+        }
+    }
+
+    // 2. Save completed tool event (PostToolUse only)
+    if let (Some(tn), Some(ts)) = (db_tool_name, db_tool_timestamp) {
+        let sc = state.clone();
+        let sid = session_id.clone();
+        let sum = db_tool_summary;
+        tokio::task::spawn_blocking(move || {
+            let db = sc.db.lock().unwrap();
+            crate::db::save_tool_event(&db, &sid, &tn, sum.as_deref(), &ts);
+        });
+    }
+
+    // 3. End session in DB
+    if event_name == "SessionEnd" {
+        let sc = state.clone();
+        let sid = session_id.clone();
+        tokio::task::spawn_blocking(move || {
+            let db = sc.db.lock().unwrap();
+            crate::db::end_session(&db, &sid, &chrono::Utc::now().to_rfc3339());
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db;
+
+    #[test]
+    fn db_persistence_roundtrip() {
+        let conn = db::init_memory();
+        db::save_session(&conn, "s1", "/tmp", "2026-03-21T00:00:00Z");
+        db::save_tool_event(&conn, "s1", "Bash", Some("ls"), "2026-03-21T00:01:00Z");
+        db::end_session(&conn, "s1", "2026-03-21T01:00:00Z");
+
+        let history = db::load_history(&conn, 50, 0);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].session_id, "s1");
+        assert_eq!(history[0].tool_history.len(), 1);
+        assert_eq!(history[0].tool_history[0].tool_name, "Bash");
+    }
 }
