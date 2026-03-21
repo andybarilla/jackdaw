@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-/// Incoming hook payload from Claude Code (via POST /events)
+/// Incoming hook payload from Claude Code (via IPC socket)
 #[derive(Debug, Deserialize)]
 pub struct HookPayload {
     pub session_id: String,
@@ -44,14 +44,12 @@ pub struct ToolEvent {
 /// Shared app state wrapped in Mutex for thread safety
 pub struct AppState {
     pub sessions: Mutex<HashMap<String, Session>>,
-    pub port: u16,
 }
 
 impl AppState {
-    pub fn new(port: u16) -> Self {
+    pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
-            port,
         }
     }
 }

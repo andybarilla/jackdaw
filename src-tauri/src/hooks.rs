@@ -19,9 +19,18 @@ pub enum HookStatus {
     Outdated,
 }
 
-/// The URL pattern we use to identify Jackdaw hooks
-fn jackdaw_hook_url(port: u16) -> String {
-    format!("http://localhost:{}/events", port)
+/// Resolve the path to the jackdaw-send binary.
+/// Looks for it as a sibling of the current executable first, then falls back to PATH.
+pub fn jackdaw_send_command() -> String {
+    if let Ok(exe) = std::env::current_exe() {
+        let sibling = exe.parent().map(|p| p.join("jackdaw-send"));
+        if let Some(path) = sibling {
+            if path.exists() {
+                return path.to_string_lossy().into_owned();
+            }
+        }
+    }
+    "jackdaw-send".to_string()
 }
 
 /// Events we install hooks for
@@ -74,13 +83,13 @@ pub fn write_settings(path: &PathBuf, settings: &Value) -> Result<(), String> {
 }
 
 /// Check whether Jackdaw hooks are installed in the given settings
-pub fn check_status(settings: &Value, port: u16) -> HookStatus {
+pub fn check_status(settings: &Value) -> HookStatus {
     let hooks = match settings.get("hooks") {
         Some(h) if h.is_object() => h,
         _ => return HookStatus::NotInstalled,
     };
 
-    let expected_url = jackdaw_hook_url(port);
+    let expected_cmd = jackdaw_send_command();
     let mut found_count = 0;
 
     for event_name in HOOK_EVENTS {
@@ -88,8 +97,10 @@ pub fn check_status(settings: &Value, port: u16) -> HookStatus {
             let has_jackdaw_hook = event_array.iter().any(|matcher_group| {
                 if let Some(hook_list) = matcher_group.get("hooks").and_then(|v| v.as_array()) {
                     hook_list.iter().any(|hook| {
-                        hook.get("type").and_then(|t| t.as_str()) == Some("http")
-                            && hook.get("url").and_then(|u| u.as_str()) == Some(&expected_url)
+                        hook.get("type").and_then(|t| t.as_str()) == Some("command")
+                            && hook.get("command").and_then(|c| c.as_str())
+                                .map(|cmd| cmd == expected_cmd)
+                                .unwrap_or(false)
                     })
                 } else {
                     false
@@ -106,21 +117,10 @@ pub fn check_status(settings: &Value, port: u16) -> HookStatus {
     } else if found_count > 0 {
         HookStatus::Outdated
     } else {
-        // Check if there are hooks with a different port (localhost:*/events pattern)
         let has_old_jackdaw = HOOK_EVENTS.iter().any(|event_name| {
             hooks.get(event_name)
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().any(|mg| {
-                    mg.get("hooks")
-                        .and_then(|v| v.as_array())
-                        .map(|hooks| hooks.iter().any(|h| {
-                            h.get("type").and_then(|t| t.as_str()) == Some("http")
-                                && h.get("url").and_then(|u| u.as_str())
-                                    .map(|url| url.contains("localhost") && url.ends_with("/events"))
-                                    .unwrap_or(false)
-                        }))
-                        .unwrap_or(false)
-                }))
+                .map(|arr| arr.iter().any(|mg| is_jackdaw_matcher_group(mg)))
                 .unwrap_or(false)
         });
         if has_old_jackdaw {
@@ -132,32 +132,42 @@ pub fn check_status(settings: &Value, port: u16) -> HookStatus {
 }
 
 /// Build the Jackdaw hook entry for a single event
-fn jackdaw_matcher_group(port: u16) -> Value {
+fn jackdaw_matcher_group() -> Value {
     serde_json::json!({
         "hooks": [{
-            "type": "http",
-            "url": jackdaw_hook_url(port),
+            "type": "command",
+            "command": jackdaw_send_command(),
             "timeout": 5
         }]
     })
 }
 
-/// Returns true if a matcher group contains a Jackdaw hook (any localhost:*/events URL)
+/// Returns true if a matcher group contains a Jackdaw hook (command-type or old HTTP-type)
 fn is_jackdaw_matcher_group(mg: &Value) -> bool {
     mg.get("hooks")
         .and_then(|v| v.as_array())
         .map(|hooks| hooks.iter().any(|h| {
-            h.get("type").and_then(|t| t.as_str()) == Some("http")
-                && h.get("url").and_then(|u| u.as_str())
-                    .map(|url| url.contains("localhost") && url.ends_with("/events"))
-                    .unwrap_or(false)
+            let hook_type = h.get("type").and_then(|t| t.as_str());
+            match hook_type {
+                Some("command") => {
+                    h.get("command").and_then(|c| c.as_str())
+                        .map(|cmd| cmd.contains("jackdaw-send"))
+                        .unwrap_or(false)
+                }
+                Some("http") => {
+                    h.get("url").and_then(|u| u.as_str())
+                        .map(|url| url.contains("localhost") && url.ends_with("/events"))
+                        .unwrap_or(false)
+                }
+                _ => false,
+            }
         }))
         .unwrap_or(false)
 }
 
 /// Install or update Jackdaw hooks in a settings Value.
 /// Preserves all existing non-Jackdaw hooks.
-pub fn install(settings: &mut Value, port: u16) -> Result<(), String> {
+pub fn install(settings: &mut Value) -> Result<(), String> {
     let settings_obj = settings
         .as_object_mut()
         .ok_or("Settings file root is not a JSON object")?;
@@ -181,7 +191,7 @@ pub fn install(settings: &mut Value, port: u16) -> Result<(), String> {
         arr.retain(|mg| !is_jackdaw_matcher_group(mg));
 
         // Append the new one
-        arr.push(jackdaw_matcher_group(port));
+        arr.push(jackdaw_matcher_group());
     }
 
     Ok(())

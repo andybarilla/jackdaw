@@ -24,22 +24,20 @@ fn dismiss_session(session_id: String, state: tauri::State<'_, Arc<AppState>>, a
 fn check_hooks_status(
     scope: hooks::HookScope,
     cwd: Option<String>,
-    state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<hooks::HookStatus, String> {
     let path = hooks::get_settings_path(&scope, cwd.as_deref())?;
     let settings = hooks::read_settings(&path)?;
-    Ok(hooks::check_status(&settings, state.port))
+    Ok(hooks::check_status(&settings))
 }
 
 #[tauri::command]
 fn install_hooks(
     scope: hooks::HookScope,
     cwd: Option<String>,
-    state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<String, String> {
     let path = hooks::get_settings_path(&scope, cwd.as_deref())?;
     let mut settings = hooks::read_settings(&path)?;
-    hooks::install(&mut settings, state.port)?;
+    hooks::install(&mut settings)?;
     hooks::write_settings(&path, &settings)?;
     Ok(format!("Hooks installed to {}", path.display()))
 }
@@ -58,7 +56,7 @@ fn uninstall_hooks(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app_state = Arc::new(AppState::new(9876));
+    let app_state = Arc::new(AppState::new());
 
     tauri::Builder::default()
         .manage(app_state.clone())

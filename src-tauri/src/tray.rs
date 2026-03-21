@@ -44,13 +44,11 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
             }
             "install_hooks_user" => {
-                let state = app.state::<std::sync::Arc<crate::state::AppState>>();
-                let port = state.port;
                 match crate::hooks::get_settings_path(&crate::hooks::HookScope::User, None) {
                     Ok(path) => {
                         match crate::hooks::read_settings(&path) {
                             Ok(mut settings) => {
-                                if let Err(e) = crate::hooks::install(&mut settings, port) {
+                                if let Err(e) = crate::hooks::install(&mut settings) {
                                     eprintln!("Jackdaw: failed to install hooks: {}", e);
                                     return;
                                 }
