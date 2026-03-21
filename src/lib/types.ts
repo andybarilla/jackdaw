@@ -17,3 +17,17 @@ export interface Session {
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';
 export type HookScope = 'user' | 'project';
+
+export interface HistoryToolEvent {
+  tool_name: string;
+  summary: string | null;
+  timestamp: string;
+}
+
+export interface HistorySession {
+  session_id: string;
+  cwd: string;
+  started_at: string;
+  ended_at: string;
+  tool_history: HistoryToolEvent[];
+}
