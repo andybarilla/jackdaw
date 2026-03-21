@@ -45,6 +45,17 @@ pub fn save_tool_event(
     });
 }
 
+pub fn end_session(conn: &Connection, session_id: &str, ended_at: &str) {
+    conn.execute(
+        "UPDATE sessions SET ended_at = ?1 WHERE session_id = ?2",
+        rusqlite::params![ended_at, session_id],
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("Jackdaw: failed to end session: {}", e);
+        0
+    });
+}
+
 fn setup_connection(conn: &Connection) {
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     conn.execute_batch(
@@ -165,5 +176,26 @@ mod tests {
             )
             .unwrap();
         assert!(summary.is_none());
+    }
+
+    #[test]
+    fn end_session_sets_ended_at() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/tmp", "2026-03-21T00:00:00Z");
+        end_session(&conn, "s1", "2026-03-21T01:00:00Z");
+        let ended: String = conn
+            .query_row(
+                "SELECT ended_at FROM sessions WHERE session_id = 's1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(ended, "2026-03-21T01:00:00Z");
+    }
+
+    #[test]
+    fn end_session_noop_for_unknown_id() {
+        let conn = init_memory();
+        end_session(&conn, "nonexistent", "2026-03-21T01:00:00Z");
     }
 }
