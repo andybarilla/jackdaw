@@ -1,4 +1,5 @@
 mod hooks;
+pub mod ipc;
 mod server;
 mod state;
 mod tray;
