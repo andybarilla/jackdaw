@@ -25,3 +25,16 @@ export function shortenPath(path: string): string {
 export function shortenSessionId(id: string): string {
   return id.length > 8 ? id.substring(0, 8) : id;
 }
+
+/** Format an ended_at timestamp as a relative time like "just now", "3h ago", "2d ago", or a date */
+export function formatEndedAt(isoDate: string): string {
+  const d = new Date(isoDate);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffH = Math.floor(diffMs / 3600000);
+  if (diffH < 1) return 'just now';
+  if (diffH < 24) return `${diffH}h ago`;
+  const diffD = Math.floor(diffH / 24);
+  if (diffD < 7) return `${diffD}d ago`;
+  return d.toLocaleDateString();
+}

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { getUptime, getProjectName, shortenPath, shortenSessionId } from './utils';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { getUptime, getProjectName, shortenPath, shortenSessionId, formatEndedAt } from './utils';
 
 describe('getProjectName', () => {
   it('returns last path segment', () => {
@@ -52,6 +52,34 @@ describe('shortenSessionId', () => {
 
   it('leaves exactly 8-char IDs unchanged', () => {
     expect(shortenSessionId('abcdefgh')).toBe('abcdefgh');
+  });
+});
+
+describe('formatEndedAt', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-21T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns "just now" for less than 1 hour ago', () => {
+    expect(formatEndedAt('2026-03-21T11:30:00Z')).toBe('just now');
+  });
+
+  it('returns hours ago', () => {
+    expect(formatEndedAt('2026-03-21T09:00:00Z')).toBe('3h ago');
+  });
+
+  it('returns days ago', () => {
+    expect(formatEndedAt('2026-03-19T12:00:00Z')).toBe('2d ago');
+  });
+
+  it('returns date for older than a week', () => {
+    const result = formatEndedAt('2026-03-01T12:00:00Z');
+    expect(result).toMatch(/3\/1\/2026|1\/3\/2026|2026/);
   });
 });
 
