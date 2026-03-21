@@ -9,6 +9,13 @@ export function getUptime(startedAt: string): string {
   return `${hours}h ${mins % 60}m ago`;
 }
 
+/** Extract last directory segment from a path (handles both Unix and Windows separators) */
+export function getProjectName(path: string): string {
+  const trimmed = path.replace(/[/\\]+$/, '');
+  if (!trimmed) return '/';
+  return trimmed.split(/[/\\]/).pop()!;
+}
+
 /** Replace /home/<user>/ prefix with ~ */
 export function shortenPath(path: string): string {
   return path.replace(/^\/home\/[^/]+/, '~');

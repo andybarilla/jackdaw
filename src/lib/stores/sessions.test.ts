@@ -55,4 +55,11 @@ describe('SessionStore', () => {
     sessionStore.sessions = [makeSession({ pending_approval: true })];
     expect(sessionStore.runningCount).toBe(0);
   });
+
+  it('runningCount excludes pending sessions with current_tool', () => {
+    sessionStore.sessions = [
+      makeSession({ pending_approval: true, current_tool: { tool_name: 'Bash', timestamp: '', summary: null } }),
+    ];
+    expect(sessionStore.runningCount).toBe(0);
+  });
 });

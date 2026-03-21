@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Session } from '$lib/types';
-  import { getUptime, shortenPath, shortenSessionId } from '$lib/utils';
+  import { getUptime, getProjectName, shortenSessionId } from '$lib/utils';
+  import { slide } from 'svelte/transition';
 
   interface Props {
     session: Session;
@@ -9,61 +10,86 @@
 
   let { session, onDismiss }: Props = $props();
 
+  let expanded = $state(false);
   let isPending = $derived(session.pending_approval);
-  let isRunning = $derived(!isPending && (session.current_tool !== null || session.active_subagents > 0 || session.processing));
+  let isActive = $derived(!isPending && (session.current_tool !== null || session.active_subagents > 0 || session.processing));
   let uptime = $derived(getUptime(session.started_at));
   let recentHistory = $derived(session.tool_history.slice(-5).reverse());
+
+  // Last completed tool for dimmed state between rapid tool calls
+  let lastTool = $derived(session.tool_history.length > 0 ? session.tool_history[session.tool_history.length - 1] : null);
+
+  function toggleExpand() {
+    expanded = !expanded;
+  }
 </script>
 
-<div class="card">
-  <div class="card-header">
-    <div class="card-info">
-      <div class="card-title">
-        <span class="status-dot" class:running={isRunning} class:pending={isPending}></span>
-        <span class="project-dir">{shortenPath(session.cwd)}</span>
-      </div>
-      <span class="meta">Session {shortenSessionId(session.session_id)} · started {uptime}</span>
+<div class="card" class:expanded>
+  <!-- Header row: always visible, clickable -->
+  <div class="row-header" onclick={toggleExpand} role="button" tabindex="0" onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggleExpand())}>
+    <div class="row-left">
+      <span class="status-dot" class:running={isActive} class:pending={isPending}></span>
+      <span class="project-name">{getProjectName(session.cwd)}</span>
+      {#if !isActive && !isPending}
+        <span class="idle-text">idle</span>
+      {/if}
+      {#if session.active_subagents > 0}
+        <span class="subagent-count">· {session.active_subagents} agent{session.active_subagents === 1 ? '' : 's'}</span>
+      {/if}
     </div>
-    <div class="card-actions">
-      <span class="badge" class:running={isRunning} class:pending={isPending}>
-        {#if isPending}
-          🔒 Approval
-        {:else if isRunning}
-          ⚡ Running
-        {:else}
-          ⏸ Waiting
-        {/if}
-      </span>
-      <button class="dismiss" onclick={() => onDismiss(session.session_id)} title="Dismiss session">×</button>
+    <div class="row-right">
+      <span class="uptime">{uptime}</span>
+      <span class="chevron">{expanded ? '▼' : '▶'}</span>
     </div>
   </div>
 
-  {#if session.current_tool}
-    <div class="current-tool">
-      <span class="tool-name">▶ {session.current_tool.tool_name}</span>
-      {#if session.current_tool.summary}
-        <span class="tool-summary">{session.current_tool.summary}</span>
+  <!-- Tool row: visible when active -->
+  {#if isActive}
+    <div class="tool-row">
+      {#if session.current_tool}
+        <div class="tool-display active">
+          <span class="tool-icon">▶</span>
+          <span class="tool-name">{session.current_tool.tool_name}</span>
+          {#if session.current_tool.summary}
+            <span class="tool-summary">{session.current_tool.summary}</span>
+          {/if}
+        </div>
+      {:else if lastTool}
+        <div class="tool-display dimmed">
+          <span class="tool-icon">✓</span>
+          <span class="tool-name">{lastTool.tool_name}</span>
+          {#if lastTool.summary}
+            <span class="tool-summary">{lastTool.summary}</span>
+          {/if}
+        </div>
+      {:else}
+        <div class="tool-display dimmed">
+          <span class="tool-summary">processing...</span>
+        </div>
       {/if}
     </div>
   {/if}
 
-  {#if session.active_subagents > 0}
-    <div class="subagents">
-      {session.active_subagents} subagent{session.active_subagents === 1 ? '' : 's'} running
-    </div>
-  {/if}
-
-  {#if recentHistory.length > 0}
-    <div class="history">
-      {#each recentHistory as tool}
-        <div class="history-item">
-          <span class="done-mark">✓</span>
-          <span class="tool-name-small">{tool.tool_name}</span>
-          {#if tool.summary}
-            <span class="tool-summary-small">{tool.summary}</span>
-          {/if}
+  <!-- Expanded section: toggle on click -->
+  {#if expanded}
+    <div class="expanded-section" transition:slide={{ duration: 150 }}>
+      <div class="expanded-header">
+        <span class="session-id">Session {shortenSessionId(session.session_id)}</span>
+        <button class="dismiss" onclick={() => onDismiss(session.session_id)}>Dismiss</button>
+      </div>
+      {#if recentHistory.length > 0}
+        <div class="history">
+          {#each recentHistory as tool}
+            <div class="history-item">
+              <span class="done-mark">✓</span>
+              <span class="history-tool-name">{tool.tool_name}</span>
+              {#if tool.summary}
+                <span class="history-summary">{tool.summary}</span>
+              {/if}
+            </div>
+          {/each}
         </div>
-      {/each}
+      {/if}
     </div>
   {/if}
 </div>
@@ -73,21 +99,33 @@
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 16px;
   }
 
-  .card-header {
+  .card.expanded {
+    border-color: var(--blue);
+  }
+
+  .row-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 12px;
+    align-items: center;
+    padding: 10px 14px;
+    cursor: pointer;
+    user-select: none;
   }
 
-  .card-title {
+  .row-left {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 4px;
+    min-width: 0;
+  }
+
+  .row-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
   }
 
   .status-dot {
@@ -95,6 +133,7 @@
     height: 8px;
     border-radius: 50%;
     background: var(--yellow);
+    flex-shrink: 0;
   }
 
   .status-dot.pending {
@@ -107,82 +146,68 @@
     animation: pulse 2s infinite;
   }
 
-  .project-dir {
+  .project-name {
     font-weight: 600;
-    font-size: 14px;
+    font-size: 13px;
     color: var(--text-primary);
   }
 
-  .meta {
-    font-size: 12px;
+  .idle-text {
+    font-size: 11px;
     color: var(--text-muted);
   }
 
-  .card-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .badge {
-    font-size: 12px;
-    font-weight: 500;
-    padding: 4px 10px;
-    border-radius: 4px;
-    background: var(--badge-waiting-bg);
-    border: 1px solid var(--badge-waiting-border);
-    color: var(--yellow);
-  }
-
-  .badge.pending {
-    background: #1c2438;
-    border-color: #1f3a5f;
-    color: var(--blue);
-  }
-
-  .badge.running {
-    background: var(--badge-running-bg);
-    border-color: var(--badge-running-border);
-    color: var(--green);
-  }
-
-  .dismiss {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 16px;
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
-
-  .dismiss:hover {
-    background: var(--border);
-    color: var(--text-primary);
-  }
-
-  .subagents {
+  .subagent-count {
     font-size: 11px;
     color: var(--blue);
-    padding: 4px 0;
-    margin-bottom: 6px;
   }
 
-  .current-tool {
+  .uptime {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .chevron {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  /* Tool row */
+  .tool-row {
+    padding: 0 14px 10px;
+  }
+
+  .tool-display {
     background: var(--tool-bg);
     border: 1px solid var(--tool-border);
     border-radius: 6px;
-    padding: 10px 12px;
-    margin-bottom: 10px;
+    padding: 8px 10px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .tool-display.dimmed {
+    background: var(--card-bg);
+    border-color: var(--border);
+    opacity: 0.5;
+  }
+
+  .tool-icon {
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .tool-display.active .tool-icon,
+  .tool-display.active .tool-name {
+    color: var(--blue);
   }
 
   .tool-name {
     font-size: 12px;
     font-weight: 600;
-    color: var(--blue);
+    flex-shrink: 0;
   }
 
   .tool-summary {
@@ -191,6 +216,49 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .tool-display.dimmed .tool-name,
+  .tool-display.dimmed .tool-icon {
+    color: var(--text-muted);
+  }
+
+  .tool-display.dimmed .tool-summary {
+    color: var(--text-muted);
+  }
+
+  /* Expanded section */
+  .expanded-section {
+    border-top: 1px solid var(--border);
+    margin: 0 14px;
+    padding: 10px 0 12px;
+  }
+
+  .expanded-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .session-id {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .dismiss {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  .dismiss:hover {
+    background: var(--border);
+    color: var(--text-primary);
   }
 
   .history {
@@ -203,21 +271,23 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    overflow: hidden;
   }
 
   .done-mark {
     color: var(--text-muted);
   }
 
-  .tool-name-small {
+  .history-tool-name {
     color: var(--text-secondary);
   }
 
-  .tool-summary-small {
+  .history-summary {
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
   }
 
   @keyframes pulse {

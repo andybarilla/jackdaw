@@ -1,5 +1,27 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { getUptime, shortenPath, shortenSessionId } from './utils';
+import { getUptime, getProjectName, shortenPath, shortenSessionId } from './utils';
+
+describe('getProjectName', () => {
+  it('returns last path segment', () => {
+    expect(getProjectName('/home/andy/projects/api-server')).toBe('api-server');
+  });
+
+  it('handles trailing slash', () => {
+    expect(getProjectName('/home/andy/projects/foo/')).toBe('foo');
+  });
+
+  it('returns root for root path', () => {
+    expect(getProjectName('/')).toBe('/');
+  });
+
+  it('handles Windows-style paths', () => {
+    expect(getProjectName('C:\\Users\\andy\\projects\\api-server')).toBe('api-server');
+  });
+
+  it('returns / for empty string', () => {
+    expect(getProjectName('')).toBe('/');
+  });
+});
 
 describe('shortenPath', () => {
   it('replaces /home/<user>/ with ~', () => {

@@ -9,7 +9,7 @@ class SessionStore {
   }
 
   get runningCount(): number {
-    return this.sessions.filter(s => s.current_tool !== null || s.active_subagents > 0 || s.processing).length;
+    return this.sessions.filter(s => !s.pending_approval && (s.current_tool !== null || s.active_subagents > 0 || s.processing)).length;
   }
 }
 

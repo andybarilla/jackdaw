@@ -46,7 +46,7 @@
     padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 6px;
   }
 
   .empty {
