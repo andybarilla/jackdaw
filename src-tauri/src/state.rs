@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -42,12 +43,14 @@ pub struct ToolEvent {
 /// Shared app state wrapped in Mutex for thread safety
 pub struct AppState {
     pub sessions: Mutex<HashMap<String, Session>>,
+    pub db: Mutex<Connection>,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(db: Connection) -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            db: Mutex::new(db),
         }
     }
 }

@@ -57,7 +57,18 @@ fn uninstall_hooks(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app_state = Arc::new(AppState::new());
+    let db_path = {
+        let home = dirs::home_dir().expect("could not determine home directory");
+        home.join(".jackdaw").join("jackdaw.db")
+    };
+    let db_conn = db::init(&db_path);
+
+    {
+        let retention = db::get_retention_days(&db_conn);
+        db::prune_old_sessions(&db_conn, retention);
+    }
+
+    let app_state = Arc::new(AppState::new(db_conn));
 
     tauri::Builder::default()
         .manage(app_state.clone())
