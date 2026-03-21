@@ -35,7 +35,9 @@ npm run tauri dev
 
 ### Connect Claude Code
 
-Jackdaw needs Claude Code to send hook events to `http://localhost:9876/events`. You can set this up automatically:
+Jackdaw uses Claude Code's `command`-type hooks. A small CLI binary (`jackdaw-send`) receives hook payloads on stdin and forwards them to Jackdaw's daemon over a Unix socket (or Windows named pipe).
+
+You can set this up automatically:
 
 1. Open Jackdaw (it starts in the tray)
 2. Click the tray icon to show the dashboard
@@ -47,22 +49,37 @@ Once installed, any new Claude Code session will appear in the dashboard automat
 
 ### Manual Hook Setup
 
-If you prefer to configure hooks manually, add this to your `~/.claude/settings.json`:
+If you prefer to configure hooks manually, add this to your `~/.claude/settings.json` (replace `/path/to/jackdaw-send` with the actual path):
 
 ```json
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "http", "url": "http://localhost:9876/events", "timeout": 5 }] }
+      { "hooks": [{ "type": "command", "command": "/path/to/jackdaw-send", "timeout": 5 }] }
     ],
     "PreToolUse": [
-      { "hooks": [{ "type": "http", "url": "http://localhost:9876/events", "timeout": 5 }] }
+      { "hooks": [{ "type": "command", "command": "/path/to/jackdaw-send", "timeout": 5 }] }
     ],
     "PostToolUse": [
-      { "hooks": [{ "type": "http", "url": "http://localhost:9876/events", "timeout": 5 }] }
+      { "hooks": [{ "type": "command", "command": "/path/to/jackdaw-send", "timeout": 5 }] }
     ],
     "Stop": [
-      { "hooks": [{ "type": "http", "url": "http://localhost:9876/events", "timeout": 5 }] }
+      { "hooks": [{ "type": "command", "command": "/path/to/jackdaw-send", "timeout": 5 }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "/path/to/jackdaw-send", "timeout": 5 }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "/path/to/jackdaw-send", "timeout": 5 }] }
+    ],
+    "SubagentStart": [
+      { "hooks": [{ "type": "command", "command": "/path/to/jackdaw-send", "timeout": 5 }] }
+    ],
+    "SubagentStop": [
+      { "hooks": [{ "type": "command", "command": "/path/to/jackdaw-send", "timeout": 5 }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "/path/to/jackdaw-send", "timeout": 5 }] }
     ]
   }
 }
@@ -70,18 +87,28 @@ If you prefer to configure hooks manually, add this to your `~/.claude/settings.
 
 The hooks use a 5-second timeout and are non-blocking — if Jackdaw isn't running, Claude Code continues normally.
 
+### Integration with Other Tools
+
+Any tool can send events to Jackdaw by piping JSON to `jackdaw-send`:
+
+```bash
+echo '{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}' | jackdaw-send
+```
+
+Or by connecting directly to the Unix socket at `~/.jackdaw/jackdaw.sock` (or named pipe `\\.\pipe\jackdaw` on Windows).
+
 ## Tech Stack
 
 - **Frontend:** Svelte 5 (runes), SvelteKit, TypeScript
-- **Backend:** Rust, Tauri v2, Axum (HTTP server), Tokio
+- **Backend:** Rust, Tauri v2, Tokio, interprocess (IPC)
 - **Desktop:** System tray with dynamic icons, window management
 
 ## Architecture
 
 ```
-Claude Code Hook Events
-    → POST http://localhost:9876/events
-    → Axum HTTP Server (server.rs)
+Claude Code Hook Events (command type)
+    → runs jackdaw-send (reads stdin, connects to IPC socket)
+    → Daemon reads from socket (server.rs)
     → AppState updated (state.rs)
     → Tauri event emitted + tray icon updated
     → Svelte frontend re-renders
