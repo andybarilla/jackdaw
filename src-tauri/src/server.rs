@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::state::{extract_summary, AppState, HookPayload, Session, ToolEvent};
 use chrono::Utc;
@@ -186,6 +186,36 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
 
     let _ = app_handle.emit("session-update", &session_list);
     crate::tray::update_tray(app_handle, &session_list);
+
+    // Fire desktop notification if appropriate
+    {
+        use tauri_plugin_notification::NotificationExt;
+        use tauri_plugin_store::StoreExt;
+
+        let is_focused = app_handle
+            .get_webview_window("main")
+            .and_then(|w| w.is_focused().ok())
+            .unwrap_or(false);
+
+        let prefs = app_handle
+            .store("settings.json")
+            .ok()
+            .and_then(|store| {
+                store.get("notifications").and_then(|v| {
+                    serde_json::from_value::<crate::notify::NotificationPrefs>(v).ok()
+                })
+            })
+            .unwrap_or_default();
+
+        if crate::notify::should_notify(&event_name, is_focused, &prefs) {
+            if let Some((title, body)) = crate::notify::notification_content(&event_name, &cwd) {
+                let _ = app_handle.notification().builder()
+                    .title(title)
+                    .body(body)
+                    .show();
+            }
+        }
+    }
 
     // DB persistence (best-effort, non-blocking)
 
