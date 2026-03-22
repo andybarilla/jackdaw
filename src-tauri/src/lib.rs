@@ -107,6 +107,18 @@ pub fn run() {
             });
             tray::create_tray(app.handle())?;
 
+            // Request notification permission if not already granted (required on macOS)
+            {
+                use tauri::plugin::PermissionState;
+                use tauri_plugin_notification::NotificationExt;
+                let notification = app.notification();
+                if notification.permission_state().unwrap_or(PermissionState::Prompt)
+                    != PermissionState::Granted
+                {
+                    let _ = notification.request_permission();
+                }
+            }
+
             Ok(())
         })
         .plugin(tauri_plugin_notification::init())
