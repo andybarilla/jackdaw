@@ -1,6 +1,7 @@
 mod db;
 mod hooks;
 pub mod ipc;
+mod notify;
 mod server;
 mod state;
 mod tray;
