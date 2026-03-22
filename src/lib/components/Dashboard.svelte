@@ -2,12 +2,13 @@
   import Header from './Header.svelte';
   import SessionCard from './SessionCard.svelte';
   import HookSetup from './HookSetup.svelte';
+  import Settings from './Settings.svelte';
   import { sessionStore, initSessionListener } from '$lib/stores/sessions.svelte';
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import type { HistorySession } from '$lib/types';
 
-  let activeTab = $state<'active' | 'history'>('active');
+  let activeTab = $state<'active' | 'history' | 'settings'>('active');
   let historySessions = $state<HistorySession[]>([]);
   let historyLoading = $state(false);
 
@@ -20,7 +21,7 @@
     invoke('dismiss_session', { sessionId });
   }
 
-  async function switchTab(tab: 'active' | 'history') {
+  async function switchTab(tab: 'active' | 'history' | 'settings') {
     activeTab = tab;
     if (tab === 'history') {
       await loadHistory();
@@ -52,6 +53,9 @@
     <button class="tab" class:active={activeTab === 'history'} onclick={() => switchTab('history')}>
       History
     </button>
+    <button class="tab" class:active={activeTab === 'settings'} onclick={() => switchTab('settings')}>
+      Settings
+    </button>
   </div>
 
   <div class="session-list">
@@ -65,7 +69,7 @@
           <SessionCard {session} onDismiss={handleDismiss} />
         {/each}
       {/if}
-    {:else}
+    {:else if activeTab === 'history'}
       {#if historyLoading}
         <div class="empty"><span class="loading-text">Loading history...</span></div>
       {:else if historySessions.length === 0}
@@ -88,6 +92,8 @@
           }} onDismiss={handleDismiss} historyMode={true} endedAt={session.ended_at} />
         {/each}
       {/if}
+    {:else if activeTab === 'settings'}
+      <Settings />
     {/if}
   </div>
 </div>
