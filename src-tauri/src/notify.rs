@@ -17,8 +17,8 @@ impl Default for NotificationPrefs {
     }
 }
 
-pub fn should_notify(event_name: &str, is_focused: bool, prefs: &NotificationPrefs) -> bool {
-    if is_focused {
+pub fn should_notify(event_name: &str, is_visible: bool, prefs: &NotificationPrefs) -> bool {
+    if is_visible {
         return false;
     }
     match event_name {

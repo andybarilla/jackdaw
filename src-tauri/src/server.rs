@@ -192,9 +192,9 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
         use tauri_plugin_notification::NotificationExt;
         use tauri_plugin_store::StoreExt;
 
-        let is_focused = app_handle
+        let is_visible = app_handle
             .get_webview_window("main")
-            .and_then(|w| w.is_focused().ok())
+            .and_then(|w| w.is_visible().ok())
             .unwrap_or(false);
 
         let prefs = app_handle
@@ -207,7 +207,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             })
             .unwrap_or_default();
 
-        if crate::notify::should_notify(&event_name, is_focused, &prefs) {
+        if crate::notify::should_notify(&event_name, is_visible, &prefs) {
             if let Some((title, body)) = crate::notify::notification_content(&event_name, &cwd) {
                 let _ = app_handle.notification().builder()
                     .title(title)

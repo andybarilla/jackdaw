@@ -11,6 +11,7 @@
     "core:window:allow-minimize",
     "notification:default",
     "core:window:allow-is-focused",
+    "core:window:allow-is-visible",
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "store:allow-get",
