@@ -6,6 +6,16 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "core:event:default"
+    "core:event:default",
+    "core:window:allow-hide",
+    "core:window:allow-minimize",
+    "notification:default",
+    "core:window:allow-is-focused",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "store:allow-get",
+    "store:allow-set",
+    "store:allow-save",
+    "store:allow-load"
   ]
 }
