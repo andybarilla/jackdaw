@@ -73,13 +73,27 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
     let cwd = payload.cwd;
     let event_name = payload.hook_event_name;
 
+    // Lock ordering: always acquire sessions before db, or drop sessions before
+    // acquiring db. Never hold both simultaneously in different orders — dismiss_session
+    // in lib.rs holds sessions then db, so reversed ordering would deadlock.
     let mut sessions = state.sessions.lock().unwrap();
 
     // Ensure session exists for any event (except SessionEnd which removes it).
-    if event_name != "SessionEnd" {
-        sessions
-            .entry(session_id.clone())
-            .or_insert_with(|| Session::new(session_id.clone(), cwd.clone()));
+    // When creating a new session, check DB for offline tool history and rehydrate.
+    if event_name != "SessionEnd" && !sessions.contains_key(&session_id) {
+        // Drop sessions before acquiring db to maintain lock ordering
+        drop(sessions);
+        let db = state.db.lock().unwrap();
+        let history = crate::db::load_tool_events_for_session(&db, &session_id);
+        drop(db);
+        // Re-acquire sessions lock
+        sessions = state.sessions.lock().unwrap();
+        // Double-check — another thread may have inserted while we released the lock
+        if !sessions.contains_key(&session_id) {
+            let mut session = Session::new(session_id.clone(), cwd.clone());
+            session.hydrate_from_history(&history);
+            sessions.insert(session_id.clone(), session);
+        }
     }
 
     let session_started_at = sessions.get(&session_id).map(|s| s.started_at.to_rfc3339());
@@ -259,6 +273,34 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
 #[cfg(test)]
 mod tests {
     use crate::db;
+
+    #[test]
+    fn rehydration_populates_new_session_from_db() {
+        use crate::state::{AppState, Session};
+
+        let conn = db::init_memory();
+        db::save_session(&conn, "s1", "/tmp", "2026-03-23T00:00:00Z");
+        db::save_tool_event(&conn, "s1", "Bash", Some("ls"), "2026-03-23T00:01:00Z");
+        db::save_tool_event(&conn, "s1", "Read", Some("/f"), "2026-03-23T00:02:00Z");
+
+        let state = std::sync::Arc::new(AppState::new(conn));
+        let mut sessions = state.sessions.lock().unwrap();
+
+        if !sessions.contains_key("s1") {
+            let db = state.db.lock().unwrap();
+            let history = db::load_tool_events_for_session(&db, "s1");
+            drop(db);
+            let mut session = Session::new("s1".into(), "/tmp".into());
+            session.hydrate_from_history(&history);
+            sessions.insert("s1".into(), session);
+        }
+
+        let session = sessions.get("s1").unwrap();
+        assert_eq!(session.tool_history.len(), 2);
+        assert_eq!(session.tool_history[0].tool_name, "Bash");
+        assert_eq!(session.tool_history[0].summary, Some("ls".into()));
+        assert_eq!(session.tool_history[1].tool_name, "Read");
+    }
 
     #[test]
     fn db_persistence_roundtrip() {

@@ -34,15 +34,17 @@ pub fn init_memory() -> Connection {
     conn
 }
 
-pub fn save_session(conn: &Connection, session_id: &str, cwd: &str, started_at: &str) {
-    conn.execute(
-        "INSERT OR IGNORE INTO sessions (session_id, cwd, started_at) VALUES (?1, ?2, ?3)",
-        rusqlite::params![session_id, cwd, started_at],
-    )
-    .unwrap_or_else(|e| {
-        eprintln!("Jackdaw: failed to save session: {}", e);
-        0
-    });
+pub fn save_session(conn: &Connection, session_id: &str, cwd: &str, started_at: &str) -> bool {
+    let changed = conn
+        .execute(
+            "INSERT OR IGNORE INTO sessions (session_id, cwd, started_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![session_id, cwd, started_at],
+        )
+        .unwrap_or_else(|e| {
+            eprintln!("Jackdaw: failed to save session: {}", e);
+            0
+        });
+    changed > 0
 }
 
 pub fn save_tool_event(
@@ -124,6 +126,28 @@ pub fn load_history(conn: &Connection, limit: u32, offset: u32) -> Vec<HistorySe
             }
         })
         .collect()
+}
+
+pub fn load_tool_events_for_session(conn: &Connection, session_id: &str) -> Vec<HistoryToolEvent> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT tool_name, summary, timestamp FROM tool_events
+             WHERE session_id = ?1
+             ORDER BY timestamp ASC
+             LIMIT 50",
+        )
+        .unwrap();
+
+    stmt.query_map(rusqlite::params![session_id], |row| {
+        Ok(HistoryToolEvent {
+            tool_name: row.get(0)?,
+            summary: row.get(1)?,
+            timestamp: row.get(2)?,
+        })
+    })
+    .unwrap()
+    .filter_map(|r| r.ok())
+    .collect()
 }
 
 pub fn get_retention_days(conn: &Connection) -> u32 {
@@ -233,7 +257,8 @@ mod tests {
     #[test]
     fn save_session_inserts_row() {
         let conn = init_memory();
-        save_session(&conn, "s1", "/home/test", "2026-03-21T00:00:00Z");
+        let inserted = save_session(&conn, "s1", "/home/test", "2026-03-21T00:00:00Z");
+        assert!(inserted);
         let cwd: String = conn
             .query_row("SELECT cwd FROM sessions WHERE session_id = 's1'", [], |r| {
                 r.get(0)
@@ -245,8 +270,10 @@ mod tests {
     #[test]
     fn save_session_is_idempotent() {
         let conn = init_memory();
-        save_session(&conn, "s1", "/home/a", "2026-03-21T00:00:00Z");
-        save_session(&conn, "s1", "/home/b", "2026-03-21T01:00:00Z");
+        let first = save_session(&conn, "s1", "/home/a", "2026-03-21T00:00:00Z");
+        let second = save_session(&conn, "s1", "/home/b", "2026-03-21T01:00:00Z");
+        assert!(first);
+        assert!(!second);
         let cwd: String = conn
             .query_row("SELECT cwd FROM sessions WHERE session_id = 's1'", [], |r| {
                 r.get(0)
@@ -406,6 +433,42 @@ mod tests {
         let conn = init_memory();
         set_retention_days(&conn, 90);
         assert_eq!(get_retention_days(&conn), 90);
+    }
+
+    #[test]
+    fn load_tool_events_empty_for_unknown_session() {
+        let conn = init_memory();
+        let events = load_tool_events_for_session(&conn, "unknown");
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn load_tool_events_returns_events_oldest_first() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/tmp", "2026-03-23T00:00:00Z");
+        save_tool_event(&conn, "s1", "Bash", Some("ls"), "2026-03-23T00:01:00Z");
+        save_tool_event(&conn, "s1", "Read", Some("/f"), "2026-03-23T00:02:00Z");
+        let events = load_tool_events_for_session(&conn, "s1");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].tool_name, "Bash");
+        assert_eq!(events[1].tool_name, "Read");
+    }
+
+    #[test]
+    fn load_tool_events_caps_at_50() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/tmp", "2026-03-23T00:00:00Z");
+        for i in 0..60 {
+            save_tool_event(
+                &conn,
+                "s1",
+                &format!("Tool{}", i),
+                None,
+                &format!("2026-03-23T{:02}:{:02}:00Z", i / 60, i % 60),
+            );
+        }
+        let events = load_tool_events_for_session(&conn, "s1");
+        assert_eq!(events.len(), 50);
     }
 
     #[test]
