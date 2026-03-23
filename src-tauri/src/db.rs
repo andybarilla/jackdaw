@@ -128,6 +128,28 @@ pub fn load_history(conn: &Connection, limit: u32, offset: u32) -> Vec<HistorySe
         .collect()
 }
 
+pub fn load_tool_events_for_session(conn: &Connection, session_id: &str) -> Vec<HistoryToolEvent> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT tool_name, summary, timestamp FROM tool_events
+             WHERE session_id = ?1
+             ORDER BY timestamp ASC
+             LIMIT 50",
+        )
+        .unwrap();
+
+    stmt.query_map(rusqlite::params![session_id], |row| {
+        Ok(HistoryToolEvent {
+            tool_name: row.get(0)?,
+            summary: row.get(1)?,
+            timestamp: row.get(2)?,
+        })
+    })
+    .unwrap()
+    .filter_map(|r| r.ok())
+    .collect()
+}
+
 pub fn get_retention_days(conn: &Connection) -> u32 {
     conn.query_row(
         "SELECT value FROM config WHERE key = 'retention_days'",
@@ -411,6 +433,42 @@ mod tests {
         let conn = init_memory();
         set_retention_days(&conn, 90);
         assert_eq!(get_retention_days(&conn), 90);
+    }
+
+    #[test]
+    fn load_tool_events_empty_for_unknown_session() {
+        let conn = init_memory();
+        let events = load_tool_events_for_session(&conn, "unknown");
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn load_tool_events_returns_events_oldest_first() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/tmp", "2026-03-23T00:00:00Z");
+        save_tool_event(&conn, "s1", "Bash", Some("ls"), "2026-03-23T00:01:00Z");
+        save_tool_event(&conn, "s1", "Read", Some("/f"), "2026-03-23T00:02:00Z");
+        let events = load_tool_events_for_session(&conn, "s1");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].tool_name, "Bash");
+        assert_eq!(events[1].tool_name, "Read");
+    }
+
+    #[test]
+    fn load_tool_events_caps_at_50() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/tmp", "2026-03-23T00:00:00Z");
+        for i in 0..60 {
+            save_tool_event(
+                &conn,
+                "s1",
+                &format!("Tool{}", i),
+                None,
+                &format!("2026-03-23T{:02}:{:02}:00Z", i / 60, i % 60),
+            );
+        }
+        let events = load_tool_events_for_session(&conn, "s1");
+        assert_eq!(events.len(), 50);
     }
 
     #[test]
