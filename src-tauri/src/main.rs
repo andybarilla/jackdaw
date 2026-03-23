@@ -2,5 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    jackdaw_lib::run()
+    if std::env::args().nth(1).as_deref() == Some("send") {
+        jackdaw_lib::send::run();
+    } else {
+        jackdaw_lib::run()
+    }
 }

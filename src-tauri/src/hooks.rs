@@ -19,18 +19,15 @@ pub enum HookStatus {
     Outdated,
 }
 
-/// Resolve the path to the jackdaw-send binary.
-/// Looks for it as a sibling of the current executable first, then falls back to PATH.
+/// Resolve the jackdaw send command.
+/// Uses the current executable path with "send" subcommand, falls back to PATH.
 pub fn jackdaw_send_command() -> String {
     if let Ok(exe) = std::env::current_exe() {
-        let sibling = exe.parent().map(|p| p.join("jackdaw-send"));
-        if let Some(path) = sibling {
-            if path.exists() {
-                return path.to_string_lossy().into_owned();
-            }
+        if exe.exists() {
+            return format!("{} send", exe.to_string_lossy());
         }
     }
-    "jackdaw-send".to_string()
+    "jackdaw send".to_string()
 }
 
 /// Events we install hooks for
@@ -132,14 +129,15 @@ fn jackdaw_matcher_group() -> Value {
     })
 }
 
-/// Returns true if a matcher group contains a Jackdaw hook (command containing "jackdaw-send")
+/// Returns true if a matcher group contains a Jackdaw hook.
+/// Matches commands containing "jackdaw-send", "jackdaw send", or "jackdaw" with "send" arg.
 fn is_jackdaw_matcher_group(mg: &Value) -> bool {
     mg.get("hooks")
         .and_then(|v| v.as_array())
         .map(|hooks| hooks.iter().any(|h| {
             h.get("type").and_then(|t| t.as_str()) == Some("command")
                 && h.get("command").and_then(|c| c.as_str())
-                    .map(|cmd| cmd.contains("jackdaw-send"))
+                    .map(|cmd| cmd.contains("jackdaw-send") || cmd.contains("jackdaw") && cmd.contains("send"))
                     .unwrap_or(false)
         }))
         .unwrap_or(false)
