@@ -1,4 +1,4 @@
-mod db;
+pub mod db;
 mod hooks;
 pub mod ipc;
 mod notify;
