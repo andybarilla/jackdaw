@@ -118,6 +118,27 @@ impl Session {
         }
     }
 
+    pub fn hydrate_from_history(&mut self, history: &[crate::db::HistoryToolEvent]) {
+        if !self.tool_history.is_empty() || history.is_empty() {
+            return;
+        }
+        for event in history {
+            let ts = event
+                .timestamp
+                .parse::<DateTime<Utc>>()
+                .unwrap_or_else(|_| Utc::now());
+            self.tool_history.push(ToolEvent {
+                tool_name: event.tool_name.clone(),
+                timestamp: ts,
+                summary: event.summary.clone(),
+                tool_use_id: None,
+            });
+        }
+        while self.tool_history.len() > MAX_TOOL_HISTORY {
+            self.tool_history.remove(0);
+        }
+    }
+
     fn push_history(&mut self, tool: ToolEvent) {
         self.tool_history.push(tool);
         if self.tool_history.len() > MAX_TOOL_HISTORY {
@@ -291,6 +312,50 @@ mod tests {
         s.clear_current_tool();
         assert!(s.current_tool.is_none());
         assert!(s.tool_history.is_empty());
+    }
+
+    #[test]
+    fn hydrate_from_history_populates_tool_history() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        let history = vec![
+            crate::db::HistoryToolEvent {
+                tool_name: "Bash".into(),
+                summary: Some("ls".into()),
+                timestamp: "2026-03-23T00:01:00Z".into(),
+            },
+            crate::db::HistoryToolEvent {
+                tool_name: "Read".into(),
+                summary: Some("/f".into()),
+                timestamp: "2026-03-23T00:02:00Z".into(),
+            },
+        ];
+        s.hydrate_from_history(&history);
+        assert_eq!(s.tool_history.len(), 2);
+        assert_eq!(s.tool_history[0].tool_name, "Bash");
+        assert_eq!(s.tool_history[0].summary, Some("ls".into()));
+        assert_eq!(s.tool_history[1].tool_name, "Read");
+    }
+
+    #[test]
+    fn hydrate_from_history_noop_when_empty() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.hydrate_from_history(&[]);
+        assert!(s.tool_history.is_empty());
+    }
+
+    #[test]
+    fn hydrate_from_history_noop_when_already_has_history() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.set_current_tool(make_tool("Bash", Some("id-1")));
+        s.clear_current_tool();
+        let history = vec![crate::db::HistoryToolEvent {
+            tool_name: "Read".into(),
+            summary: None,
+            timestamp: "2026-03-23T00:01:00Z".into(),
+        }];
+        s.hydrate_from_history(&history);
+        assert_eq!(s.tool_history.len(), 1);
+        assert_eq!(s.tool_history[0].tool_name, "Bash");
     }
 
     #[test]
