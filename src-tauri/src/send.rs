@@ -32,8 +32,9 @@ fn fallback_to_db(conn: &Connection, json_payload: &str) -> bool {
     let now = Utc::now().to_rfc3339();
 
     if payload.hook_event_name == "SessionEnd" {
+        let first = crate::db::save_session(conn, &payload.session_id, &payload.cwd, &now);
         crate::db::end_session(conn, &payload.session_id, &now);
-        return false;
+        return first;
     }
 
     let first = crate::db::save_session(conn, &payload.session_id, &payload.cwd, &now);
@@ -140,6 +141,16 @@ mod tests {
         let conn = crate::db::init_memory();
         fallback_to_db(&conn, r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}"#);
         fallback_to_db(&conn, r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionEnd"}"#);
+        let history = crate::db::load_history(&conn, 50, 0);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].session_id, "s1");
+    }
+
+    #[test]
+    fn fallback_session_end_as_first_event_saves_and_ends() {
+        let conn = crate::db::init_memory();
+        let first = fallback_to_db(&conn, r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionEnd"}"#);
+        assert!(first);
         let history = crate::db::load_history(&conn, 50, 0);
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].session_id, "s1");

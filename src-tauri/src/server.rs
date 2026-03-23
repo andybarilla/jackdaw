@@ -73,12 +73,15 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
     let cwd = payload.cwd;
     let event_name = payload.hook_event_name;
 
+    // Lock ordering: always acquire sessions before db, or drop sessions before
+    // acquiring db. Never hold both simultaneously in different orders — dismiss_session
+    // in lib.rs holds sessions then db, so reversed ordering would deadlock.
     let mut sessions = state.sessions.lock().unwrap();
 
     // Ensure session exists for any event (except SessionEnd which removes it).
     // When creating a new session, check DB for offline tool history and rehydrate.
     if event_name != "SessionEnd" && !sessions.contains_key(&session_id) {
-        // Drop sessions lock before acquiring db lock to avoid deadlock
+        // Drop sessions before acquiring db to maintain lock ordering
         drop(sessions);
         let db = state.db.lock().unwrap();
         let history = crate::db::load_tool_events_for_session(&db, &session_id);
