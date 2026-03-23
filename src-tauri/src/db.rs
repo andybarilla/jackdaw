@@ -34,15 +34,17 @@ pub fn init_memory() -> Connection {
     conn
 }
 
-pub fn save_session(conn: &Connection, session_id: &str, cwd: &str, started_at: &str) {
-    conn.execute(
-        "INSERT OR IGNORE INTO sessions (session_id, cwd, started_at) VALUES (?1, ?2, ?3)",
-        rusqlite::params![session_id, cwd, started_at],
-    )
-    .unwrap_or_else(|e| {
-        eprintln!("Jackdaw: failed to save session: {}", e);
-        0
-    });
+pub fn save_session(conn: &Connection, session_id: &str, cwd: &str, started_at: &str) -> bool {
+    let changed = conn
+        .execute(
+            "INSERT OR IGNORE INTO sessions (session_id, cwd, started_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![session_id, cwd, started_at],
+        )
+        .unwrap_or_else(|e| {
+            eprintln!("Jackdaw: failed to save session: {}", e);
+            0
+        });
+    changed > 0
 }
 
 pub fn save_tool_event(
@@ -233,7 +235,8 @@ mod tests {
     #[test]
     fn save_session_inserts_row() {
         let conn = init_memory();
-        save_session(&conn, "s1", "/home/test", "2026-03-21T00:00:00Z");
+        let inserted = save_session(&conn, "s1", "/home/test", "2026-03-21T00:00:00Z");
+        assert!(inserted);
         let cwd: String = conn
             .query_row("SELECT cwd FROM sessions WHERE session_id = 's1'", [], |r| {
                 r.get(0)
@@ -245,8 +248,10 @@ mod tests {
     #[test]
     fn save_session_is_idempotent() {
         let conn = init_memory();
-        save_session(&conn, "s1", "/home/a", "2026-03-21T00:00:00Z");
-        save_session(&conn, "s1", "/home/b", "2026-03-21T01:00:00Z");
+        let first = save_session(&conn, "s1", "/home/a", "2026-03-21T00:00:00Z");
+        let second = save_session(&conn, "s1", "/home/b", "2026-03-21T01:00:00Z");
+        assert!(first);
+        assert!(!second);
         let cwd: String = conn
             .query_row("SELECT cwd FROM sessions WHERE session_id = 's1'", [], |r| {
                 r.get(0)
