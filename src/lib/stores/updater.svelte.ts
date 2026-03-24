@@ -1,4 +1,8 @@
 import { listen } from '@tauri-apps/api/event';
+import {
+  isPermissionGranted,
+  sendNotification,
+} from '@tauri-apps/plugin-notification';
 import type { UpdateInfo, UpdateProgress } from '$lib/types';
 
 class UpdaterStore {
@@ -44,8 +48,18 @@ export function initUpdaterListener(): () => void {
   let unlistenAvailable: (() => void) | undefined;
   let unlistenProgress: (() => void) | undefined;
 
-  listen<UpdateInfo>('update-available', (event) => {
+  listen<UpdateInfo>('update-available', async (event) => {
     updaterStore.setUpdateAvailable(event.payload);
+    try {
+      if (await isPermissionGranted()) {
+        sendNotification({
+          title: 'Jackdaw Update Available',
+          body: `Version ${event.payload.version} is ready to install`,
+        });
+      }
+    } catch {
+      // Notification permission denied — banner is the fallback
+    }
   }).then((fn) => {
     unlistenAvailable = fn;
   });
