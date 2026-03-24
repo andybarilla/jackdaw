@@ -10,9 +10,10 @@ use crate::state::Session;
 const TRAY_ID: &str = "jackdaw-tray";
 
 // Embed icons at compile time so they work in bundled apps
-const ICON_GREEN: &[u8] = include_bytes!("../../static/icons/tray-green.png");
-const ICON_YELLOW: &[u8] = include_bytes!("../../static/icons/tray-yellow.png");
-const ICON_GRAY: &[u8] = include_bytes!("../../static/icons/tray-gray.png");
+const ICON_APPROVAL: &[u8] = include_bytes!("../../static/icons/tray-approval.png");
+const ICON_INPUT: &[u8] = include_bytes!("../../static/icons/tray-input.png");
+const ICON_RUNNING: &[u8] = include_bytes!("../../static/icons/tray-running.png");
+const ICON_IDLE: &[u8] = include_bytes!("../../static/icons/tray-idle.png");
 
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     use tauri::menu::{PredefinedMenuItem, SubmenuBuilder};
@@ -30,7 +31,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .items(&[&show, &hooks_submenu, &separator, &settings, &quit])
         .build()?;
 
-    let icon = Image::from_bytes(ICON_GRAY).expect("embedded gray icon");
+    let icon = Image::from_bytes(ICON_IDLE).expect("embedded idle icon");
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
@@ -123,12 +124,11 @@ pub fn update_tray(app: &AppHandle, sessions: &[Session]) {
 
     let (state, counts) = compute_tray_state(sessions);
 
-    // TODO: replace with ICON_APPROVAL/ICON_INPUT/ICON_RUNNING/ICON_IDLE in Task 2
     let icon_bytes = match state {
-        TrayState::WaitingForApproval => ICON_YELLOW,
-        TrayState::WaitingForInput => ICON_YELLOW,
-        TrayState::Running => ICON_GREEN,
-        TrayState::Idle => ICON_GRAY,
+        TrayState::WaitingForApproval => ICON_APPROVAL,
+        TrayState::WaitingForInput => ICON_INPUT,
+        TrayState::Running => ICON_RUNNING,
+        TrayState::Idle => ICON_IDLE,
     };
 
     let tooltip = if sessions.is_empty() {
