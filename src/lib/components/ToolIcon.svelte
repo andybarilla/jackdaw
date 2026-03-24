@@ -44,10 +44,10 @@
     flex-shrink: 0;
   }
 
-  .tool-green { color: var(--green); }
-  .tool-blue { color: var(--blue); }
-  .tool-orange { color: var(--orange); }
-  .tool-purple { color: var(--purple); }
-  .tool-cyan { color: var(--cyan); }
+  .tool-green { color: var(--active); }
+  .tool-blue { color: var(--active); }
+  .tool-orange { color: var(--active); }
+  .tool-purple { color: var(--active); }
+  .tool-cyan { color: var(--active); }
   .tool-gray { color: var(--text-muted); }
 </style>

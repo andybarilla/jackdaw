@@ -46,9 +46,9 @@
     flex-shrink: 0;
   }
 
-  .status-green { color: var(--green); }
-  .status-blue { color: var(--blue); }
-  .status-orange { color: var(--orange); }
+  .status-green { color: var(--active); }
+  .status-blue { color: var(--attention); }
+  .status-orange { color: var(--attention); }
   .status-gray { color: var(--text-muted); }
 
   .pulse {

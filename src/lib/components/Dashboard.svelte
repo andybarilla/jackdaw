@@ -130,7 +130,7 @@
 
   .tab.active {
     color: var(--text-primary);
-    border-bottom-color: var(--blue);
+    border-bottom-color: var(--active);
   }
 
   .loading-text,

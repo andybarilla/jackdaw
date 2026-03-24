@@ -1,32 +1,56 @@
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/JetBrainsMono-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/JetBrainsMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  --bg: #0d1117;
-  --card-bg: #161b22;
-  --border: #30363d;
-  --text-primary: #e6edf3;
-  --text-secondary: #8b949e;
-  --text-muted: #6e7681;
-  --green: #3fb950;
-  --yellow: #d29922;
-  --blue: #58a6ff;
-  --orange: #d29922;
-  --purple: #bc8cff;
-  --cyan: #39d2c0;
-  --tool-bg: #1c2432;
-  --tool-border: #1f3a5f;
-  --badge-running-bg: #1f2a1f;
-  --badge-running-border: #2d5a2d;
-  --badge-waiting-bg: #2a2418;
-  --badge-waiting-border: #5a4a1f;
+  --bg: #000000;
+  --card-bg: #111111;
+  --tool-bg: #0a0a0a;
+  --border: #222222;
+  --border-active: #ff2d7830;
+  --border-active-tool: #ff2d7840;
+  --border-attention: #d4a01730;
+  --border-attention-tool: #d4a01740;
+  --text-primary: #d4d4d4;
+  --text-secondary: #999999;
+  --text-muted: #666666;
+  --active: #ff2d78;
+  --attention: #d4a017;
+  --success: #3fb950;
+  --error: #f85149;
+  --glow-active: 0 0 12px #ff2d7810;
+  --glow-attention: 0 0 12px #d4a01710;
 }
 
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  border-radius: 0 !important;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'JetBrains Mono', monospace;
   background: var(--bg);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
