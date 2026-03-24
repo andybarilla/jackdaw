@@ -108,9 +108,6 @@
     border: 1px solid var(--border);
   }
 
-  .card.expanded {
-  }
-
   .card.running {
     border-color: var(--border-active);
     box-shadow: var(--glow-active);
