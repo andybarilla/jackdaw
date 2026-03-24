@@ -173,7 +173,7 @@
     background: var(--bg);
     color: var(--text-primary);
     font-size: 12px;
-    font-family: monospace;
+    font-family: inherit;
   }
 
   .path-input::placeholder {

@@ -35,11 +35,9 @@
   --text-secondary: #999999;
   --text-muted: #666666;
   --active: #ff2d78;
-  --active-hover: #ff4d8e;
   --attention: #d4a017;
   --success: #3fb950;
   --error: #f85149;
-  --idle: #444444;
   --glow-active: 0 0 12px #ff2d7810;
   --glow-attention: 0 0 12px #d4a01710;
 }
