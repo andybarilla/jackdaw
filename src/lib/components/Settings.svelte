@@ -72,6 +72,6 @@
   }
 
   .toggle-row input[type="checkbox"] {
-    accent-color: var(--blue);
+    accent-color: var(--active);
   }
 </style>
