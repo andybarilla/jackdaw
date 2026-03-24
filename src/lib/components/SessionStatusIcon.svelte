@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Session } from '$lib/types';
-  import { ShieldAlert, MessageSquare, Play, Circle } from 'lucide-svelte';
+  import { ShieldAlert, Pause, Play, Circle } from 'lucide-svelte';
 
   interface Props {
     session: Session;
@@ -24,7 +24,7 @@
 
   const stateConfig: Record<SessionState, { icon: typeof Play; colorClass: string; pulse: boolean }> = {
     approval: { icon: ShieldAlert, colorClass: 'status-orange', pulse: true },
-    input: { icon: MessageSquare, colorClass: 'status-blue', pulse: false },
+    input: { icon: Pause, colorClass: 'status-gray', pulse: false },
     running: { icon: Play, colorClass: 'status-green', pulse: true },
     ended: { icon: Circle, colorClass: 'status-gray', pulse: false },
   };
