@@ -30,7 +30,7 @@
   }
 </script>
 
-<div class="card" class:expanded>
+<div class="card" class:expanded class:running={isActive} class:needs-attention={isPending}>
   <!-- Header row: always visible, clickable -->
   <div class="row-header" onclick={toggleExpand} role="button" tabindex="0" onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggleExpand())}>
     <div class="row-left">
@@ -50,10 +50,10 @@
   </div>
 
   <!-- Tool row: visible when active -->
-  {#if isActive}
+  {#if isActive || isPending}
     <div class="tool-row">
       {#if session.current_tool}
-        <div class="tool-display active">
+        <div class="tool-display" class:active={isActive && !isPending} class:attention={isPending}>
           <ToolIcon tool_name={session.current_tool.tool_name} size={12} />
           <span class="tool-name">{session.current_tool.tool_name}</span>
           {#if session.current_tool.summary}
@@ -106,11 +106,19 @@
   .card {
     background: var(--card-bg);
     border: 1px solid var(--border);
-    border-radius: 8px;
   }
 
   .card.expanded {
-    border-color: var(--blue);
+  }
+
+  .card.running {
+    border-color: var(--border-active);
+    box-shadow: var(--glow-active);
+  }
+
+  .card.needs-attention {
+    border-color: var(--border-attention);
+    box-shadow: var(--glow-attention);
   }
 
   .row-header {
@@ -149,7 +157,7 @@
 
   .subagent-count {
     font-size: 11px;
-    color: var(--blue);
+    color: var(--active);
   }
 
   .uptime {
@@ -169,8 +177,7 @@
 
   .tool-display {
     background: var(--tool-bg);
-    border: 1px solid var(--tool-border);
-    border-radius: 6px;
+    border: 1px solid var(--border);
     padding: 8px 10px;
     display: flex;
     align-items: center;
@@ -185,7 +192,19 @@
   }
 
   .tool-display.active .tool-name {
-    color: var(--blue);
+    color: var(--active);
+  }
+
+  .tool-display.active {
+    border-color: var(--border-active-tool);
+  }
+
+  .tool-display.attention {
+    border-color: var(--border-attention-tool);
+  }
+
+  .tool-display.attention .tool-name {
+    color: var(--attention);
   }
 
   .tool-name {
@@ -236,7 +255,6 @@
     cursor: pointer;
     font-size: 11px;
     padding: 2px 8px;
-    border-radius: 4px;
   }
 
   .dismiss:hover {
