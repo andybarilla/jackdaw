@@ -3,7 +3,9 @@
   import SessionCard from './SessionCard.svelte';
   import HookSetup from './HookSetup.svelte';
   import Settings from './Settings.svelte';
+  import UpdateBanner from './UpdateBanner.svelte';
   import { sessionStore, initSessionListener } from '$lib/stores/sessions.svelte';
+  import { initUpdaterListener } from '$lib/stores/updater.svelte';
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import type { HistorySession } from '$lib/types';
@@ -13,8 +15,12 @@
   let historyLoading = $state(false);
 
   onMount(() => {
-    const cleanup = initSessionListener();
-    return () => cleanup();
+    const cleanupSessions = initSessionListener();
+    const cleanupUpdater = initUpdaterListener();
+    return () => {
+      cleanupSessions();
+      cleanupUpdater();
+    };
   });
 
   function handleDismiss(sessionId: string) {
@@ -56,6 +62,10 @@
     <button class="tab" class:active={activeTab === 'settings'} onclick={() => switchTab('settings')}>
       Settings
     </button>
+  </div>
+
+  <div class="update-banner-wrapper">
+    <UpdateBanner />
   </div>
 
   <div class="session-list">
@@ -137,6 +147,10 @@
   .empty-text {
     color: var(--text-muted);
     font-size: 13px;
+  }
+
+  .update-banner-wrapper {
+    padding: 12px 12px 0;
   }
 
   .session-list {
