@@ -19,6 +19,9 @@ Tauri's updater requires artifact signing. This uses a Tauri-specific key pair (
 **Config** (`tauri.conf.json`):
 ```json
 {
+  "bundle": {
+    "createUpdaterArtifacts": true
+  },
   "plugins": {
     "updater": {
       "pubkey": "<public-key>",
@@ -41,7 +44,8 @@ Replace manual build steps in `release.yml` with `tauri-apps/tauri-action`.
   - macOS: `.app.tar.gz` + `.app.tar.gz.sig`
   - Windows: `.nsis.zip` + `.nsis.zip.sig`
 - Generates and uploads `latest.json` manifest to the GitHub Release
-- Raw binaries continue to be uploaded for `install.sh` compatibility
+- `tauri-action` handles the GitHub Release creation/upload; `softprops/action-gh-release` is removed
+- Raw binaries: `tauri-action` produces installable bundles (AppImage, .deb, .dmg, .exe) that are uploaded to the release. Update `install.sh` to download the AppImage (Linux) or platform binary from these bundles instead of the current raw binary names.
 
 ## Backend
 
@@ -52,25 +56,35 @@ Replace manual build steps in `release.yml` with `tauri-apps/tauri-action`.
 
 ### Plugin Registration (`lib.rs`)
 
-Register `.plugin(tauri_plugin_updater::Builder::new().build())` in Tauri setup.
+Register inside the `setup` closure with desktop gating:
+```rust
+.setup(move |app| {
+    #[cfg(desktop)]
+    app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+    // ...
+})
+```
 
 ### New Module: `updater.rs`
 
+**Update state**: Store `Mutex<Option<Update>>` in Tauri managed state so the `Update` object persists between check and install invocations.
+
 **Background task** (spawned at startup):
-1. Read `auto_update_enabled` from the store (default: `true`)
-2. If enabled, check for updates immediately, then every 24 hours
-3. On update found, emit `"update-available"` event with `{ version, body }`
+1. On each interval (immediately, then every 24 hours), check for updates
+2. If update found, store the `Update` in managed state and emit `"update-available"` event with `{ version, body }`
+3. The background task respects the auto-update setting — but this is controlled by the frontend: on settings change, the frontend calls `set_auto_update` to toggle the background loop
 
 **Tauri commands**:
-- `check_for_update` — manual check, returns `{ available: bool, version?: string, body?: string }` or error
-- `install_update` — downloads and installs the update, emits `"update-progress"` events with download percentage, restarts app on completion
+- `check_for_update` — manual check. Calls `updater.check()`, stores the `Update` object in managed state if available, returns `{ available: bool, version?: string, body?: string }`
+- `install_update` — takes the stored `Update` from managed state, calls `download_and_install()`, emits `"update-progress"` events with download percentage, restarts app on completion. If no stored `Update`, re-checks first.
+- `set_auto_update(enabled: bool)` — toggles the background check loop on/off. The frontend calls this when the Settings toggle changes.
 
 ### Event Flow
 
 1. Background task or manual check → `updater.check()`
-2. Update found → emit `"update-available"` with version and release notes
+2. Update found → store `Update` in managed state, emit `"update-available"` with version and release notes
 3. User triggers install → frontend invokes `install_update`
-4. Backend downloads, emitting `"update-progress"` events
+4. Backend retrieves stored `Update`, downloads, emitting `"update-progress"` events
 5. Download complete → restart app
 
 ## Frontend
@@ -83,7 +97,7 @@ Register `.plugin(tauri_plugin_updater::Builder::new().build())` in Tauri setup.
 
 ### System Notification
 
-When `"update-available"` fires, use the notification plugin to show: "Jackdaw v{version} is available". Clicking it brings the window to focus.
+When `"update-available"` fires, attempt to show an OS notification: "Jackdaw v{version} is available". If notification permission is denied, fall back to the Dashboard banner only (no error). Clicking the notification brings the window to focus.
 
 ### Dashboard Banner
 
@@ -95,7 +109,7 @@ When an update is available, show a banner at the top of the Dashboard:
 ### Settings.svelte Additions
 
 New "Updates" section below existing "Notifications" section:
-- **Auto-Update** toggle (default: on) — persisted to `settings.json` store as `auto_update_enabled`
+- **Auto-Update** toggle (default: on) — persisted to `settings.json` store as `auto_update_enabled`. On change, calls `set_auto_update` command to toggle the backend background loop.
 - **Check for Updates** button — manual trigger regardless of toggle state
 - **Current version** display
 - Available update info if one exists
@@ -109,16 +123,17 @@ Add "Check for Updates" menu item that triggers the same manual check flow.
 Uses the existing `tauri-plugin-store` with `settings.json`:
 - Key: `auto_update_enabled`
 - Default: `true`
-- Read by the backend background task to decide whether to auto-check
-- Toggled by the Settings UI
+- Frontend owns the setting value and persists it to the store
+- Frontend calls `set_auto_update` command to sync the preference to the backend background task
+- On app startup, the background task defaults to enabled; the frontend reads the store on mount and calls `set_auto_update(false)` if the user had disabled it
 
 ## Testing
 
 ### Backend
-- `updater.rs` unit tests: mock update check responses, verify event emission, verify setting controls behavior
+- `updater.rs` unit tests: verify `set_auto_update` toggles background loop, verify `Update` storage in managed state
 - Integration test: verify plugin registration and command availability
 
 ### Frontend
 - `UpdaterStore` tests: verify reactive state updates on event emission
-- `Settings.svelte` tests: verify toggle persists setting, check button invokes command
+- `Settings.svelte` tests: verify toggle persists setting and calls `set_auto_update`, check button invokes `check_for_update`
 - Dashboard banner tests: verify banner appears/hides based on update state, progress display
