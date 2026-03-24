@@ -9,12 +9,18 @@ pub struct UpdateState {
     pub auto_update_enabled: AtomicBool,
 }
 
-impl UpdateState {
-    pub fn new() -> Self {
+impl Default for UpdateState {
+    fn default() -> Self {
         Self {
             pending: Mutex::new(None),
             auto_update_enabled: AtomicBool::new(true),
         }
+    }
+}
+
+impl UpdateState {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
