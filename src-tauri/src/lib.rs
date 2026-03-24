@@ -6,6 +6,7 @@ pub mod send;
 mod server;
 mod state;
 mod tray;
+pub mod updater;
 
 use chrono::Utc;
 use state::AppState;
@@ -100,6 +101,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(app_state.clone())
+        .manage(updater::UpdateState::new())
         .setup(move |app| {
             let handle = app.handle().clone();
             let state = app_state.clone();
@@ -120,9 +122,12 @@ pub fn run() {
                 }
             }
 
+            updater::spawn_update_check_loop(app.handle().clone());
+
             Ok(())
         })
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::default().build())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -138,6 +143,9 @@ pub fn run() {
             get_session_history,
             get_retention_days,
             set_retention_days,
+            updater::check_for_update,
+            updater::install_update,
+            updater::set_auto_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

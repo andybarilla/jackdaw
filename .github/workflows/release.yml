@@ -9,20 +9,17 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  publish:
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: linux
-            artifact: jackdaw-linux-x86_64
           - os: macos-latest
             target: macos
-            artifact: jackdaw-darwin-aarch64
           - os: windows-latest
             target: windows
-            artifact: jackdaw-windows-x86_64.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -42,24 +39,19 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
 
       - run: npm ci
-      - run: npm run tauri build
 
-      - name: Rename binary (Linux)
-        if: matrix.target == 'linux'
-        run: cp src-tauri/target/release/jackdaw ${{ matrix.artifact }}
-
-      - name: Rename binary (macOS)
-        if: matrix.target == 'macos'
-        run: cp src-tauri/target/release/jackdaw ${{ matrix.artifact }}
-
-      - name: Rename binary (Windows)
-        if: matrix.target == 'windows'
-        run: cp src-tauri/target/release/jackdaw.exe ${{ matrix.artifact }}
-
-      - name: Upload artifacts
-        uses: softprops/action-gh-release@v2
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          files: ${{ matrix.artifact }}
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Jackdaw ${{ github.ref_name }}'
+          releaseBody: ''
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
 
   install-script:
     runs-on: ubuntu-latest

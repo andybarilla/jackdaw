@@ -9,8 +9,8 @@ main() {
     arch=$(uname -m)
 
     case "$os" in
-        linux)  artifact="jackdaw-linux-x86_64" ;;
-        darwin) artifact="jackdaw-darwin-aarch64" ;;
+        linux)  artifact="jackdaw_${tag#v}_amd64.AppImage" ;;
+        darwin) artifact="jackdaw_${tag#v}_aarch64.dmg" ;;
         *)      echo "Unsupported OS: $os"; exit 1 ;;
     esac
 

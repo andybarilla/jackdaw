@@ -4,6 +4,7 @@ use tauri::{
     tray::TrayIconBuilder,
     AppHandle, Manager,
 };
+use tauri_plugin_updater::UpdaterExt;
 
 use crate::state::Session;
 
@@ -26,9 +27,10 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .build()?;
     let separator = PredefinedMenuItem::separator(app)?;
     let settings = MenuItemBuilder::with_id("settings", "Settings").build(app)?;
+    let check_updates = MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
     let menu = MenuBuilder::new(app)
-        .items(&[&show, &hooks_submenu, &separator, &settings, &quit])
+        .items(&[&show, &hooks_submenu, &separator, &settings, &check_updates, &quit])
         .build()?;
 
     let icon = Image::from_bytes(ICON_IDLE).expect("embedded idle icon");
@@ -91,6 +93,37 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             }
             "settings" => {
                 // TODO: open settings window (v2)
+            }
+            "check_updates" => {
+                let handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let updater = match handle.updater() {
+                        Ok(u) => u,
+                        Err(e) => {
+                            eprintln!("Jackdaw: updater error: {}", e);
+                            return;
+                        }
+                    };
+                    match updater.check().await {
+                        Ok(Some(update)) => {
+                            use tauri::Emitter;
+                            let info = crate::updater::UpdateInfo {
+                                available: true,
+                                version: Some(update.version.clone()),
+                                body: update.body.clone(),
+                            };
+                            let _ = handle.emit("update-available", &info);
+                            let state = handle.state::<crate::updater::UpdateState>();
+                            *state.pending.lock().await = Some(update);
+                        }
+                        Ok(None) => {
+                            if let Some(tray) = handle.tray_by_id(TRAY_ID) {
+                                let _ = tray.set_tooltip(Some("Jackdaw — up to date"));
+                            }
+                        }
+                        Err(e) => eprintln!("Jackdaw: update check failed: {}", e),
+                    }
+                });
             }
             "quit" => {
                 app.exit(0);

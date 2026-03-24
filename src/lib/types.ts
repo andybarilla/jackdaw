@@ -31,3 +31,14 @@ export interface HistorySession {
   ended_at: string;
   tool_history: HistoryToolEvent[];
 }
+
+export interface UpdateInfo {
+  available: boolean;
+  version: string | null;
+  body: string | null;
+}
+
+export interface UpdateProgress {
+  chunk_length: number;
+  content_length: number | null;
+}
