@@ -43,7 +43,7 @@
 
 - [ ] **Step 1: Write failing tests for new TrayState enum**
 
-Replace the existing tests in `tray.rs` (keep the existing helper functions like `idle_session`, `running_session_with_tool`, etc.). The new `compute_tray_state` returns a `TrayState` enum and a `TrayStateCounts` struct for tooltip building.
+Replace all existing `#[test]` functions in `tray.rs` with the ones below (the old tests use the `(usize, usize)` return type which no longer applies). Keep the existing helper functions (`idle_session`, `running_session_with_tool`, `running_session_with_subagents`, `running_session_processing`, `pending_only_session`). The new `compute_tray_state` returns a `TrayState` enum and a `TrayStateCounts` struct for tooltip building.
 
 ```rust
 #[derive(Debug, Clone, PartialEq)]
@@ -480,6 +480,7 @@ This component takes a `Session` and derives its per-session state, then renders
   .status-green { color: var(--green); }
   .status-blue { color: var(--blue); }
   .status-orange { color: var(--orange); }
+  .status-gray { color: var(--text-muted); }
 
   .pulse {
     animation: pulse 2s infinite;
@@ -532,7 +533,23 @@ Replace in the header row:
 <SessionStatusIcon {session} size={14} {historyMode} />
 ```
 
-- [ ] **Step 3: Replace tool row icons with ToolIcon**
+- [ ] **Step 3: Guard idle-text for history mode**
+
+The `idle-text` label shows when `!isActive && !isPending`, which is true for history-mode sessions. Add a `!historyMode` guard:
+
+```svelte
+<!-- Old -->
+{#if !isActive && !isPending}
+  <span class="idle-text">idle</span>
+{/if}
+
+<!-- New -->
+{#if !isActive && !isPending && !historyMode}
+  <span class="idle-text">idle</span>
+{/if}
+```
+
+- [ ] **Step 4: Replace tool row icons with ToolIcon**
 
 Replace the active tool display:
 
@@ -554,7 +571,7 @@ Replace the dimmed/completed tool display:
 <ToolIcon tool_name={lastTool.tool_name} size={12} />
 ```
 
-- [ ] **Step 4: Replace history checkmarks with ToolIcon**
+- [ ] **Step 5: Replace history checkmarks with ToolIcon**
 
 Replace in the history section:
 
@@ -566,7 +583,7 @@ Replace in the history section:
 <ToolIcon tool_name={tool.tool_name} size={11} />
 ```
 
-- [ ] **Step 5: Remove unused CSS**
+- [ ] **Step 6: Remove unused CSS**
 
 Remove these CSS rules from the `<style>` block:
 - `.status-dot` (and its `.pending`, `.running` variants)
@@ -576,16 +593,16 @@ Remove these CSS rules from the `<style>` block:
 - `.done-mark`
 - The `@keyframes pulse` block (now lives in `SessionStatusIcon.svelte`)
 
-- [ ] **Step 6: Remove unused color rules from .tool-display.active**
+- [ ] **Step 7: Remove unused color rules from .tool-display.active**
 
 The `.tool-display.active .tool-icon, .tool-display.active .tool-name` rule set `color: var(--blue)`. The tool name color is now handled by `ToolIcon`, so update `.tool-display.active .tool-name` to keep the blue color on the name text only (remove the `.tool-icon` selector from that rule).
 
-- [ ] **Step 7: Verify type checking passes**
+- [ ] **Step 8: Verify type checking passes**
 
 Run: `npm run check`
 Expected: PASS
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/lib/components/SessionCard.svelte
