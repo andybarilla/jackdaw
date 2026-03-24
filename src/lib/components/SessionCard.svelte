@@ -2,6 +2,8 @@
   import type { Session } from '$lib/types';
   import { getUptime, getProjectName, shortenSessionId, formatEndedAt } from '$lib/utils';
   import { slide } from 'svelte/transition';
+  import ToolIcon from './ToolIcon.svelte';
+  import SessionStatusIcon from './SessionStatusIcon.svelte';
 
   interface Props {
     session: Session;
@@ -32,9 +34,9 @@
   <!-- Header row: always visible, clickable -->
   <div class="row-header" onclick={toggleExpand} role="button" tabindex="0" onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggleExpand())}>
     <div class="row-left">
-      <span class="status-dot" class:running={isActive} class:pending={isPending}></span>
+      <SessionStatusIcon {session} size={14} {historyMode} />
       <span class="project-name">{getProjectName(session.cwd)}</span>
-      {#if !isActive && !isPending}
+      {#if !isActive && !isPending && !historyMode}
         <span class="idle-text">idle</span>
       {/if}
       {#if session.active_subagents > 0}
@@ -52,7 +54,7 @@
     <div class="tool-row">
       {#if session.current_tool}
         <div class="tool-display active">
-          <span class="tool-icon">▶</span>
+          <ToolIcon tool_name={session.current_tool.tool_name} size={12} />
           <span class="tool-name">{session.current_tool.tool_name}</span>
           {#if session.current_tool.summary}
             <span class="tool-summary">{session.current_tool.summary}</span>
@@ -60,7 +62,7 @@
         </div>
       {:else if lastTool}
         <div class="tool-display dimmed">
-          <span class="tool-icon">✓</span>
+          <ToolIcon tool_name={lastTool.tool_name} size={12} />
           <span class="tool-name">{lastTool.tool_name}</span>
           {#if lastTool.summary}
             <span class="tool-summary">{lastTool.summary}</span>
@@ -87,7 +89,7 @@
         <div class="history">
           {#each recentHistory as tool}
             <div class="history-item">
-              <span class="done-mark">✓</span>
+              <ToolIcon tool_name={tool.tool_name} size={11} />
               <span class="history-tool-name">{tool.tool_name}</span>
               {#if tool.summary}
                 <span class="history-summary">{tool.summary}</span>
@@ -132,24 +134,6 @@
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--yellow);
-    flex-shrink: 0;
-  }
-
-  .status-dot.pending {
-    background: var(--blue);
-    animation: pulse 2s infinite;
-  }
-
-  .status-dot.running {
-    background: var(--green);
-    animation: pulse 2s infinite;
   }
 
   .project-name {
@@ -200,12 +184,6 @@
     opacity: 0.5;
   }
 
-  .tool-icon {
-    font-size: 11px;
-    flex-shrink: 0;
-  }
-
-  .tool-display.active .tool-icon,
   .tool-display.active .tool-name {
     color: var(--blue);
   }
@@ -224,8 +202,7 @@
     white-space: nowrap;
   }
 
-  .tool-display.dimmed .tool-name,
-  .tool-display.dimmed .tool-icon {
+  .tool-display.dimmed .tool-name {
     color: var(--text-muted);
   }
 
@@ -280,10 +257,6 @@
     overflow: hidden;
   }
 
-  .done-mark {
-    color: var(--text-muted);
-  }
-
   .history-tool-name {
     color: var(--text-secondary);
   }
@@ -296,8 +269,5 @@
     min-width: 0;
   }
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
+
 </style>
