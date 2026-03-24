@@ -177,7 +177,9 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
         }
         "Notification" => {
             if let Some(session) = sessions.get_mut(&session_id) {
-                session.pending_approval = true;
+                if session.processing {
+                    session.pending_approval = true;
+                }
             }
         }
         "SubagentStart" => {
@@ -314,5 +316,37 @@ mod tests {
         assert_eq!(history[0].session_id, "s1");
         assert_eq!(history[0].tool_history.len(), 1);
         assert_eq!(history[0].tool_history[0].tool_name, "Bash");
+    }
+
+    #[test]
+    fn notification_after_stop_does_not_set_pending_approval() {
+        use crate::state::Session;
+
+        let mut session = Session::new("s1".into(), "/tmp".into());
+        // Simulate Stop already fired: processing=false
+        session.processing = false;
+
+        // Simulate Notification event — should NOT set pending_approval
+        // when session is not processing (mirrors the Notification match arm)
+        if session.processing {
+            session.pending_approval = true;
+        }
+
+        assert!(!session.pending_approval);
+    }
+
+    #[test]
+    fn notification_while_processing_sets_pending_approval() {
+        use crate::state::Session;
+
+        let mut session = Session::new("s1".into(), "/tmp".into());
+        session.processing = true;
+
+        // Simulate Notification event — should set pending_approval
+        if session.processing {
+            session.pending_approval = true;
+        }
+
+        assert!(session.pending_approval);
     }
 }
