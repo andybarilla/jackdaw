@@ -122,7 +122,6 @@
   .hook-setup {
     background: var(--card-bg);
     border: 1px solid var(--border);
-    border-radius: 8px;
     padding: 24px;
     text-align: center;
     display: flex;
@@ -146,13 +145,11 @@
     display: flex;
     gap: 4px;
     background: var(--bg);
-    border-radius: 6px;
     padding: 2px;
   }
 
   .scope-toggle label {
     padding: 4px 12px;
-    border-radius: 4px;
     font-size: 12px;
     color: var(--text-secondary);
     cursor: pointer;
@@ -172,7 +169,6 @@
     width: 100%;
     max-width: 300px;
     padding: 6px 10px;
-    border-radius: 4px;
     border: 1px solid var(--border);
     background: var(--bg);
     color: var(--text-primary);
@@ -189,8 +185,8 @@
     font-weight: 500;
   }
 
-  .status.installed { color: var(--green); }
-  .status.outdated { color: var(--yellow); }
+  .status.installed { color: var(--success); }
+  .status.outdated { color: var(--attention); }
   .status.not-installed { color: var(--text-muted); }
 
   .actions {
@@ -200,7 +196,6 @@
 
   .btn {
     padding: 6px 16px;
-    border-radius: 6px;
     border: 1px solid var(--border);
     font-size: 12px;
     font-weight: 500;
@@ -214,9 +209,9 @@
   }
 
   .btn-primary {
-    background: var(--blue);
+    background: var(--active);
     color: #fff;
-    border-color: var(--blue);
+    border-color: var(--active);
   }
 
   .btn-primary:hover:not(:disabled) {
@@ -239,6 +234,6 @@
     word-break: break-word;
   }
 
-  .message.success { color: var(--green); }
-  .message.error { color: #f85149; }
+  .message.success { color: var(--success); }
+  .message.error { color: var(--error); }
 </style>
