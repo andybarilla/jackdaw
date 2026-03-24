@@ -1,12 +1,22 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { ShieldAlert, MessageSquare, Play, Circle } from 'lucide-svelte';
 
   interface Props {
     sessionCount: number;
-    runningCount: number;
+    globalState: 'approval' | 'input' | 'running' | 'idle';
   }
 
-  let { sessionCount, runningCount }: Props = $props();
+  let { sessionCount, globalState }: Props = $props();
+
+  const stateConfig = {
+    approval: { icon: ShieldAlert, colorClass: 'status-orange' },
+    input: { icon: MessageSquare, colorClass: 'status-blue' },
+    running: { icon: Play, colorClass: 'status-green' },
+    idle: { icon: Circle, colorClass: 'status-gray' },
+  };
+
+  let config = $derived(stateConfig[globalState]);
 
   function minimize() {
     getCurrentWindow().minimize();
@@ -23,7 +33,12 @@
   </div>
   <div class="header-right">
     {#if sessionCount > 0}
-      <span class="status-dot" class:active={runningCount > 0}></span>
+      {#if config}
+        {@const Icon = config.icon}
+        <span class="header-status-icon {config.colorClass}">
+          <Icon size={12} strokeWidth={2} />
+        </span>
+      {/if}
       <span class="status-text" data-tauri-drag-region>{sessionCount} active session{sessionCount !== 1 ? 's' : ''}</span>
     {:else}
       <span class="status-text" data-tauri-drag-region>No active sessions</span>
@@ -60,16 +75,15 @@
     gap: 8px;
   }
 
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--yellow);
+  .header-status-icon {
+    display: inline-flex;
+    align-items: center;
   }
 
-  .status-dot.active {
-    background: var(--green);
-  }
+  .status-green { color: var(--green); }
+  .status-blue { color: var(--blue); }
+  .status-orange { color: var(--orange); }
+  .status-gray { color: var(--text-muted); }
 
   .status-text {
     font-size: 13px;

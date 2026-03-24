@@ -44,7 +44,7 @@
 </script>
 
 <div class="dashboard">
-  <Header sessionCount={sessionStore.count} runningCount={sessionStore.runningCount} />
+  <Header sessionCount={sessionStore.count} globalState={sessionStore.globalState} />
 
   <div class="tabs">
     <button class="tab" class:active={activeTab === 'active'} onclick={() => switchTab('active')}>

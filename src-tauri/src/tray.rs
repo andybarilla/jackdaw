@@ -10,9 +10,10 @@ use crate::state::Session;
 const TRAY_ID: &str = "jackdaw-tray";
 
 // Embed icons at compile time so they work in bundled apps
-const ICON_GREEN: &[u8] = include_bytes!("../../static/icons/tray-green.png");
-const ICON_YELLOW: &[u8] = include_bytes!("../../static/icons/tray-yellow.png");
-const ICON_GRAY: &[u8] = include_bytes!("../../static/icons/tray-gray.png");
+const ICON_APPROVAL: &[u8] = include_bytes!("../../static/icons/tray-approval.png");
+const ICON_INPUT: &[u8] = include_bytes!("../../static/icons/tray-input.png");
+const ICON_RUNNING: &[u8] = include_bytes!("../../static/icons/tray-running.png");
+const ICON_IDLE: &[u8] = include_bytes!("../../static/icons/tray-idle.png");
 
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     use tauri::menu::{PredefinedMenuItem, SubmenuBuilder};
@@ -30,7 +31,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .items(&[&show, &hooks_submenu, &separator, &settings, &quit])
         .build()?;
 
-    let icon = Image::from_bytes(ICON_GRAY).expect("embedded gray icon");
+    let icon = Image::from_bytes(ICON_IDLE).expect("embedded idle icon");
 
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
@@ -121,21 +122,29 @@ pub fn update_tray(app: &AppHandle, sessions: &[Session]) {
         None => return,
     };
 
-    let (running, waiting) = compute_tray_state(sessions);
-    let total = sessions.len();
+    let (state, counts) = compute_tray_state(sessions);
 
-    let (icon_bytes, tooltip) = if total == 0 {
-        (ICON_GRAY, "Jackdaw — idle".to_string())
-    } else if running > 0 {
-        (
-            ICON_GREEN,
-            format!("Jackdaw — {} running, {} waiting", running, waiting),
-        )
+    let icon_bytes = match state {
+        TrayState::WaitingForApproval => ICON_APPROVAL,
+        TrayState::WaitingForInput => ICON_INPUT,
+        TrayState::Running => ICON_RUNNING,
+        TrayState::Idle => ICON_IDLE,
+    };
+
+    let tooltip = if sessions.is_empty() {
+        "Jackdaw — idle".to_string()
     } else {
-        (
-            ICON_YELLOW,
-            format!("Jackdaw — {} waiting", waiting),
-        )
+        let mut parts = Vec::new();
+        if counts.running > 0 {
+            parts.push(format!("{} running", counts.running));
+        }
+        if counts.input > 0 {
+            parts.push(format!("{} waiting for input", counts.input));
+        }
+        if counts.approval > 0 {
+            parts.push(format!("{} waiting for approval", counts.approval));
+        }
+        format!("Jackdaw — {}", parts.join(", "))
     };
 
     if let Ok(icon) = Image::from_bytes(icon_bytes) {
@@ -144,11 +153,45 @@ pub fn update_tray(app: &AppHandle, sessions: &[Session]) {
     let _ = tray.set_tooltip(Some(&tooltip));
 }
 
-/// Compute running/waiting counts from session list.
-pub fn compute_tray_state(sessions: &[Session]) -> (usize, usize) {
-    let running = sessions.iter().filter(|s| s.current_tool.is_some() || s.active_subagents > 0 || s.processing).count();
-    let waiting = sessions.iter().filter(|s| s.current_tool.is_none() && s.active_subagents == 0 && !s.processing).count();
-    (running, waiting)
+#[derive(Debug, Clone, PartialEq)]
+pub enum TrayState {
+    WaitingForApproval,
+    WaitingForInput,
+    Running,
+    Idle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrayStateCounts {
+    pub approval: usize,
+    pub input: usize,
+    pub running: usize,
+}
+
+pub fn compute_tray_state(sessions: &[Session]) -> (TrayState, TrayStateCounts) {
+    let mut counts = TrayStateCounts { approval: 0, input: 0, running: 0 };
+
+    for s in sessions {
+        if s.pending_approval {
+            counts.approval += 1;
+        } else if s.current_tool.is_none() && s.active_subagents == 0 && !s.processing {
+            counts.input += 1;
+        } else {
+            counts.running += 1;
+        }
+    }
+
+    let state = if sessions.is_empty() {
+        TrayState::Idle
+    } else if counts.approval > 0 {
+        TrayState::WaitingForApproval
+    } else if counts.input > 0 {
+        TrayState::WaitingForInput
+    } else {
+        TrayState::Running
+    };
+
+    (state, counts)
 }
 
 #[cfg(test)]
@@ -192,30 +235,57 @@ mod tests {
 
     #[test]
     fn tray_state_no_sessions() {
-        assert_eq!(compute_tray_state(&[]), (0, 0));
+        let (state, counts) = compute_tray_state(&[]);
+        assert_eq!(state, TrayState::Idle);
+        assert_eq!(counts, TrayStateCounts { approval: 0, input: 0, running: 0 });
     }
 
     #[test]
     fn tray_state_all_running() {
         let sessions = vec![running_session_with_tool(), running_session_with_subagents()];
-        assert_eq!(compute_tray_state(&sessions), (2, 0));
+        let (state, counts) = compute_tray_state(&sessions);
+        assert_eq!(state, TrayState::Running);
+        assert_eq!(counts, TrayStateCounts { approval: 0, input: 0, running: 2 });
     }
 
     #[test]
-    fn tray_state_all_waiting() {
+    fn tray_state_all_waiting_for_input() {
         let sessions = vec![idle_session(), idle_session()];
-        assert_eq!(compute_tray_state(&sessions), (0, 2));
+        let (state, counts) = compute_tray_state(&sessions);
+        assert_eq!(state, TrayState::WaitingForInput);
+        assert_eq!(counts, TrayStateCounts { approval: 0, input: 2, running: 0 });
     }
 
     #[test]
-    fn tray_state_mixed() {
-        let sessions = vec![running_session_with_tool(), idle_session(), running_session_processing()];
-        assert_eq!(compute_tray_state(&sessions), (2, 1));
+    fn tray_state_approval_wins_over_running() {
+        let sessions = vec![running_session_with_tool(), pending_only_session()];
+        let (state, counts) = compute_tray_state(&sessions);
+        assert_eq!(state, TrayState::WaitingForApproval);
+        assert_eq!(counts, TrayStateCounts { approval: 1, input: 0, running: 1 });
     }
 
     #[test]
-    fn tray_state_pending_only_counts_as_waiting() {
-        let sessions = vec![pending_only_session()];
-        assert_eq!(compute_tray_state(&sessions), (0, 1));
+    fn tray_state_input_wins_over_running() {
+        let sessions = vec![running_session_with_tool(), idle_session()];
+        let (state, counts) = compute_tray_state(&sessions);
+        assert_eq!(state, TrayState::WaitingForInput);
+        assert_eq!(counts, TrayStateCounts { approval: 0, input: 1, running: 1 });
+    }
+
+    #[test]
+    fn tray_state_pending_with_tool_counts_as_approval() {
+        let mut s = running_session_with_tool();
+        s.pending_approval = true;
+        let (state, counts) = compute_tray_state(&[s]);
+        assert_eq!(state, TrayState::WaitingForApproval);
+        assert_eq!(counts, TrayStateCounts { approval: 1, input: 0, running: 0 });
+    }
+
+    #[test]
+    fn tray_state_processing_counts_as_running() {
+        let sessions = vec![running_session_processing()];
+        let (state, counts) = compute_tray_state(&sessions);
+        assert_eq!(state, TrayState::Running);
+        assert_eq!(counts, TrayStateCounts { approval: 0, input: 0, running: 1 });
     }
 }
