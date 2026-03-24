@@ -33,33 +33,50 @@ describe('SessionStore', () => {
     expect(sessionStore.count).toBe(0);
   });
 
-  it('runningCount counts sessions with current_tool', () => {
+  it('globalState is idle when no sessions', () => {
+    sessionStore.sessions = [];
+    expect(sessionStore.globalState).toBe('idle');
+  });
+
+  it('globalState is approval when any session has pending_approval', () => {
     sessionStore.sessions = [
-      makeSession({ current_tool: { tool_name: 'Bash', timestamp: '', summary: null } }),
-      makeSession({ session_id: 's2' }),
+      makeSession({ session_id: 's1', current_tool: { tool_name: 'Bash', timestamp: '', summary: null } }),
+      makeSession({ session_id: 's2', pending_approval: true }),
     ];
-    expect(sessionStore.runningCount).toBe(1);
+    expect(sessionStore.globalState).toBe('approval');
   });
 
-  it('runningCount counts sessions with active_subagents', () => {
-    sessionStore.sessions = [makeSession({ active_subagents: 2 })];
-    expect(sessionStore.runningCount).toBe(1);
+  it('globalState is input when a session is idle (no tool, no subagents, not processing)', () => {
+    sessionStore.sessions = [makeSession()];
+    expect(sessionStore.globalState).toBe('input');
   });
 
-  it('runningCount counts sessions with processing', () => {
+  it('globalState is running when all sessions have tool/subagents/processing', () => {
+    sessionStore.sessions = [
+      makeSession({ session_id: 's1', current_tool: { tool_name: 'Bash', timestamp: '', summary: null } }),
+      makeSession({ session_id: 's2', active_subagents: 1 }),
+    ];
+    expect(sessionStore.globalState).toBe('running');
+  });
+
+  it('globalState is running for processing session', () => {
     sessionStore.sessions = [makeSession({ processing: true })];
-    expect(sessionStore.runningCount).toBe(1);
+    expect(sessionStore.globalState).toBe('running');
   });
 
-  it('runningCount does not count pending-only sessions', () => {
-    sessionStore.sessions = [makeSession({ pending_approval: true })];
-    expect(sessionStore.runningCount).toBe(0);
-  });
-
-  it('runningCount excludes pending sessions with current_tool', () => {
+  it('globalState approval takes priority over input', () => {
     sessionStore.sessions = [
-      makeSession({ pending_approval: true, current_tool: { tool_name: 'Bash', timestamp: '', summary: null } }),
+      makeSession({ session_id: 's1' }), // input state
+      makeSession({ session_id: 's2', pending_approval: true }), // approval state
     ];
-    expect(sessionStore.runningCount).toBe(0);
+    expect(sessionStore.globalState).toBe('approval');
+  });
+
+  it('globalState input takes priority over running', () => {
+    sessionStore.sessions = [
+      makeSession({ session_id: 's1' }), // input state (no tool, no subagents, not processing)
+      makeSession({ session_id: 's2', current_tool: { tool_name: 'Bash', timestamp: '', summary: null } }), // running
+    ];
+    expect(sessionStore.globalState).toBe('input');
   });
 });

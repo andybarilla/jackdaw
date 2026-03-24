@@ -8,8 +8,15 @@ class SessionStore {
     return this.sessions.length;
   }
 
-  get runningCount(): number {
-    return this.sessions.filter(s => !s.pending_approval && (s.current_tool !== null || s.active_subagents > 0 || s.processing)).length;
+  get globalState(): 'approval' | 'input' | 'running' | 'idle' {
+    if (this.sessions.length === 0) return 'idle';
+    for (const s of this.sessions) {
+      if (s.pending_approval) return 'approval';
+    }
+    for (const s of this.sessions) {
+      if (s.current_tool === null && s.active_subagents === 0 && !s.processing) return 'input';
+    }
+    return 'running';
   }
 }
 
