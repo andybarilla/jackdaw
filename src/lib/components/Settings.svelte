@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Store } from '@tauri-apps/plugin-store';
+  import { invoke } from '@tauri-apps/api/core';
+  import { getVersion } from '@tauri-apps/api/app';
+  import { updaterStore } from '$lib/stores/updater.svelte';
 
   interface NotificationPrefs {
     on_approval_needed: boolean;
@@ -15,6 +18,9 @@
   });
 
   let store: Awaited<ReturnType<typeof Store.load>> | null = $state(null);
+  let autoUpdateEnabled = $state(true);
+  let appVersion = $state<string | null>(null);
+  let checking = $state(false);
 
   onMount(async () => {
     store = await Store.load('settings.json');
@@ -22,6 +28,14 @@
     if (saved) {
       prefs = saved;
     }
+    const savedAutoUpdate = await store.get<boolean>('auto_update_enabled');
+    if (savedAutoUpdate !== undefined) {
+      autoUpdateEnabled = savedAutoUpdate;
+    }
+    if (savedAutoUpdate === false) {
+      await invoke('set_auto_update', { enabled: false });
+    }
+    appVersion = await getVersion();
   });
 
   async function toggle(key: keyof NotificationPrefs) {
@@ -29,6 +43,26 @@
     if (store) {
       await store.set('notifications', prefs);
       await store.save();
+    }
+  }
+
+  async function toggleAutoUpdate() {
+    autoUpdateEnabled = !autoUpdateEnabled;
+    if (store) {
+      await store.set('auto_update_enabled', autoUpdateEnabled);
+      await store.save();
+    }
+    await invoke('set_auto_update', { enabled: autoUpdateEnabled });
+  }
+
+  async function checkForUpdates() {
+    checking = true;
+    try {
+      await invoke('check_for_update');
+    } catch (e) {
+      console.error('Update check failed:', e);
+    } finally {
+      checking = false;
     }
   }
 </script>
@@ -47,6 +81,22 @@
     <input type="checkbox" checked={prefs.on_session_end} onchange={() => toggle('on_session_end')} />
     <span>Notify when session ends</span>
   </label>
+  <h3 class="settings-title">Updates</h3>
+  <label class="toggle-row">
+    <input type="checkbox" checked={autoUpdateEnabled} onchange={toggleAutoUpdate} />
+    <span>Check for updates automatically</span>
+  </label>
+  <div class="update-actions">
+    <button class="check-btn" onclick={checkForUpdates} disabled={checking}>
+      {checking ? 'Checking...' : 'Check for Updates'}
+    </button>
+    {#if updaterStore.isUpdateAvailable}
+      <span class="update-available">v{updaterStore.availableVersion} available</span>
+    {/if}
+  </div>
+  {#if appVersion}
+    <div class="version-info">Current version: v{appVersion}</div>
+  {/if}
 </div>
 
 <style>
@@ -73,5 +123,42 @@
 
   .toggle-row input[type="checkbox"] {
     accent-color: var(--active);
+  }
+
+  .update-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+  }
+
+  .check-btn {
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .check-btn:hover {
+    border-color: var(--text-muted);
+  }
+
+  .check-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .update-available {
+    font-size: 12px;
+    color: var(--active);
+  }
+
+  .version-info {
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 4px 0;
   }
 </style>
