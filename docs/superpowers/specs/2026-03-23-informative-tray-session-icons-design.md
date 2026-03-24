@@ -70,14 +70,14 @@ Icon sizes: 12px in the tool row, 11px in the history list.
 
 ### New component: `ToolIcon.svelte`
 
-Takes a `toolName: string` prop (camelCase). Returns the correct Lucide icon component with the appropriate color CSS class. Used in both the active tool row and history list.
+Takes a `tool_name: string` prop (matching the existing `ToolEvent.tool_name` field in `types.ts`). Returns the correct Lucide icon component with the appropriate color CSS class. Used in both the active tool row and history list.
 
 ## Backend Changes
 
 ### `tray.rs`
 
 - New `TrayState` enum: `WaitingForApproval`, `WaitingForInput`, `Running`, `Idle`.
-- `compute_tray_state` checks `pending_approval` first, then running conditions, then falls back to waiting-for-input. Returns the highest-priority `TrayState` across all sessions. Replaces the current `(usize, usize)` return type.
+- `compute_tray_state` classifies each session: check `pending_approval` first, then waiting-for-input (no tool, no subagents, not processing), then running. Returns the highest-priority `TrayState` across all sessions (approval > input > running > idle). Replaces the current `(usize, usize)` return type.
 - 4 embedded PNGs replacing the current 3. Update `include_bytes!` constants.
 - Tooltip builds string from non-zero counts only.
 - Existing tests updated to use `TrayState` enum.
@@ -98,7 +98,12 @@ No changes. Event handling logic is unchanged.
 
 ### `ToolIcon.svelte` (new)
 
-Maps `toolName` to a Lucide icon component and CSS color class. Falls back to `wrench` in gray for unknown tools.
+Maps `tool_name` to a Lucide icon component and CSS color class. Falls back to `wrench` in gray for unknown tools.
+
+### `Header.svelte`
+
+- Replace `.status-dot` span with a Lucide icon showing the global highest-priority state (matching the tray icon). Size: 12px.
+- Remove unused `.status-dot` CSS.
 
 ### `SessionCard.svelte`
 
