@@ -8,12 +8,6 @@ main() {
     os=$(uname -s | tr '[:upper:]' '[:lower:]')
     arch=$(uname -m)
 
-    case "$os" in
-        linux)  artifact="jackdaw_${tag#v}_amd64.AppImage" ;;
-        darwin) artifact="jackdaw_${tag#v}_aarch64.dmg" ;;
-        *)      echo "Unsupported OS: $os"; exit 1 ;;
-    esac
-
     case "$arch" in
         x86_64|amd64) ;;
         arm64|aarch64) ;;
@@ -32,6 +26,24 @@ main() {
 
     if [ -z "$tag" ]; then
         echo "Error: could not determine latest release"
+        exit 1
+    fi
+
+    # Determine artifact name from release assets
+    if command -v curl >/dev/null 2>&1; then
+        assets=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"name"' | cut -d'"' -f4)
+    else
+        assets=$(wget -qO- "https://api.github.com/repos/$REPO/releases/latest" | grep '"name"' | cut -d'"' -f4)
+    fi
+
+    case "$os" in
+        linux)  artifact=$(echo "$assets" | grep -i '\.appimage$' | head -1) ;;
+        darwin) artifact=$(echo "$assets" | grep -i '\.dmg$' | head -1) ;;
+        *)      echo "Unsupported OS: $os"; exit 1 ;;
+    esac
+
+    if [ -z "$artifact" ]; then
+        echo "Error: no artifact found for $os/$arch"
         exit 1
     fi
 
