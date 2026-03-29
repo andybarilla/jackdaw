@@ -52,13 +52,21 @@ main() {
     echo "Installing Jackdaw $tag for $os/$arch..."
     mkdir -p "$INSTALL_DIR"
 
+    # Download to temp file and move into place to avoid ETXTBSY when
+    # overwriting a running binary
+    tmpfile=$(mktemp "$INSTALL_DIR/jackdaw.XXXXXX")
+    trap 'rm -f "$tmpfile"' EXIT
+
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$url" -o "$INSTALL_DIR/jackdaw"
+        curl -fsSL "$url" -o "$tmpfile"
     else
-        wget -qO "$INSTALL_DIR/jackdaw" "$url"
+        wget -qO "$tmpfile" "$url"
     fi
 
-    chmod +x "$INSTALL_DIR/jackdaw"
+    chmod +x "$tmpfile"
+    rm -f "$INSTALL_DIR/jackdaw"
+    mv "$tmpfile" "$INSTALL_DIR/jackdaw"
+    trap - EXIT
 
     # Desktop entry (Linux only)
     if [ "$os" = "linux" ]; then
