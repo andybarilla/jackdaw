@@ -16,6 +16,14 @@ const ICON_INPUT: &[u8] = include_bytes!("../../static/icons/tray-input.png");
 const ICON_RUNNING: &[u8] = include_bytes!("../../static/icons/tray-running.png");
 const ICON_IDLE: &[u8] = include_bytes!("../../static/icons/tray-idle.png");
 
+fn show_and_focus(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     use tauri::menu::{PredefinedMenuItem, SubmenuBuilder};
 
@@ -41,10 +49,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "show" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                show_and_focus(app);
             }
             "install_hooks_user" => {
                 match crate::hooks::get_settings_path(&crate::hooks::HookScope::User, None) {
@@ -137,8 +142,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                     if window.is_visible().unwrap_or(false) {
                         let _ = window.hide();
                     } else {
-                        let _ = window.show();
-                        let _ = window.set_focus();
+                        show_and_focus(app);
                     }
                 }
             }
