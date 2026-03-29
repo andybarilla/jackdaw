@@ -77,12 +77,22 @@ main() {
 
 install_desktop_entry() {
     desktop_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-    mkdir -p "$desktop_dir"
+    icon_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/128x128/apps"
+    mkdir -p "$desktop_dir" "$icon_dir"
+
+    icon_url="https://raw.githubusercontent.com/$REPO/$tag/src-tauri/icons/128x128.png"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$icon_url" -o "$icon_dir/jackdaw.png"
+    else
+        wget -qO "$icon_dir/jackdaw.png" "$icon_url"
+    fi
+
     cat > "$desktop_dir/jackdaw.desktop" << DESKTOP
 [Desktop Entry]
 Name=Jackdaw
 Comment=Monitor Claude Code sessions
 Exec=$INSTALL_DIR/jackdaw
+Icon=jackdaw
 Type=Application
 Categories=Development;Utility;
 StartupNotify=true
