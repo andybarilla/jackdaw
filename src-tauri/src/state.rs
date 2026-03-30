@@ -70,6 +70,20 @@ pub fn extract_summary(tool_name: &str, tool_input: &Option<serde_json::Value>) 
     value.map(|s| s.chars().take(120).collect())
 }
 
+pub async fn resolve_git_branch(cwd: &str) -> Option<String> {
+    let output = tokio::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(cwd)
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let branch = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if branch.is_empty() { None } else { Some(branch) }
+}
+
 const MAX_TOOL_HISTORY: usize = 50;
 
 impl Session {
@@ -358,6 +372,19 @@ mod tests {
         s.hydrate_from_history(&history);
         assert_eq!(s.tool_history.len(), 1);
         assert_eq!(s.tool_history[0].tool_name, "Bash");
+    }
+
+    #[tokio::test]
+    async fn resolve_git_branch_returns_branch_in_git_repo() {
+        let branch = resolve_git_branch(".").await;
+        assert!(branch.is_some());
+        assert!(!branch.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn resolve_git_branch_returns_none_for_non_git_dir() {
+        let branch = resolve_git_branch("/tmp").await;
+        assert!(branch.is_none());
     }
 
     #[test]
