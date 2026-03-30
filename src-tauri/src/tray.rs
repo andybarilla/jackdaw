@@ -2,7 +2,7 @@ use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    AppHandle, Manager,
+    AppHandle, Emitter, Manager,
 };
 use tauri_plugin_updater::UpdaterExt;
 
@@ -131,7 +131,17 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 });
             }
             "quit" => {
-                app.exit(0);
+                let state = app.state::<std::sync::Arc<crate::state::AppState>>();
+                let busy = {
+                    let sessions = state.sessions.lock().unwrap();
+                    sessions.values().filter(|s| s.is_busy()).count()
+                };
+                if busy > 0 {
+                    show_and_focus(app);
+                    let _ = app.emit("confirm-close", busy);
+                } else {
+                    app.exit(0);
+                }
             }
             _ => {}
         })

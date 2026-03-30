@@ -14,7 +14,7 @@ use base64::Engine;
 use chrono::Utc;
 use state::{AppState, Session, SessionSource};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[tauri::command]
 fn dismiss_session(
@@ -239,6 +239,17 @@ fn get_recent_cwds(state: tauri::State<'_, Arc<AppState>>) -> Vec<String> {
     db::load_recent_cwds(&db, 20)
 }
 
+#[tauri::command]
+fn get_busy_session_count(state: tauri::State<'_, Arc<AppState>>) -> usize {
+    let sessions = state.sessions.lock().unwrap();
+    sessions.values().filter(|s| s.is_busy()).count()
+}
+
+#[tauri::command]
+fn force_quit(app: AppHandle) {
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let db_path = {
@@ -289,7 +300,19 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window.hide();
+                let app = window.app_handle();
+                let state = app.state::<Arc<AppState>>();
+                let busy = {
+                    let sessions = state.sessions.lock().unwrap();
+                    sessions.values().filter(|s: &&Session| s.is_busy()).count()
+                };
+                if busy > 0 {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    let _ = app.emit("confirm-close", busy);
+                } else {
+                    let _ = window.hide();
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -306,6 +329,8 @@ pub fn run() {
             resize_terminal,
             close_terminal,
             get_recent_cwds,
+            get_busy_session_count,
+            force_quit,
             updater::check_for_update,
             updater::install_update,
             updater::set_auto_update,

@@ -9,6 +9,8 @@
   import { initUpdaterListener } from '$lib/stores/updater.svelte';
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import { shortenPath, getProjectName } from '$lib/utils';
   import { matchShortcut } from '$lib/shortcuts';
   import type { HistorySession } from '$lib/types';
@@ -19,6 +21,7 @@
   let historyLoading = $state(false);
   let showNewSessionMenu = $state(false);
   let recentCwds = $state<string[]>([]);
+  let confirmCloseCount = $state<number | null>(null);
 
   let selectedSession = $derived(
     sessionStore.sessions.find(s => s.session_id === selectedSessionId) ?? null
@@ -27,11 +30,31 @@
   onMount(() => {
     const cleanupSessions = initSessionListener();
     const cleanupUpdater = initUpdaterListener();
+    let cleanupConfirmClose: (() => void) | undefined;
+    listen<number>('confirm-close', (event) => {
+      confirmCloseCount = event.payload;
+    }).then((fn) => {
+      cleanupConfirmClose = fn;
+    });
     return () => {
       cleanupSessions();
       cleanupUpdater();
+      cleanupConfirmClose?.();
     };
   });
+
+  function dismissConfirmClose() {
+    confirmCloseCount = null;
+  }
+
+  function handleHide() {
+    confirmCloseCount = null;
+    getCurrentWindow().hide();
+  }
+
+  function handleForceQuit() {
+    invoke('force_quit');
+  }
 
   function handleDismiss(sessionId: string) {
     invoke('dismiss_session', { sessionId });
@@ -127,7 +150,8 @@
         switchTab('settings');
         return;
       case 'close-modal':
-        if (showNewSessionMenu) closeNewSessionMenu();
+        if (confirmCloseCount !== null) dismissConfirmClose();
+        else if (showNewSessionMenu) closeNewSessionMenu();
         return;
     }
   }
@@ -250,6 +274,28 @@
           {:else}
             <div class="empty-text">No recent sessions</div>
           {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Confirm Close Modal -->
+  {#if confirmCloseCount !== null}
+    <div class="modal-backdrop" onclick={dismissConfirmClose} role="presentation">
+      <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
+        <div class="modal-header">
+          <span class="modal-title">Active Sessions</span>
+          <button class="modal-close" onclick={dismissConfirmClose}>x</button>
+        </div>
+        <div class="modal-body">
+          <p class="confirm-text">
+            {confirmCloseCount} {confirmCloseCount === 1 ? 'session is' : 'sessions are'} still running. What would you like to do?
+          </p>
+          <div class="confirm-actions">
+            <button class="confirm-btn confirm-btn-cancel" onclick={dismissConfirmClose}>Cancel</button>
+            <button class="confirm-btn confirm-btn-hide" onclick={handleHide}>Hide Window</button>
+            <button class="confirm-btn confirm-btn-quit" onclick={handleForceQuit}>Quit</button>
+          </div>
         </div>
       </div>
     </div>
@@ -468,6 +514,54 @@
   .cwd-path {
     font-size: 11px;
     color: var(--text-muted);
+  }
+
+  .confirm-text {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin: 0 0 16px;
+  }
+
+  .confirm-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .confirm-btn {
+    border: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 14px;
+    transition: background 0.1s;
+  }
+
+  .confirm-btn-cancel {
+    background: none;
+    color: var(--text-secondary);
+  }
+
+  .confirm-btn-cancel:hover {
+    background: var(--tool-bg);
+  }
+
+  .confirm-btn-hide {
+    background: none;
+    color: var(--text-primary);
+  }
+
+  .confirm-btn-hide:hover {
+    background: var(--tool-bg);
+  }
+
+  .confirm-btn-quit {
+    background: var(--danger, #c53030);
+    color: #fff;
+    border-color: transparent;
+  }
+
+  .confirm-btn-quit:hover {
+    opacity: 0.9;
   }
 
   .loading-text,
