@@ -221,12 +221,13 @@
   .main-content {
     display: flex;
     flex: 1;
+    min-height: 0;
     overflow: hidden;
   }
 
   .sidebar {
     width: 320px;
-    min-width: 280px;
+    flex-shrink: 0;
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
