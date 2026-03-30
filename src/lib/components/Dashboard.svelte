@@ -101,6 +101,7 @@
             pending_approval: false,
             processing: false,
             has_unread: false,
+            source: 'external',
           }} onDismiss={handleDismiss} historyMode={true} endedAt={session.ended_at} />
         {/each}
       {/if}

@@ -21,6 +21,7 @@ describe('SessionStore', () => {
       pending_approval: false,
       processing: false,
       has_unread: false,
+      source: 'external' as const,
       ...overrides,
     };
   }

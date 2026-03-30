@@ -15,6 +15,7 @@ export interface Session {
   pending_approval: boolean;
   processing: boolean;
   has_unread: boolean;
+  source: 'external' | 'spawned';
 }
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';
@@ -33,6 +34,16 @@ export interface HistorySession {
   ended_at: string;
   git_branch: string | null;
   tool_history: HistoryToolEvent[];
+}
+
+export interface TerminalOutputPayload {
+  session_id: string;
+  data: string; // base64-encoded
+}
+
+export interface TerminalExitedPayload {
+  session_id: string;
+  exit_code: number | null;
 }
 
 export interface UpdateInfo {
