@@ -122,6 +122,13 @@ impl Session {
         }
     }
 
+    pub fn is_busy(&self) -> bool {
+        self.current_tool.is_some()
+            || self.active_subagents > 0
+            || self.processing
+            || self.pending_approval
+    }
+
     pub fn set_current_tool(&mut self, tool: ToolEvent) {
         // If there's already a current tool, move it to history first
         if let Some(prev) = self.current_tool.take() {
@@ -426,6 +433,40 @@ mod tests {
     fn session_source_defaults_to_external() {
         let s = Session::new("s1".into(), "/tmp".into());
         assert_eq!(s.source, SessionSource::External);
+    }
+
+    #[test]
+    fn is_busy_with_current_tool() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.set_current_tool(make_tool("Bash", Some("id-1")));
+        assert!(s.is_busy());
+    }
+
+    #[test]
+    fn is_busy_with_subagents() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.active_subagents = 1;
+        assert!(s.is_busy());
+    }
+
+    #[test]
+    fn is_busy_when_processing() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.processing = true;
+        assert!(s.is_busy());
+    }
+
+    #[test]
+    fn is_busy_when_pending_approval() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.pending_approval = true;
+        assert!(s.is_busy());
+    }
+
+    #[test]
+    fn is_busy_false_when_idle() {
+        let s = Session::new("s1".into(), "/tmp".into());
+        assert!(!s.is_busy());
     }
 
     #[test]
