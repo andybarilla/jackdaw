@@ -135,15 +135,15 @@ async fn spawn_terminal(
     let sid_for_spawn = sid.clone();
 
     let reader = tokio::task::spawn_blocking(move || {
-        pty_mgr_inner.spawn(
-            sid_for_spawn,
-            &cwd_clone,
-            80,
-            24,
-            "claude",
-            &[],
-            &[("JACKDAW_SPAWNED_SESSION", &sid_for_env)],
-        )
+        pty_mgr_inner.spawn(crate::pty::SpawnConfig {
+            id: sid_for_spawn,
+            cwd: &cwd_clone,
+            cols: 80,
+            rows: 24,
+            program: "claude",
+            args: &[],
+            env: &[("JACKDAW_SPAWNED_SESSION", &sid_for_env)],
+        })
     })
     .await
     .map_err(|e| format!("spawn task failed: {}", e))??;
