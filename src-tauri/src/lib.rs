@@ -5,7 +5,7 @@ pub mod ipc;
 mod notify;
 pub mod send;
 mod server;
-mod state;
+pub mod state;
 mod tray;
 pub mod updater;
 
