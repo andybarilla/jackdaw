@@ -30,6 +30,7 @@ pub struct Session {
     pub active_subagents: u32,
     pub pending_approval: bool,
     pub processing: bool,
+    pub has_unread: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,6 +99,7 @@ impl Session {
             active_subagents: 0,
             pending_approval: false,
             processing: false,
+            has_unread: false,
         }
     }
 

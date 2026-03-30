@@ -424,6 +424,13 @@ mod tests {
     }
 
     #[test]
+    fn session_has_unread_defaults_to_false() {
+        use crate::state::Session;
+        let session = Session::new("s1".into(), "/tmp".into());
+        assert!(!session.has_unread);
+    }
+
+    #[test]
     fn notification_while_processing_sets_pending_approval() {
         use crate::state::Session;
 
