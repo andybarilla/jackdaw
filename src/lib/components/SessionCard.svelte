@@ -1,9 +1,9 @@
 <script lang="ts">
   import type { Session } from '$lib/types';
+  import { invoke } from '@tauri-apps/api/core';
   import { getUptime, getProjectName, shortenSessionId, formatEndedAt } from '$lib/utils';
   import { slide } from 'svelte/transition';
   import ToolIcon from './ToolIcon.svelte';
-  import SessionStatusIcon from './SessionStatusIcon.svelte';
 
   interface Props {
     session: Session;
@@ -15,8 +15,22 @@
   let { session, onDismiss, historyMode = false, endedAt }: Props = $props();
 
   let expanded = $state(false);
-  let isPending = $derived(session.pending_approval);
-  let isActive = $derived(!isPending && (session.current_tool !== null || session.active_subagents > 0 || session.processing));
+
+  type CardState = 'approval' | 'input' | 'running' | 'idle';
+
+  let cardState = $derived<CardState>(
+    session.pending_approval
+      ? 'approval'
+      : (session.current_tool !== null || session.active_subagents > 0 || session.processing)
+        ? 'running'
+        : historyMode
+          ? 'idle'
+          : 'input'
+  );
+
+  let isActive = $derived(cardState === 'running');
+  let isPending = $derived(cardState === 'approval');
+
   let uptime = $derived(historyMode && endedAt
     ? formatEndedAt(endedAt)
     : getUptime(session.started_at));
@@ -25,19 +39,31 @@
   // Last completed tool for dimmed state between rapid tool calls
   let lastTool = $derived(session.tool_history.length > 0 ? session.tool_history[session.tool_history.length - 1] : null);
 
-  function toggleExpand() {
+  async function toggleExpand(): Promise<void> {
     expanded = !expanded;
+    if (expanded && session.has_unread) {
+      await invoke('mark_session_read', { sessionId: session.session_id });
+    }
   }
 </script>
 
-<div class="card" class:expanded class:running={isActive} class:needs-attention={isPending}>
+<div
+  class="card"
+  class:expanded
+  style="--accent-color: var(--state-{cardState})"
+  class:has-attention={cardState === 'approval' || cardState === 'input'}
+>
   <!-- Header row: always visible, clickable -->
   <div class="row-header" onclick={toggleExpand} role="button" tabindex="0" onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggleExpand())}>
     <div class="row-left">
-      <SessionStatusIcon {session} size={14} {historyMode} />
       <span class="project-name">{getProjectName(session.cwd)}</span>
-      {#if !isActive && !isPending && !historyMode}
-        <span class="idle-text">idle</span>
+      {#if session.has_unread}
+        <span class="unread-dot"></span>
+      {/if}
+      {#if cardState === 'approval'}
+        <span class="state-label approval">APPROVAL</span>
+      {:else if cardState === 'input' && !historyMode}
+        <span class="state-label input">INPUT</span>
       {/if}
       {#if session.active_subagents > 0}
         <span class="subagent-count">· {session.active_subagents} agent{session.active_subagents === 1 ? '' : 's'}</span>
@@ -113,16 +139,11 @@
   .card {
     background: var(--card-bg);
     border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-color, var(--border));
   }
 
-  .card.running {
-    border-color: var(--border-active);
-    box-shadow: var(--glow-active);
-  }
-
-  .card.needs-attention {
-    border-color: var(--border-attention);
-    box-shadow: var(--glow-attention);
+  .card.has-attention {
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent-color) 10%, transparent);
   }
 
   .row-header {
@@ -152,11 +173,6 @@
     font-weight: 600;
     font-size: 13px;
     color: var(--text-primary);
-  }
-
-  .idle-text {
-    font-size: 11px;
-    color: var(--text-muted);
   }
 
   .subagent-count {
@@ -311,5 +327,26 @@
     min-width: 0;
   }
 
+  .state-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .state-label.approval {
+    color: var(--state-approval);
+  }
+
+  .state-label.input {
+    color: var(--state-input);
+  }
+
+  .unread-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    flex-shrink: 0;
+  }
 
 </style>
