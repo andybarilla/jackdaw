@@ -3,6 +3,7 @@ pub mod db;
 mod hooks;
 pub mod ipc;
 mod notify;
+pub mod pty;
 pub mod send;
 mod server;
 pub mod state;
