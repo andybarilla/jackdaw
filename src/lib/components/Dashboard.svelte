@@ -10,6 +10,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { shortenPath, getProjectName } from '$lib/utils';
+  import { matchShortcut } from '$lib/shortcuts';
   import type { HistorySession } from '$lib/types';
 
   let activeTab = $state<'active' | 'history' | 'settings'>('active');
@@ -87,7 +88,52 @@
   function closeNewSessionMenu() {
     showNewSessionMenu = false;
   }
+
+  function handleKeydown(event: KeyboardEvent) {
+    const action = matchShortcut(event);
+    if (!action) return;
+
+    event.preventDefault();
+    const sessions = sessionStore.sessions;
+
+    switch (action) {
+      case 'next-session': {
+        if (sessions.length === 0) return;
+        const idx = sessions.findIndex(s => s.session_id === selectedSessionId);
+        const next = idx < sessions.length - 1 ? idx + 1 : 0;
+        selectSession(sessions[next].session_id);
+        return;
+      }
+      case 'prev-session': {
+        if (sessions.length === 0) return;
+        const idx = sessions.findIndex(s => s.session_id === selectedSessionId);
+        const prev = idx > 0 ? idx - 1 : sessions.length - 1;
+        selectSession(sessions[prev].session_id);
+        return;
+      }
+      case 'new-session':
+        openNewSessionMenu();
+        return;
+      case 'dismiss-session':
+        if (selectedSessionId) handleDismiss(selectedSessionId);
+        return;
+      case 'tab-active':
+        switchTab('active');
+        return;
+      case 'tab-history':
+        switchTab('history');
+        return;
+      case 'tab-settings':
+        switchTab('settings');
+        return;
+      case 'close-modal':
+        if (showNewSessionMenu) closeNewSessionMenu();
+        return;
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="app-layout">
   <Header sessionCount={sessionStore.count} globalState={sessionStore.globalState} />
