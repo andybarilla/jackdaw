@@ -17,6 +17,15 @@ pub struct HookPayload {
     pub tool_input: Option<serde_json::Value>,
     #[serde(default)]
     pub tool_use_id: Option<String>,
+    #[serde(default)]
+    pub spawned_session: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionSource {
+    External,
+    Spawned,
 }
 
 /// Internal session state
@@ -32,6 +41,7 @@ pub struct Session {
     pub pending_approval: bool,
     pub processing: bool,
     pub has_unread: bool,
+    pub source: SessionSource,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -48,6 +58,9 @@ pub struct AppState {
     pub sessions: Mutex<HashMap<String, Session>>,
     pub db: Mutex<Connection>,
     pub subscriber_tx: broadcast::Sender<String>,
+    /// Maps Claude's session_id → PTY session_id for spawned sessions.
+    /// Hook events arrive with Claude's ID; this lets us find the session under its PTY ID.
+    pub spawned_id_map: Mutex<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -57,6 +70,7 @@ impl AppState {
             sessions: Mutex::new(HashMap::new()),
             db: Mutex::new(db),
             subscriber_tx,
+            spawned_id_map: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -104,6 +118,7 @@ impl Session {
             pending_approval: false,
             processing: false,
             has_unread: false,
+            source: SessionSource::External,
         }
     }
 
@@ -391,6 +406,34 @@ mod tests {
     async fn resolve_git_branch_returns_none_for_non_git_dir() {
         let branch = resolve_git_branch("/tmp").await;
         assert!(branch.is_none());
+    }
+
+    #[test]
+    fn hook_payload_deserializes_spawned_session() {
+        let json = r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart","spawned_session":"pty-123"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.spawned_session, Some("pty-123".into()));
+    }
+
+    #[test]
+    fn hook_payload_spawned_session_defaults_to_none() {
+        let json = r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.spawned_session, None);
+    }
+
+    #[test]
+    fn session_source_defaults_to_external() {
+        let s = Session::new("s1".into(), "/tmp".into());
+        assert_eq!(s.source, SessionSource::External);
+    }
+
+    #[test]
+    fn session_source_serializes_as_lowercase() {
+        let json = serde_json::to_value(SessionSource::Spawned).unwrap();
+        assert_eq!(json, serde_json::json!("spawned"));
+        let json = serde_json::to_value(SessionSource::External).unwrap();
+        assert_eq!(json, serde_json::json!("external"));
     }
 
     #[test]

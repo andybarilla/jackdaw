@@ -30,11 +30,10 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
 dirs = "6"
 interprocess = { version = "2", features = ["tokio"] }
+portable-pty = "0.8"
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"
-
-[[bin]]
-name = "jackdaw-send"
-path = "src/bin/jackdaw-send.rs"

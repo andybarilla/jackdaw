@@ -13,8 +13,10 @@
     "windows": [
       {
         "title": "Jackdaw",
-        "width": 400,
-        "height": 600,
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 500,
         "visible": false,
         "resizable": true,
         "decorations": false

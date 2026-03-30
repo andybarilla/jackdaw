@@ -3,19 +3,28 @@ pub mod db;
 mod hooks;
 pub mod ipc;
 mod notify;
+pub mod pty;
 pub mod send;
 mod server;
 pub mod state;
 mod tray;
 pub mod updater;
 
+use base64::Engine;
 use chrono::Utc;
-use state::AppState;
+use state::{AppState, Session, SessionSource};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
 #[tauri::command]
-fn dismiss_session(session_id: String, state: tauri::State<'_, Arc<AppState>>, app: AppHandle) {
+fn dismiss_session(
+    session_id: String,
+    state: tauri::State<'_, Arc<AppState>>,
+    pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+    app: AppHandle,
+) {
+    pty_mgr.close(&session_id);
+
     let mut sessions = state.sessions.lock().unwrap();
     sessions.remove(&session_id);
     let mut session_list: Vec<_> = sessions.values().cloned().collect();
@@ -93,6 +102,143 @@ fn uninstall_hooks(
     Ok(format!("Hooks removed from {}", path.display()))
 }
 
+#[tauri::command]
+async fn spawn_terminal(
+    cwd: String,
+    app: AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+) -> Result<String, String> {
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let sid = session_id.clone();
+
+    // Pre-create the session so it appears in the UI immediately
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        let mut session = Session::new(sid.clone(), cwd.clone());
+        session.source = SessionSource::Spawned;
+        sessions.insert(sid.clone(), session);
+    }
+
+    // Emit updated session list
+    {
+        let sessions = state.sessions.lock().unwrap();
+        let mut session_list: Vec<_> = sessions.values().cloned().collect();
+        session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        let _ = app.emit("session-update", &session_list);
+        crate::tray::update_tray(&app, &session_list);
+    }
+
+    let pty_mgr_inner = pty_mgr.inner().clone();
+    let cwd_clone = cwd.clone();
+    let sid_for_env = sid.clone();
+    let sid_for_spawn = sid.clone();
+
+    let reader = tokio::task::spawn_blocking(move || {
+        pty_mgr_inner.spawn(
+            sid_for_spawn,
+            &cwd_clone,
+            80,
+            24,
+            "claude",
+            &[],
+            &[("JACKDAW_SPAWNED_SESSION", &sid_for_env)],
+        )
+    })
+    .await
+    .map_err(|e| format!("spawn task failed: {}", e))??;
+
+    // Spawn background thread to read PTY output and emit events
+    let app_clone = app.clone();
+    let sid_for_reader = session_id.clone();
+    let pty_mgr_for_exit = pty_mgr.inner().clone();
+
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut reader = reader;
+        let mut buf = [0u8; 4096];
+        let engine = base64::engine::general_purpose::STANDARD;
+
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let encoded = engine.encode(&buf[..n]);
+                    let _ = app_clone.emit(
+                        "terminal-output",
+                        serde_json::json!({
+                            "session_id": sid_for_reader,
+                            "data": encoded,
+                        }),
+                    );
+                }
+                Err(_) => break,
+            }
+        }
+
+        let exit_code = pty_mgr_for_exit.try_wait(&sid_for_reader).ok().flatten();
+
+        let _ = app_clone.emit(
+            "terminal-exited",
+            serde_json::json!({
+                "session_id": sid_for_reader,
+                "exit_code": exit_code,
+            }),
+        );
+    });
+
+    Ok(session_id)
+}
+
+#[tauri::command]
+fn write_terminal(
+    session_id: String,
+    data: String,
+    pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+) -> Result<(), String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&data)
+        .map_err(|e| format!("invalid base64: {}", e))?;
+    pty_mgr.write(&session_id, &bytes)
+}
+
+#[tauri::command]
+fn resize_terminal(
+    session_id: String,
+    cols: u16,
+    rows: u16,
+    pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+) -> Result<(), String> {
+    pty_mgr.resize(&session_id, cols, rows)
+}
+
+#[tauri::command]
+fn close_terminal(
+    session_id: String,
+    pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+    state: tauri::State<'_, Arc<AppState>>,
+    app: AppHandle,
+) -> Result<(), String> {
+    pty_mgr.close(&session_id);
+
+    let mut sessions = state.sessions.lock().unwrap();
+    sessions.remove(&session_id);
+    let mut session_list: Vec<_> = sessions.values().cloned().collect();
+    session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    drop(sessions);
+
+    let _ = app.emit("session-update", &session_list);
+    crate::tray::update_tray(&app, &session_list);
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_recent_cwds(state: tauri::State<'_, Arc<AppState>>) -> Vec<String> {
+    let db = state.db.lock().unwrap();
+    db::load_recent_cwds(&db, 20)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let db_path = {
@@ -107,9 +253,11 @@ pub fn run() {
     }
 
     let app_state = Arc::new(AppState::new(db_conn));
+    let pty_manager = Arc::new(pty::PtyManager::new());
 
     tauri::Builder::default()
         .manage(app_state.clone())
+        .manage(pty_manager)
         .manage(updater::UpdateState::new())
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -153,6 +301,11 @@ pub fn run() {
             get_session_history,
             get_retention_days,
             set_retention_days,
+            spawn_terminal,
+            write_terminal,
+            resize_terminal,
+            close_terminal,
+            get_recent_cwds,
             updater::check_for_update,
             updater::install_update,
             updater::set_auto_update,
