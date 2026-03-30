@@ -141,6 +141,22 @@ pub fn load_history(conn: &Connection, limit: u32, offset: u32) -> Vec<HistorySe
         .collect()
 }
 
+pub fn load_recent_cwds(conn: &Connection, limit: u32) -> Vec<String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT cwd FROM sessions
+             GROUP BY cwd
+             ORDER BY MAX(started_at) DESC
+             LIMIT ?1",
+        )
+        .unwrap();
+
+    stmt.query_map(rusqlite::params![limit], |row| row.get(0))
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+}
+
 pub fn load_session_git_branch(conn: &Connection, session_id: &str) -> Option<String> {
     conn.query_row(
         "SELECT git_branch FROM sessions WHERE session_id = ?1",
@@ -511,6 +527,44 @@ mod tests {
             )
             .unwrap();
         assert_eq!(branch, Some("feat-test".to_string()));
+    }
+
+    #[test]
+    fn load_recent_cwds_returns_distinct_paths() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/home/user/project-a", "2026-03-21T00:00:00Z");
+        end_session(&conn, "s1", "2026-03-21T01:00:00Z");
+        save_session(&conn, "s2", "/home/user/project-b", "2026-03-21T02:00:00Z");
+        end_session(&conn, "s2", "2026-03-21T03:00:00Z");
+        save_session(&conn, "s3", "/home/user/project-a", "2026-03-21T04:00:00Z");
+        end_session(&conn, "s3", "2026-03-21T05:00:00Z");
+
+        let cwds = load_recent_cwds(&conn, 10);
+        assert_eq!(cwds.len(), 2);
+        assert_eq!(cwds[0], "/home/user/project-a");
+        assert_eq!(cwds[1], "/home/user/project-b");
+    }
+
+    #[test]
+    fn load_recent_cwds_respects_limit() {
+        let conn = init_memory();
+        for i in 0..5 {
+            let id = format!("s{}", i);
+            let cwd = format!("/home/user/project-{}", i);
+            save_session(&conn, &id, &cwd, &format!("2026-03-21T0{}:00:00Z", i));
+            end_session(&conn, &id, &format!("2026-03-21T0{}:30:00Z", i));
+        }
+        let cwds = load_recent_cwds(&conn, 3);
+        assert_eq!(cwds.len(), 3);
+    }
+
+    #[test]
+    fn load_recent_cwds_includes_active_sessions() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/home/user/active-project", "2026-03-21T00:00:00Z");
+        let cwds = load_recent_cwds(&conn, 10);
+        assert_eq!(cwds.len(), 1);
+        assert_eq!(cwds[0], "/home/user/active-project");
     }
 
     #[test]
