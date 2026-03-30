@@ -73,129 +73,150 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
     let cwd = payload.cwd;
     let event_name = payload.hook_event_name;
 
-    // Lock ordering: always acquire sessions before db, or drop sessions before
-    // acquiring db. Never hold both simultaneously in different orders — dismiss_session
-    // in lib.rs holds sessions then db, so reversed ordering would deadlock.
-    let mut sessions = state.sessions.lock().unwrap();
+    // All synchronous session state updates in a block so MutexGuard is dropped before awaits
+    let (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git) = {
+        // Lock ordering: always acquire sessions before db, or drop sessions before
+        // acquiring db. Never hold both simultaneously in different orders — dismiss_session
+        // in lib.rs holds sessions then db, so reversed ordering would deadlock.
+        let mut sessions = state.sessions.lock().unwrap();
 
-    // Ensure session exists for any event (except SessionEnd which removes it).
-    // When creating a new session, check DB for offline tool history and rehydrate.
-    if event_name != "SessionEnd" && !sessions.contains_key(&session_id) {
-        // Drop sessions before acquiring db to maintain lock ordering
-        drop(sessions);
-        let db = state.db.lock().unwrap();
-        let history = crate::db::load_tool_events_for_session(&db, &session_id);
-        drop(db);
-        // Re-acquire sessions lock
-        sessions = state.sessions.lock().unwrap();
-        // Double-check — another thread may have inserted while we released the lock
-        if !sessions.contains_key(&session_id) {
-            let mut session = Session::new(session_id.clone(), cwd.clone());
-            session.hydrate_from_history(&history);
-            sessions.insert(session_id.clone(), session);
-        }
-    }
-
-    let session_started_at = sessions.get(&session_id).map(|s| s.started_at.to_rfc3339());
-
-    // Option variables for PostToolUse DB persistence; set inside the arm below.
-    let mut db_tool_name: Option<String> = None;
-    let mut db_tool_summary: Option<String> = None;
-    let mut db_tool_timestamp: Option<String> = None;
-
-    match event_name.as_str() {
-        "SessionStart" => {
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.processing = true;
+        // Ensure session exists for any event (except SessionEnd which removes it).
+        // When creating a new session, check DB for offline tool history and rehydrate.
+        if event_name != "SessionEnd" && !sessions.contains_key(&session_id) {
+            // Drop sessions before acquiring db to maintain lock ordering
+            drop(sessions);
+            let db = state.db.lock().unwrap();
+            let history = crate::db::load_tool_events_for_session(&db, &session_id);
+            drop(db);
+            // Re-acquire sessions lock
+            sessions = state.sessions.lock().unwrap();
+            // Double-check — another thread may have inserted while we released the lock
+            if !sessions.contains_key(&session_id) {
+                let mut session = Session::new(session_id.clone(), cwd.clone());
+                session.hydrate_from_history(&history);
+                sessions.insert(session_id.clone(), session);
             }
         }
-        "Stop" => {
-            // End of Claude's response turn — session goes idle, waiting for user input
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.processing = false;
-                session.pending_approval = false;
-                session.clear_current_tool();
-            }
-        }
-        "SessionEnd" => {
-            // Session actually exiting — remove it
-            sessions.remove(&session_id);
-        }
-        "PreToolUse" => {
-            let tool_name = match payload.tool_name {
-                Some(name) => name,
-                None => {
-                    eprintln!("Jackdaw: PreToolUse missing tool_name");
-                    return;
-                }
-            };
-            let summary = extract_summary(&tool_name, &payload.tool_input);
-            let tool_event = ToolEvent {
-                tool_name,
-                timestamp: Utc::now(),
-                summary,
-                tool_use_id: payload.tool_use_id,
-            };
 
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.pending_approval = false;
-                session.processing = true;
-                session.set_current_tool(tool_event);
-            }
-        }
-        "PostToolUse" => {
-            let tool_name = match payload.tool_name {
-                Some(name) => name,
-                None => {
-                    eprintln!("Jackdaw: PostToolUse missing tool_name");
-                    return;
-                }
-            };
-            let summary = extract_summary(&tool_name, &payload.tool_input);
-            let now = Utc::now();
-            let tool_event = ToolEvent {
-                tool_name: tool_name.clone(),
-                timestamp: now,
-                summary: summary.clone(),
-                tool_use_id: payload.tool_use_id.clone(),
-            };
+        let session_started_at = sessions.get(&session_id).map(|s| s.started_at.to_rfc3339());
 
-            db_tool_name = Some(tool_name);
-            db_tool_summary = summary;
-            db_tool_timestamp = Some(now.to_rfc3339());
+        // Option variables for PostToolUse DB persistence; set inside the arm below.
+        let mut db_tool_name: Option<String> = None;
+        let mut db_tool_summary: Option<String> = None;
+        let mut db_tool_timestamp: Option<String> = None;
 
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.pending_approval = false;
-                session.complete_tool(payload.tool_use_id.as_deref(), tool_event);
-            }
-        }
-        "UserPromptSubmit" => {
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.pending_approval = false;
-                session.processing = true;
-            }
-        }
-        "Notification" => {
-            if let Some(session) = sessions.get_mut(&session_id) {
-                if session.processing {
-                    session.pending_approval = true;
+        match event_name.as_str() {
+            "SessionStart" => {
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.processing = true;
                 }
             }
-        }
-        "SubagentStart" => {
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.active_subagents = session.active_subagents.saturating_add(1);
+            "Stop" => {
+                // End of Claude's response turn — session goes idle, waiting for user input
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.processing = false;
+                    session.pending_approval = false;
+                    session.clear_current_tool();
+                }
             }
-        }
-        "SubagentStop" => {
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.active_subagents = session.active_subagents.saturating_sub(1);
+            "SessionEnd" => {
+                // Session actually exiting — remove it
+                sessions.remove(&session_id);
             }
+            "PreToolUse" => {
+                let tool_name = match payload.tool_name {
+                    Some(name) => name,
+                    None => {
+                        eprintln!("Jackdaw: PreToolUse missing tool_name");
+                        return;
+                    }
+                };
+                let summary = extract_summary(&tool_name, &payload.tool_input);
+                let tool_event = ToolEvent {
+                    tool_name,
+                    timestamp: Utc::now(),
+                    summary,
+                    tool_use_id: payload.tool_use_id,
+                };
+
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.pending_approval = false;
+                    session.processing = true;
+                    session.set_current_tool(tool_event);
+                }
+            }
+            "PostToolUse" => {
+                let tool_name = match payload.tool_name {
+                    Some(name) => name,
+                    None => {
+                        eprintln!("Jackdaw: PostToolUse missing tool_name");
+                        return;
+                    }
+                };
+                let summary = extract_summary(&tool_name, &payload.tool_input);
+                let now = Utc::now();
+                let tool_event = ToolEvent {
+                    tool_name: tool_name.clone(),
+                    timestamp: now,
+                    summary: summary.clone(),
+                    tool_use_id: payload.tool_use_id.clone(),
+                };
+
+                db_tool_name = Some(tool_name);
+                db_tool_summary = summary;
+                db_tool_timestamp = Some(now.to_rfc3339());
+
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.pending_approval = false;
+                    session.complete_tool(payload.tool_use_id.as_deref(), tool_event);
+                }
+            }
+            "UserPromptSubmit" => {
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.pending_approval = false;
+                    session.processing = true;
+                }
+            }
+            "Notification" => {
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    if session.processing {
+                        session.pending_approval = true;
+                    }
+                }
+            }
+            "SubagentStart" => {
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.active_subagents = session.active_subagents.saturating_add(1);
+                }
+            }
+            "SubagentStop" => {
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.active_subagents = session.active_subagents.saturating_sub(1);
+                }
+            }
+            _ => {}
         }
-        _ => {}
+
+        let cwd_for_git = if event_name != "SessionEnd" {
+            sessions.get(&session_id).map(|s| s.cwd.clone())
+        } else {
+            None
+        };
+
+        (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git)
+    };
+
+    // Resolve git branch (async, outside lock scope)
+    if let Some(ref cwd_git) = cwd_for_git {
+        let branch = crate::state::resolve_git_branch(cwd_git).await;
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(&session_id) {
+            session.git_branch = branch;
+        }
     }
 
     // Emit updated session list to frontend, sorted newest first
+    let sessions = state.sessions.lock().unwrap();
     let mut session_list: Vec<_> = sessions.values().cloned().collect();
     session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
     drop(sessions);
