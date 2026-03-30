@@ -1,11 +1,13 @@
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::api::{self, Response};
 use crate::state::{extract_summary, AppState, HookPayload, Session, ToolEvent};
 use chrono::Utc;
 
 use interprocess::local_socket::{
-    traits::tokio::Listener as _, GenericFilePath, ListenerOptions, ToFsName,
+    traits::tokio::{Listener as _, Stream as _},
+    GenericFilePath, ListenerOptions, ToFsName,
 };
 #[cfg(windows)]
 use interprocess::local_socket::{GenericNamespaced, ToNsName};
@@ -19,12 +21,16 @@ pub async fn start_server(app_handle: AppHandle, state: Arc<AppState>) {
     let listener = {
         #[cfg(unix)]
         {
-            let name = name.to_fs_name::<GenericFilePath>().expect("invalid socket path");
+            let name = name
+                .to_fs_name::<GenericFilePath>()
+                .expect("invalid socket path");
             ListenerOptions::new().name(name).create_tokio()
         }
         #[cfg(windows)]
         {
-            let name = name.to_ns_name::<GenericNamespaced>().expect("invalid pipe name");
+            let name = name
+                .to_ns_name::<GenericNamespaced>()
+                .expect("invalid pipe name");
             ListenerOptions::new().name(name).create_tokio()
         }
     };
@@ -45,18 +51,96 @@ pub async fn start_server(app_handle: AppHandle, state: Arc<AppState>) {
                 let app_handle = app_handle.clone();
                 let state = state.clone();
                 tokio::spawn(async move {
-                    let reader = tokio::io::BufReader::new(conn);
-                    use tokio::io::AsyncBufReadExt;
-                    let mut lines = reader.lines();
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        handle_event(&app_handle, &state, &line).await;
-                    }
+                    handle_connection(conn, &app_handle, &state).await;
                 });
             }
             Err(e) => {
                 eprintln!("Jackdaw: IPC accept error: {}", e);
             }
         }
+    }
+}
+
+async fn handle_connection(
+    conn: interprocess::local_socket::tokio::Stream,
+    app_handle: &AppHandle,
+    state: &Arc<AppState>,
+) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let (recv_half, mut send_half) = conn.split();
+    let reader = tokio::io::BufReader::new(recv_half);
+    let mut lines = reader.lines();
+    let mut subscription_rx: Option<tokio::sync::broadcast::Receiver<String>> = None;
+
+    loop {
+        tokio::select! {
+            line_result = lines.next_line() => {
+                match line_result {
+                    Ok(Some(line)) => {
+                        if let Some(request) = api::try_parse_request(&line) {
+                            let response = dispatch_request(&request, state, &mut subscription_rx);
+                            if let Ok(json) = serde_json::to_string(&response) {
+                                if send_half.write_all(format!("{}\n", json).as_bytes()).await.is_err() {
+                                    break;
+                                }
+                            }
+                        } else {
+                            handle_event(app_handle, state, &line).await;
+                        }
+                    }
+                    Ok(None) | Err(_) => break,
+                }
+            }
+            update = async {
+                match &mut subscription_rx {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if let Ok(json) = update {
+                    let msg = format!("{{\"event\":\"session_updates\",\"data\":{}}}\n", json);
+                    if send_half.write_all(msg.as_bytes()).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn dispatch_request(
+    request: &api::Request,
+    state: &Arc<AppState>,
+    subscription_rx: &mut Option<tokio::sync::broadcast::Receiver<String>>,
+) -> Response {
+    match request.request_type.as_str() {
+        "query" => match api::handle_query(&request.command, &request.args, state) {
+            Ok(data) => Response::success(request.id.clone(), data),
+            Err(e) => Response::error(request.id.clone(), e),
+        },
+        "action" => match api::handle_action(&request.command, &request.args, state) {
+            Ok(data) => Response::success(request.id.clone(), data),
+            Err(e) => Response::error(request.id.clone(), e),
+        },
+        "subscribe" => {
+            if request.command == "session_updates" {
+                *subscription_rx = Some(state.subscriber_tx.subscribe());
+                Response::success(
+                    request.id.clone(),
+                    serde_json::json!({"subscribed": "session_updates"}),
+                )
+            } else {
+                Response::error(
+                    request.id.clone(),
+                    format!("unknown subscription: {}", request.command),
+                )
+            }
+        }
+        other => Response::error(
+            request.id.clone(),
+            format!("unknown request type: {}", other),
+        ),
     }
 }
 
