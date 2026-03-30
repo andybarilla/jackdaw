@@ -165,7 +165,7 @@ pub fn handle_action(
                     .get("key")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "entry missing key".to_string())?;
-                if entry.get("value").map_or(false, |v| v.is_null()) {
+                if entry.get("value").is_some_and(|v| v.is_null()) {
                     session.metadata.shift_remove(key);
                     continue;
                 }
