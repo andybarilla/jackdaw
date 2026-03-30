@@ -10,7 +10,8 @@ export function getUptime(startedAt: string): string {
 }
 
 /** Extract last directory segment from a path (handles both Unix and Windows separators) */
-export function getProjectName(path: string): string {
+export function getProjectName(path: string, displayName?: string | null): string {
+  if (displayName) return displayName;
   const trimmed = path.replace(/[/\\]+$/, '');
   if (!trimmed) return '/';
   return trimmed.split(/[/\\]/).pop()!;
