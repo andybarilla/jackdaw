@@ -17,6 +17,8 @@ pub struct HookPayload {
     pub tool_input: Option<serde_json::Value>,
     #[serde(default)]
     pub tool_use_id: Option<String>,
+    #[serde(default)]
+    pub spawned_session: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -400,6 +402,20 @@ mod tests {
     async fn resolve_git_branch_returns_none_for_non_git_dir() {
         let branch = resolve_git_branch("/tmp").await;
         assert!(branch.is_none());
+    }
+
+    #[test]
+    fn hook_payload_deserializes_spawned_session() {
+        let json = r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart","spawned_session":"pty-123"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.spawned_session, Some("pty-123".into()));
+    }
+
+    #[test]
+    fn hook_payload_spawned_session_defaults_to_none() {
+        let json = r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.spawned_session, None);
     }
 
     #[test]
