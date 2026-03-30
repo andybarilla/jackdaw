@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::state::{AppState, Session};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -129,6 +129,23 @@ pub fn handle_action(
             } else {
                 Err(format!("session not found: {}", session_id))
             }
+        }
+        "register_session" => {
+            let session_id = get_session_id()?;
+            let display_name = args
+                .as_ref()
+                .and_then(|a| a.get("display_name"))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "missing args.display_name".to_string())?;
+            let mut sessions = state.sessions.lock().unwrap();
+            if let Some(existing) = sessions.get_mut(&session_id) {
+                existing.display_name = Some(display_name.to_string());
+            } else {
+                let mut session = Session::new(session_id.clone(), String::new());
+                session.display_name = Some(display_name.to_string());
+                sessions.insert(session_id, session);
+            }
+            Ok(serde_json::json!({"registered": true}))
         }
         _ => Err(format!("unknown action command: {}", command)),
     }
@@ -310,6 +327,46 @@ mod tests {
         let state = test_state();
         let err = handle_action("bogus", &None, &state).unwrap_err();
         assert!(err.contains("unknown action command"));
+    }
+
+    // --- register_session ---
+
+    #[test]
+    fn action_register_session_creates_new() {
+        let state = test_state();
+        let args = Some(serde_json::json!({
+            "session_id": "build-1",
+            "display_name": "CI Build #456"
+        }));
+        let result = handle_action("register_session", &args, &state).unwrap();
+        assert_eq!(result["registered"], true);
+        let sessions = state.sessions.lock().unwrap();
+        let session = sessions.get("build-1").unwrap();
+        assert_eq!(session.display_name.as_deref(), Some("CI Build #456"));
+        assert_eq!(session.cwd, "");
+        assert!(!session.processing);
+    }
+
+    #[test]
+    fn action_register_session_updates_existing_display_name() {
+        let state = test_state();
+        insert_session(&state, "build-1");
+        let args = Some(serde_json::json!({
+            "session_id": "build-1",
+            "display_name": "Updated Name"
+        }));
+        let result = handle_action("register_session", &args, &state).unwrap();
+        assert_eq!(result["registered"], true);
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(sessions.get("build-1").unwrap().display_name.as_deref(), Some("Updated Name"));
+    }
+
+    #[test]
+    fn action_register_session_missing_display_name() {
+        let state = test_state();
+        let args = Some(serde_json::json!({"session_id": "build-1"}));
+        let err = handle_action("register_session", &args, &state).unwrap_err();
+        assert!(err.contains("missing args.display_name"));
     }
 
     // --- E2E socket test ---
