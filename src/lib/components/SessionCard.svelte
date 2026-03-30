@@ -10,9 +10,10 @@
     onDismiss: (sessionId: string) => void;
     historyMode?: boolean;
     endedAt?: string;
+    compact?: boolean;
   }
 
-  let { session, onDismiss, historyMode = false, endedAt }: Props = $props();
+  let { session, onDismiss, historyMode = false, endedAt, compact = false }: Props = $props();
 
   let expanded = $state(false);
 
@@ -54,7 +55,7 @@
   class:has-attention={cardState === 'approval' || cardState === 'input'}
 >
   <!-- Header row: always visible, clickable -->
-  <div class="row-header" onclick={toggleExpand} role="button" tabindex="0" onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggleExpand())}>
+  <div class="row-header" onclick={() => !compact && toggleExpand()} role="button" tabindex="0" onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), !compact && toggleExpand())}>
     <div class="row-left">
       <span class="project-name">{getProjectName(session.cwd)}</span>
       {#if session.has_unread}
@@ -110,7 +111,7 @@
   {/if}
 
   <!-- Expanded section: toggle on click -->
-  {#if expanded}
+  {#if !compact && expanded}
     <div class="expanded-section" transition:slide={{ duration: 150 }}>
       <div class="expanded-header">
         <span class="session-id">Session {shortenSessionId(session.session_id)}</span>
