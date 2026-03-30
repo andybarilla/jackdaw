@@ -3,6 +3,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use tokio::sync::broadcast;
 
 /// Incoming hook payload from Claude Code (via IPC socket)
 #[derive(Debug, Deserialize)]
@@ -26,9 +27,11 @@ pub struct Session {
     pub started_at: DateTime<Utc>,
     pub current_tool: Option<ToolEvent>,
     pub tool_history: Vec<ToolEvent>,
+    pub git_branch: Option<String>,
     pub active_subagents: u32,
     pub pending_approval: bool,
     pub processing: bool,
+    pub has_unread: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,13 +47,16 @@ pub struct ToolEvent {
 pub struct AppState {
     pub sessions: Mutex<HashMap<String, Session>>,
     pub db: Mutex<Connection>,
+    pub subscriber_tx: broadcast::Sender<String>,
 }
 
 impl AppState {
     pub fn new(db: Connection) -> Self {
+        let (subscriber_tx, _) = broadcast::channel(64);
         Self {
             sessions: Mutex::new(HashMap::new()),
             db: Mutex::new(db),
+            subscriber_tx,
         }
     }
 }
@@ -69,6 +75,20 @@ pub fn extract_summary(tool_name: &str, tool_input: &Option<serde_json::Value>) 
     value.map(|s| s.chars().take(120).collect())
 }
 
+pub async fn resolve_git_branch(cwd: &str) -> Option<String> {
+    let output = tokio::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(cwd)
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let branch = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if branch.is_empty() { None } else { Some(branch) }
+}
+
 const MAX_TOOL_HISTORY: usize = 50;
 
 impl Session {
@@ -79,9 +99,11 @@ impl Session {
             started_at: Utc::now(),
             current_tool: None,
             tool_history: Vec::new(),
+            git_branch: None,
             active_subagents: 0,
             pending_approval: false,
             processing: false,
+            has_unread: false,
         }
     }
 
@@ -356,6 +378,19 @@ mod tests {
         s.hydrate_from_history(&history);
         assert_eq!(s.tool_history.len(), 1);
         assert_eq!(s.tool_history[0].tool_name, "Bash");
+    }
+
+    #[tokio::test]
+    async fn resolve_git_branch_returns_branch_in_git_repo() {
+        let branch = resolve_git_branch(".").await;
+        assert!(branch.is_some());
+        assert!(!branch.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn resolve_git_branch_returns_none_for_non_git_dir() {
+        let branch = resolve_git_branch("/tmp").await;
+        assert!(branch.is_none());
     }
 
     #[test]

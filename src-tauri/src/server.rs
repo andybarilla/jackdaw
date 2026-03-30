@@ -1,11 +1,13 @@
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::api::{self, Response};
 use crate::state::{extract_summary, AppState, HookPayload, Session, ToolEvent};
 use chrono::Utc;
 
 use interprocess::local_socket::{
-    traits::tokio::Listener as _, GenericFilePath, ListenerOptions, ToFsName,
+    traits::tokio::{Listener as _, Stream as _},
+    GenericFilePath, ListenerOptions, ToFsName,
 };
 #[cfg(windows)]
 use interprocess::local_socket::{GenericNamespaced, ToNsName};
@@ -19,12 +21,16 @@ pub async fn start_server(app_handle: AppHandle, state: Arc<AppState>) {
     let listener = {
         #[cfg(unix)]
         {
-            let name = name.to_fs_name::<GenericFilePath>().expect("invalid socket path");
+            let name = name
+                .to_fs_name::<GenericFilePath>()
+                .expect("invalid socket path");
             ListenerOptions::new().name(name).create_tokio()
         }
         #[cfg(windows)]
         {
-            let name = name.to_ns_name::<GenericNamespaced>().expect("invalid pipe name");
+            let name = name
+                .to_ns_name::<GenericNamespaced>()
+                .expect("invalid pipe name");
             ListenerOptions::new().name(name).create_tokio()
         }
     };
@@ -45,18 +51,102 @@ pub async fn start_server(app_handle: AppHandle, state: Arc<AppState>) {
                 let app_handle = app_handle.clone();
                 let state = state.clone();
                 tokio::spawn(async move {
-                    let reader = tokio::io::BufReader::new(conn);
-                    use tokio::io::AsyncBufReadExt;
-                    let mut lines = reader.lines();
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        handle_event(&app_handle, &state, &line).await;
-                    }
+                    handle_connection(conn, &app_handle, &state).await;
                 });
             }
             Err(e) => {
                 eprintln!("Jackdaw: IPC accept error: {}", e);
             }
         }
+    }
+}
+
+async fn handle_connection(
+    conn: interprocess::local_socket::tokio::Stream,
+    app_handle: &AppHandle,
+    state: &Arc<AppState>,
+) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let (recv_half, mut send_half) = conn.split();
+    let reader = tokio::io::BufReader::new(recv_half);
+    let mut lines = reader.lines();
+    let mut subscription: Option<(String, tokio::sync::broadcast::Receiver<String>)> = None;
+
+    loop {
+        tokio::select! {
+            line_result = lines.next_line() => {
+                match line_result {
+                    Ok(Some(line)) => {
+                        if let Some(request) = api::try_parse_request(&line) {
+                            let response = dispatch_request(&request, state, &mut subscription);
+                            if let Ok(json) = serde_json::to_string(&response) {
+                                if send_half.write_all(format!("{}\n", json).as_bytes()).await.is_err() {
+                                    break;
+                                }
+                            }
+                        } else {
+                            handle_event(app_handle, state, &line).await;
+                        }
+                    }
+                    Ok(None) | Err(_) => break,
+                }
+            }
+            update = async {
+                match &mut subscription {
+                    Some((_, rx)) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if let Ok(session_json) = update {
+                    let sub_id = subscription.as_ref().map(|(id, _)| id.clone()).unwrap_or_default();
+                    let push = crate::api::Response::success(
+                        sub_id,
+                        serde_json::from_str(&session_json).unwrap_or_default(),
+                    );
+                    if let Ok(json) = serde_json::to_string(&push) {
+                        if send_half.write_all(format!("{}\n", json).as_bytes()).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn dispatch_request(
+    request: &api::Request,
+    state: &Arc<AppState>,
+    subscription: &mut Option<(String, tokio::sync::broadcast::Receiver<String>)>,
+) -> Response {
+    match request.request_type.as_str() {
+        "query" => match api::handle_query(&request.command, &request.args, state) {
+            Ok(data) => Response::success(request.id.clone(), data),
+            Err(e) => Response::error(request.id.clone(), e),
+        },
+        "action" => match api::handle_action(&request.command, &request.args, state) {
+            Ok(data) => Response::success(request.id.clone(), data),
+            Err(e) => Response::error(request.id.clone(), e),
+        },
+        "subscribe" => {
+            if request.command == "session_updates" {
+                *subscription = Some((request.id.clone(), state.subscriber_tx.subscribe()));
+                Response::success(
+                    request.id.clone(),
+                    serde_json::json!({"subscribed": "session_updates"}),
+                )
+            } else {
+                Response::error(
+                    request.id.clone(),
+                    format!("unknown subscription: {}", request.command),
+                )
+            }
+        }
+        other => Response::error(
+            request.id.clone(),
+            format!("unknown request type: {}", other),
+        ),
     }
 }
 
@@ -73,135 +163,168 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
     let cwd = payload.cwd;
     let event_name = payload.hook_event_name;
 
-    // Lock ordering: always acquire sessions before db, or drop sessions before
-    // acquiring db. Never hold both simultaneously in different orders — dismiss_session
-    // in lib.rs holds sessions then db, so reversed ordering would deadlock.
-    let mut sessions = state.sessions.lock().unwrap();
+    // All synchronous session state updates in a block so MutexGuard is dropped before awaits
+    let (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git) = {
+        // Lock ordering: always acquire sessions before db, or drop sessions before
+        // acquiring db. Never hold both simultaneously in different orders — dismiss_session
+        // in lib.rs holds sessions then db, so reversed ordering would deadlock.
+        let mut sessions = state.sessions.lock().unwrap();
 
-    // Ensure session exists for any event (except SessionEnd which removes it).
-    // When creating a new session, check DB for offline tool history and rehydrate.
-    if event_name != "SessionEnd" && !sessions.contains_key(&session_id) {
-        // Drop sessions before acquiring db to maintain lock ordering
-        drop(sessions);
-        let db = state.db.lock().unwrap();
-        let history = crate::db::load_tool_events_for_session(&db, &session_id);
-        drop(db);
-        // Re-acquire sessions lock
-        sessions = state.sessions.lock().unwrap();
-        // Double-check — another thread may have inserted while we released the lock
-        if !sessions.contains_key(&session_id) {
-            let mut session = Session::new(session_id.clone(), cwd.clone());
-            session.hydrate_from_history(&history);
-            sessions.insert(session_id.clone(), session);
-        }
-    }
-
-    let session_started_at = sessions.get(&session_id).map(|s| s.started_at.to_rfc3339());
-
-    // Option variables for PostToolUse DB persistence; set inside the arm below.
-    let mut db_tool_name: Option<String> = None;
-    let mut db_tool_summary: Option<String> = None;
-    let mut db_tool_timestamp: Option<String> = None;
-
-    match event_name.as_str() {
-        "SessionStart" => {
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.processing = true;
+        // Ensure session exists for any event (except SessionEnd which removes it).
+        // When creating a new session, check DB for offline tool history and rehydrate.
+        if event_name != "SessionEnd" && !sessions.contains_key(&session_id) {
+            // Drop sessions before acquiring db to maintain lock ordering
+            drop(sessions);
+            let db = state.db.lock().unwrap();
+            let history = crate::db::load_tool_events_for_session(&db, &session_id);
+            let git_branch = crate::db::load_session_git_branch(&db, &session_id);
+            drop(db);
+            // Re-acquire sessions lock
+            sessions = state.sessions.lock().unwrap();
+            // Double-check — another thread may have inserted while we released the lock
+            if !sessions.contains_key(&session_id) {
+                let mut session = Session::new(session_id.clone(), cwd.clone());
+                session.hydrate_from_history(&history);
+                session.git_branch = git_branch;
+                sessions.insert(session_id.clone(), session);
             }
         }
-        "Stop" => {
-            // End of Claude's response turn — session goes idle, waiting for user input
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.processing = false;
-                session.pending_approval = false;
-                session.clear_current_tool();
-            }
-        }
-        "SessionEnd" => {
-            // Session actually exiting — remove it
-            sessions.remove(&session_id);
-        }
-        "PreToolUse" => {
-            let tool_name = match payload.tool_name {
-                Some(name) => name,
-                None => {
-                    eprintln!("Jackdaw: PreToolUse missing tool_name");
-                    return;
-                }
-            };
-            let summary = extract_summary(&tool_name, &payload.tool_input);
-            let tool_event = ToolEvent {
-                tool_name,
-                timestamp: Utc::now(),
-                summary,
-                tool_use_id: payload.tool_use_id,
-            };
 
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.pending_approval = false;
-                session.processing = true;
-                session.set_current_tool(tool_event);
-            }
-        }
-        "PostToolUse" => {
-            let tool_name = match payload.tool_name {
-                Some(name) => name,
-                None => {
-                    eprintln!("Jackdaw: PostToolUse missing tool_name");
-                    return;
-                }
-            };
-            let summary = extract_summary(&tool_name, &payload.tool_input);
-            let now = Utc::now();
-            let tool_event = ToolEvent {
-                tool_name: tool_name.clone(),
-                timestamp: now,
-                summary: summary.clone(),
-                tool_use_id: payload.tool_use_id.clone(),
-            };
+        let session_started_at = sessions.get(&session_id).map(|s| s.started_at.to_rfc3339());
 
-            db_tool_name = Some(tool_name);
-            db_tool_summary = summary;
-            db_tool_timestamp = Some(now.to_rfc3339());
+        // Option variables for PostToolUse DB persistence; set inside the arm below.
+        let mut db_tool_name: Option<String> = None;
+        let mut db_tool_summary: Option<String> = None;
+        let mut db_tool_timestamp: Option<String> = None;
 
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.pending_approval = false;
-                session.complete_tool(payload.tool_use_id.as_deref(), tool_event);
-            }
-        }
-        "UserPromptSubmit" => {
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.pending_approval = false;
-                session.processing = true;
-            }
-        }
-        "Notification" => {
-            if let Some(session) = sessions.get_mut(&session_id) {
-                if session.processing {
-                    session.pending_approval = true;
+        match event_name.as_str() {
+            "SessionStart" => {
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.processing = true;
                 }
             }
-        }
-        "SubagentStart" => {
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.active_subagents = session.active_subagents.saturating_add(1);
+            "Stop" => {
+                // End of Claude's response turn — session goes idle, waiting for user input
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.processing = false;
+                    session.pending_approval = false;
+                    session.has_unread = true;
+                    session.clear_current_tool();
+                }
             }
-        }
-        "SubagentStop" => {
-            if let Some(session) = sessions.get_mut(&session_id) {
-                session.active_subagents = session.active_subagents.saturating_sub(1);
+            "SessionEnd" => {
+                // Session actually exiting — remove it
+                sessions.remove(&session_id);
             }
+            "PreToolUse" => {
+                let tool_name = match payload.tool_name {
+                    Some(name) => name,
+                    None => {
+                        eprintln!("Jackdaw: PreToolUse missing tool_name");
+                        return;
+                    }
+                };
+                let summary = extract_summary(&tool_name, &payload.tool_input);
+                let tool_event = ToolEvent {
+                    tool_name,
+                    timestamp: Utc::now(),
+                    summary,
+                    tool_use_id: payload.tool_use_id,
+                };
+
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.pending_approval = false;
+                    session.processing = true;
+                    session.set_current_tool(tool_event);
+                }
+            }
+            "PostToolUse" => {
+                let tool_name = match payload.tool_name {
+                    Some(name) => name,
+                    None => {
+                        eprintln!("Jackdaw: PostToolUse missing tool_name");
+                        return;
+                    }
+                };
+                let summary = extract_summary(&tool_name, &payload.tool_input);
+                let now = Utc::now();
+                let tool_event = ToolEvent {
+                    tool_name: tool_name.clone(),
+                    timestamp: now,
+                    summary: summary.clone(),
+                    tool_use_id: payload.tool_use_id.clone(),
+                };
+
+                db_tool_name = Some(tool_name);
+                db_tool_summary = summary;
+                db_tool_timestamp = Some(now.to_rfc3339());
+
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.pending_approval = false;
+                    session.complete_tool(payload.tool_use_id.as_deref(), tool_event);
+                }
+            }
+            "UserPromptSubmit" => {
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.pending_approval = false;
+                    session.processing = true;
+                }
+            }
+            "Notification" => {
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    if session.processing {
+                        session.pending_approval = true;
+                        session.has_unread = true;
+                    }
+                }
+            }
+            "SubagentStart" => {
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.active_subagents = session.active_subagents.saturating_add(1);
+                }
+            }
+            "SubagentStop" => {
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.active_subagents = session.active_subagents.saturating_sub(1);
+                }
+            }
+            _ => {}
         }
-        _ => {}
+
+        let cwd_for_git = if event_name != "SessionEnd" {
+            sessions
+                .get(&session_id)
+                .filter(|s| s.git_branch.is_none())
+                .map(|s| s.cwd.clone())
+        } else {
+            None
+        };
+
+        (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git)
+    };
+
+    // Resolve git branch (async, outside lock scope)
+    if let Some(ref cwd_git) = cwd_for_git {
+        let branch = crate::state::resolve_git_branch(cwd_git).await;
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(&session_id) {
+            session.git_branch = branch;
+        }
     }
 
     // Emit updated session list to frontend, sorted newest first
+    let sessions = state.sessions.lock().unwrap();
+    let db_git_branch = sessions.get(&session_id).and_then(|s| s.git_branch.clone());
     let mut session_list: Vec<_> = sessions.values().cloned().collect();
     session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
     drop(sessions);
 
     let _ = app_handle.emit("session-update", &session_list);
     crate::tray::update_tray(app_handle, &session_list);
+
+    if let Ok(json) = serde_json::to_string(&session_list) {
+        let _ = state.subscriber_tx.send(json);
+    }
 
     // Fire desktop notification if appropriate
     {
@@ -257,6 +380,18 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             tokio::task::spawn_blocking(move || {
                 let db = sc.db.lock().unwrap();
                 crate::db::save_session(&db, &sid, &cwd_clone, &started_at);
+            });
+        }
+    }
+
+    // Persist git branch
+    if event_name != "SessionEnd" {
+        if let Some(branch) = db_git_branch {
+            let sc = state.clone();
+            let sid = session_id.clone();
+            tokio::task::spawn_blocking(move || {
+                let db = sc.db.lock().unwrap();
+                crate::db::update_git_branch(&db, &sid, Some(&branch));
             });
         }
     }
@@ -333,6 +468,62 @@ mod tests {
         }
 
         assert!(!session.pending_approval);
+    }
+
+    #[test]
+    fn session_has_git_branch_field() {
+        use crate::state::Session;
+        let session = Session::new("s1".into(), "/tmp".into());
+        assert_eq!(session.git_branch, None);
+    }
+
+    #[test]
+    fn rehydration_restores_git_branch_from_db() {
+        use crate::state::{AppState, Session};
+
+        let conn = db::init_memory();
+        db::save_session(&conn, "s1", "/tmp", "2026-03-30T00:00:00Z");
+        db::update_git_branch(&conn, "s1", Some("feat-my-branch"));
+        db::save_tool_event(&conn, "s1", "Bash", Some("ls"), "2026-03-30T00:01:00Z");
+
+        let state = std::sync::Arc::new(AppState::new(conn));
+        let mut sessions = state.sessions.lock().unwrap();
+
+        if !sessions.contains_key("s1") {
+            let db = state.db.lock().unwrap();
+            let history = db::load_tool_events_for_session(&db, "s1");
+            let git_branch = db::load_session_git_branch(&db, "s1");
+            drop(db);
+            let mut session = Session::new("s1".into(), "/tmp".into());
+            session.hydrate_from_history(&history);
+            session.git_branch = git_branch;
+            sessions.insert("s1".into(), session);
+        }
+
+        let session = sessions.get("s1").unwrap();
+        assert_eq!(session.git_branch, Some("feat-my-branch".into()));
+    }
+
+    #[test]
+    fn load_session_git_branch_returns_none_for_unknown() {
+        let conn = db::init_memory();
+        let branch = db::load_session_git_branch(&conn, "nonexistent");
+        assert!(branch.is_none());
+    }
+
+    #[test]
+    fn load_session_git_branch_returns_none_when_not_set() {
+        let conn = db::init_memory();
+        db::save_session(&conn, "s1", "/tmp", "2026-03-30T00:00:00Z");
+        let branch = db::load_session_git_branch(&conn, "s1");
+        assert!(branch.is_none());
+    }
+
+    #[test]
+    fn session_has_unread_defaults_to_false() {
+        use crate::state::Session;
+        let session = Session::new("s1".into(), "/tmp".into());
+        assert!(!session.has_unread);
     }
 
     #[test]

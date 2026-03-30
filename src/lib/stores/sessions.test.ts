@@ -14,11 +14,13 @@ describe('SessionStore', () => {
       session_id: 'test-session',
       cwd: '/tmp',
       started_at: '2026-03-19T12:00:00Z',
+      git_branch: null,
       current_tool: null,
       tool_history: [],
       active_subagents: 0,
       pending_approval: false,
       processing: false,
+      has_unread: false,
       ...overrides,
     };
   }

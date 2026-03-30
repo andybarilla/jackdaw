@@ -8,6 +8,10 @@ class SessionStore {
     return this.sessions.length;
   }
 
+  get hasUnread(): boolean {
+    return this.sessions.some(s => s.has_unread);
+  }
+
   get globalState(): 'approval' | 'input' | 'running' | 'idle' {
     if (this.sessions.length === 0) return 'idle';
     for (const s of this.sessions) {

@@ -1,10 +1,11 @@
+pub mod api;
 pub mod db;
 mod hooks;
 pub mod ipc;
 mod notify;
 pub mod send;
 mod server;
-mod state;
+pub mod state;
 mod tray;
 pub mod updater;
 
@@ -48,6 +49,14 @@ fn get_retention_days(state: tauri::State<'_, Arc<AppState>>) -> u32 {
 fn set_retention_days(days: u32, state: tauri::State<'_, Arc<AppState>>) {
     let db = state.db.lock().unwrap();
     db::set_retention_days(&db, days);
+}
+
+#[tauri::command]
+fn mark_session_read(session_id: String, state: tauri::State<'_, Arc<AppState>>) {
+    let mut sessions = state.sessions.lock().unwrap();
+    if let Some(session) = sessions.get_mut(&session_id) {
+        session.has_unread = false;
+    }
 }
 
 #[tauri::command]
@@ -137,6 +146,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             dismiss_session,
+            mark_session_read,
             check_hooks_status,
             install_hooks,
             uninstall_hooks,

@@ -8,11 +8,13 @@ export interface Session {
   session_id: string;
   cwd: string;
   started_at: string; // ISO 8601
+  git_branch: string | null;
   current_tool: ToolEvent | null;
   tool_history: ToolEvent[];
   active_subagents: number;
   pending_approval: boolean;
   processing: boolean;
+  has_unread: boolean;
 }
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';
@@ -29,6 +31,7 @@ export interface HistorySession {
   cwd: string;
   started_at: string;
   ended_at: string;
+  git_branch: string | null;
   tool_history: HistoryToolEvent[];
 }
 
