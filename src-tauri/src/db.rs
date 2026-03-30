@@ -64,6 +64,17 @@ pub fn save_tool_event(
     });
 }
 
+pub fn update_git_branch(conn: &Connection, session_id: &str, branch: Option<&str>) {
+    conn.execute(
+        "UPDATE sessions SET git_branch = ?1 WHERE session_id = ?2",
+        rusqlite::params![branch, session_id],
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("Jackdaw: failed to update git_branch: {}", e);
+        0
+    });
+}
+
 pub fn end_session(conn: &Connection, session_id: &str, ended_at: &str) {
     conn.execute(
         "UPDATE sessions SET ended_at = ?1 WHERE session_id = ?2",
@@ -192,7 +203,8 @@ fn setup_connection(conn: &Connection) {
             session_id TEXT PRIMARY KEY,
             cwd TEXT NOT NULL,
             started_at TEXT NOT NULL,
-            ended_at TEXT
+            ended_at TEXT,
+            git_branch TEXT
         );
         CREATE TABLE IF NOT EXISTS tool_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -208,6 +220,9 @@ fn setup_connection(conn: &Connection) {
         INSERT OR IGNORE INTO config (key, value) VALUES ('retention_days', '30');",
     )
     .unwrap();
+
+    // Migrations for existing databases
+    let _ = conn.execute("ALTER TABLE sessions ADD COLUMN git_branch TEXT", []);
 }
 
 #[cfg(test)]
@@ -469,6 +484,21 @@ mod tests {
         }
         let events = load_tool_events_for_session(&conn, "s1");
         assert_eq!(events.len(), 50);
+    }
+
+    #[test]
+    fn update_git_branch_persists() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/tmp", "2026-03-30T00:00:00Z");
+        update_git_branch(&conn, "s1", Some("feat-test"));
+        let branch: Option<String> = conn
+            .query_row(
+                "SELECT git_branch FROM sessions WHERE session_id = ?1",
+                rusqlite::params!["s1"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(branch, Some("feat-test".to_string()));
     }
 
     #[test]

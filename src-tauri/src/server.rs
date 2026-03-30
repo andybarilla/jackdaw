@@ -217,6 +217,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
 
     // Emit updated session list to frontend, sorted newest first
     let sessions = state.sessions.lock().unwrap();
+    let db_git_branch = sessions.get(&session_id).and_then(|s| s.git_branch.clone());
     let mut session_list: Vec<_> = sessions.values().cloned().collect();
     session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
     drop(sessions);
@@ -278,6 +279,18 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             tokio::task::spawn_blocking(move || {
                 let db = sc.db.lock().unwrap();
                 crate::db::save_session(&db, &sid, &cwd_clone, &started_at);
+            });
+        }
+    }
+
+    // Persist git branch
+    if event_name != "SessionEnd" {
+        if let Some(branch) = db_git_branch {
+            let sc = state.clone();
+            let sid = session_id.clone();
+            tokio::task::spawn_blocking(move || {
+                let db = sc.db.lock().unwrap();
+                crate::db::update_git_branch(&db, &sid, Some(&branch));
             });
         }
     }
