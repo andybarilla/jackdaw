@@ -58,6 +58,9 @@ pub struct AppState {
     pub sessions: Mutex<HashMap<String, Session>>,
     pub db: Mutex<Connection>,
     pub subscriber_tx: broadcast::Sender<String>,
+    /// Maps Claude's session_id → PTY session_id for spawned sessions.
+    /// Hook events arrive with Claude's ID; this lets us find the session under its PTY ID.
+    pub spawned_id_map: Mutex<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -67,6 +70,7 @@ impl AppState {
             sessions: Mutex::new(HashMap::new()),
             db: Mutex::new(db),
             subscriber_tx,
+            spawned_id_map: Mutex::new(HashMap::new()),
         }
     }
 }

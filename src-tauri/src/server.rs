@@ -159,51 +159,45 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
         }
     };
 
-    let session_id = payload.session_id;
+    let claude_session_id = payload.session_id;
     let cwd = payload.cwd;
     let event_name = payload.hook_event_name;
     let spawned_session = payload.spawned_session;
 
+    // If this event has spawned_session set, register the mapping so all future
+    // events from this Claude session route to the PTY session.
+    if let Some(ref pty_id) = spawned_session {
+        state.spawned_id_map.lock().unwrap()
+            .insert(claude_session_id.clone(), pty_id.clone());
+    }
+
+    // Resolve the effective session ID: for spawned sessions, use the PTY ID
+    // (which the frontend knows); for external sessions, use Claude's ID directly.
+    let session_id = state.spawned_id_map.lock().unwrap()
+        .get(&claude_session_id)
+        .cloned()
+        .unwrap_or(claude_session_id.clone());
+
     // All synchronous session state updates in a block so MutexGuard is dropped before awaits
-    let (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git, rekey_info) = {
+    let (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git) = {
         // Lock ordering: always acquire sessions before db, or drop sessions before
         // acquiring db. Never hold both simultaneously in different orders — dismiss_session
         // in lib.rs holds sessions then db, so reversed ordering would deadlock.
         let mut sessions = state.sessions.lock().unwrap();
 
         // Ensure session exists for any event (except SessionEnd which removes it).
-        // When creating a new session, check DB for offline tool history and rehydrate.
-        // Track rekey info so we can emit the event after session-update (correct ordering)
-        let mut rekey_info: Option<(String, String)> = None;
-
         if event_name != "SessionEnd" && !sessions.contains_key(&session_id) {
-            if let Some(pty_id) = &spawned_session {
-                // Link: re-key the pre-created spawned session under Claude's session_id
-                if let Some(mut session) = sessions.remove(pty_id.as_str()) {
-                    session.session_id = session_id.clone();
-                    sessions.insert(session_id.clone(), session);
-                    // Re-key PTY instance so commands use the new ID
-                    if let Some(pty_mgr) = app_handle.try_state::<Arc<crate::pty::PtyManager>>() {
-                        pty_mgr.rekey(pty_id, session_id.clone());
-                    }
-                    rekey_info = Some((pty_id.clone(), session_id.clone()));
-                }
-            }
-
-            // If still not present (external session or linking failed), create new
+            drop(sessions);
+            let db = state.db.lock().unwrap();
+            let history = crate::db::load_tool_events_for_session(&db, &session_id);
+            let git_branch = crate::db::load_session_git_branch(&db, &session_id);
+            drop(db);
+            sessions = state.sessions.lock().unwrap();
             if !sessions.contains_key(&session_id) {
-                drop(sessions);
-                let db = state.db.lock().unwrap();
-                let history = crate::db::load_tool_events_for_session(&db, &session_id);
-                let git_branch = crate::db::load_session_git_branch(&db, &session_id);
-                drop(db);
-                sessions = state.sessions.lock().unwrap();
-                if !sessions.contains_key(&session_id) {
-                    let mut session = Session::new(session_id.clone(), cwd.clone());
-                    session.hydrate_from_history(&history);
-                    session.git_branch = git_branch;
-                    sessions.insert(session_id.clone(), session);
-                }
+                let mut session = Session::new(session_id.clone(), cwd.clone());
+                session.hydrate_from_history(&history);
+                session.git_branch = git_branch;
+                sessions.insert(session_id.clone(), session);
             }
         }
 
@@ -232,6 +226,9 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             "SessionEnd" => {
                 // Session actually exiting — remove it
                 sessions.remove(&session_id);
+                // Clean up spawned ID mapping
+                state.spawned_id_map.lock().unwrap()
+                    .retain(|_, pty_id| pty_id != &session_id);
             }
             "PreToolUse" => {
                 let tool_name = match payload.tool_name {
@@ -317,7 +314,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             None
         };
 
-        (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git, rekey_info)
+        (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git)
     };
 
     // Resolve git branch (async, outside lock scope)
@@ -338,14 +335,6 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
 
     let _ = app_handle.emit("session-update", &session_list);
     crate::tray::update_tray(app_handle, &session_list);
-
-    // Emit rekey AFTER session-update so frontend has the new session before updating selectedSessionId
-    if let Some((old_id, new_id)) = rekey_info {
-        let _ = app_handle.emit("session-rekey", serde_json::json!({
-            "old_id": old_id,
-            "new_id": new_id,
-        }));
-    }
 
     if let Ok(json) = serde_json::to_string(&session_list) {
         let _ = state.subscriber_tx.send(json);

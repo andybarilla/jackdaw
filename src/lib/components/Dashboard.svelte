@@ -9,7 +9,6 @@
   import { initUpdaterListener } from '$lib/stores/updater.svelte';
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
   import { shortenPath, getProjectName } from '$lib/utils';
   import type { HistorySession } from '$lib/types';
 
@@ -27,18 +26,9 @@
   onMount(() => {
     const cleanupSessions = initSessionListener();
     const cleanupUpdater = initUpdaterListener();
-
-    let unlistenRekey: (() => void) | undefined;
-    listen<{ old_id: string; new_id: string }>('session-rekey', (event) => {
-      if (selectedSessionId === event.payload.old_id) {
-        selectedSessionId = event.payload.new_id;
-      }
-    }).then((fn) => { unlistenRekey = fn; });
-
     return () => {
       cleanupSessions();
       cleanupUpdater();
-      unlistenRekey?.();
     };
   });
 
