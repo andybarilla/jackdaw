@@ -173,6 +173,117 @@ fn try_parse_request_returns_some_for_request() {
     assert_eq!(req.command, "list_sessions");
 }
 
+/// Spawn a dispatch loop that also handles `subscribe` requests.
+fn spawn_dispatch_with_subscribe(state: Arc<AppState>) -> tokio::io::DuplexStream {
+    use jackdaw_lib::api;
+
+    let (client, server) = tokio::io::duplex(65536);
+    tokio::spawn(async move {
+        let (read_half, mut write_half) = tokio::io::split(server);
+        let reader = BufReader::new(read_half);
+        let mut lines = reader.lines();
+        let mut subscription: Option<(String, tokio::sync::broadcast::Receiver<String>)> = None;
+
+        loop {
+            tokio::select! {
+                line_result = lines.next_line() => {
+                    match line_result {
+                        Ok(Some(line)) => {
+                            if let Some(request) = api::try_parse_request(&line) {
+                                let response = match request.request_type.as_str() {
+                                    "query" => match api::handle_query(&request.command, &request.args, &state) {
+                                        Ok(data) => Response::success(request.id, data),
+                                        Err(e) => Response::error(request.id, e),
+                                    },
+                                    "action" => match api::handle_action(&request.command, &request.args, &state) {
+                                        Ok(data) => Response::success(request.id, data),
+                                        Err(e) => Response::error(request.id, e),
+                                    },
+                                    "subscribe" => {
+                                        if request.command == "session_updates" {
+                                            subscription = Some((request.id.clone(), state.subscriber_tx.subscribe()));
+                                            Response::success(request.id, serde_json::json!({"subscribed": "session_updates"}))
+                                        } else {
+                                            Response::error(request.id.clone(), format!("unknown subscription: {}", request.command))
+                                        }
+                                    }
+                                    _ => Response::error(request.id, "unsupported type".into()),
+                                };
+                                let json = serde_json::to_string(&response).unwrap();
+                                if write_half.write_all(format!("{}\n", json).as_bytes()).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        Ok(None) | Err(_) => break,
+                    }
+                }
+                update = async {
+                    match &mut subscription {
+                        Some((_, rx)) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if let Ok(session_json) = update {
+                        let sub_id = subscription.as_ref().map(|(id, _)| id.clone()).unwrap_or_default();
+                        let push = Response::success(
+                            sub_id,
+                            serde_json::from_str(&session_json).unwrap_or_default(),
+                        );
+                        if let Ok(json) = serde_json::to_string(&push) {
+                            if write_half.write_all(format!("{}\n", json).as_bytes()).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    client
+}
+
+#[tokio::test]
+async fn subscribe_push_includes_subscription_id() {
+    let (state, _dir) = test_state();
+
+    let client = spawn_dispatch_with_subscribe(state.clone());
+    let (read_half, mut write_half) = tokio::io::split(client);
+    let mut lines = BufReader::new(read_half).lines();
+
+    // Subscribe
+    write_half
+        .write_all(b"{\"type\":\"subscribe\",\"command\":\"session_updates\",\"id\":\"sub-1\"}\n")
+        .await
+        .unwrap();
+
+    // Confirm subscription ack
+    let ack: serde_json::Value =
+        serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    assert_eq!(ack["id"], "sub-1");
+    assert!(ack["ok"].as_bool().unwrap());
+
+    // Trigger a state change by inserting a session and broadcasting
+    insert_session(&state, "s1");
+    {
+        use jackdaw_lib::state::Session;
+        let sessions = state.sessions.lock().unwrap();
+        let session_list: Vec<&Session> = sessions.values().collect();
+        let json = serde_json::to_string(&session_list).unwrap();
+        let _ = state.subscriber_tx.send(json);
+    }
+
+    // The push must arrive with the original subscription id
+    let push: serde_json::Value =
+        serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    assert_eq!(push["id"], "sub-1");
+    assert!(push["ok"].as_bool().unwrap());
+    let sessions = push["data"].as_array().unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["session_id"], "s1");
+}
+
 #[tokio::test]
 async fn unknown_request_type_returns_error() {
     let (state, _dir) = test_state();

@@ -71,7 +71,7 @@ async fn handle_connection(
     let (recv_half, mut send_half) = conn.split();
     let reader = tokio::io::BufReader::new(recv_half);
     let mut lines = reader.lines();
-    let mut subscription_rx: Option<tokio::sync::broadcast::Receiver<String>> = None;
+    let mut subscription: Option<(String, tokio::sync::broadcast::Receiver<String>)> = None;
 
     loop {
         tokio::select! {
@@ -79,7 +79,7 @@ async fn handle_connection(
                 match line_result {
                     Ok(Some(line)) => {
                         if let Some(request) = api::try_parse_request(&line) {
-                            let response = dispatch_request(&request, state, &mut subscription_rx);
+                            let response = dispatch_request(&request, state, &mut subscription);
                             if let Ok(json) = serde_json::to_string(&response) {
                                 if send_half.write_all(format!("{}\n", json).as_bytes()).await.is_err() {
                                     break;
@@ -93,15 +93,21 @@ async fn handle_connection(
                 }
             }
             update = async {
-                match &mut subscription_rx {
-                    Some(rx) => rx.recv().await,
+                match &mut subscription {
+                    Some((_, rx)) => rx.recv().await,
                     None => std::future::pending().await,
                 }
             } => {
-                if let Ok(json) = update {
-                    let msg = format!("{{\"event\":\"session_updates\",\"data\":{}}}\n", json);
-                    if send_half.write_all(msg.as_bytes()).await.is_err() {
-                        break;
+                if let Ok(session_json) = update {
+                    let sub_id = subscription.as_ref().map(|(id, _)| id.clone()).unwrap_or_default();
+                    let push = crate::api::Response::success(
+                        sub_id,
+                        serde_json::from_str(&session_json).unwrap_or_default(),
+                    );
+                    if let Ok(json) = serde_json::to_string(&push) {
+                        if send_half.write_all(format!("{}\n", json).as_bytes()).await.is_err() {
+                            break;
+                        }
                     }
                 }
             }
@@ -112,7 +118,7 @@ async fn handle_connection(
 fn dispatch_request(
     request: &api::Request,
     state: &Arc<AppState>,
-    subscription_rx: &mut Option<tokio::sync::broadcast::Receiver<String>>,
+    subscription: &mut Option<(String, tokio::sync::broadcast::Receiver<String>)>,
 ) -> Response {
     match request.request_type.as_str() {
         "query" => match api::handle_query(&request.command, &request.args, state) {
@@ -125,7 +131,7 @@ fn dispatch_request(
         },
         "subscribe" => {
             if request.command == "session_updates" {
-                *subscription_rx = Some(state.subscriber_tx.subscribe());
+                *subscription = Some((request.id.clone(), state.subscriber_tx.subscribe()));
                 Response::success(
                     request.id.clone(),
                     serde_json::json!({"subscribed": "session_updates"}),
