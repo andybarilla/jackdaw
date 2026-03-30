@@ -8,6 +8,7 @@ pub struct HistorySession {
     pub cwd: String,
     pub started_at: String,
     pub ended_at: String,
+    pub git_branch: Option<String>,
     pub tool_history: Vec<HistoryToolEvent>,
 }
 
@@ -89,16 +90,16 @@ pub fn end_session(conn: &Connection, session_id: &str, ended_at: &str) {
 pub fn load_history(conn: &Connection, limit: u32, offset: u32) -> Vec<HistorySession> {
     let mut stmt = conn
         .prepare(
-            "SELECT session_id, cwd, started_at, ended_at FROM sessions
+            "SELECT session_id, cwd, started_at, ended_at, git_branch FROM sessions
              WHERE ended_at IS NOT NULL
              ORDER BY ended_at DESC
              LIMIT ?1 OFFSET ?2",
         )
         .unwrap();
 
-    let sessions: Vec<(String, String, String, String)> = stmt
+    let sessions: Vec<(String, String, String, String, Option<String>)> = stmt
         .query_map(rusqlite::params![limit, offset], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
         })
         .unwrap()
         .filter_map(|r| r.ok())
@@ -115,7 +116,7 @@ pub fn load_history(conn: &Connection, limit: u32, offset: u32) -> Vec<HistorySe
 
     sessions
         .into_iter()
-        .map(|(session_id, cwd, started_at, ended_at)| {
+        .map(|(session_id, cwd, started_at, ended_at, git_branch)| {
             let tool_history: Vec<HistoryToolEvent> = tool_stmt
                 .query_map(rusqlite::params![&session_id], |row| {
                     Ok(HistoryToolEvent {
@@ -133,6 +134,7 @@ pub fn load_history(conn: &Connection, limit: u32, offset: u32) -> Vec<HistorySe
                 cwd,
                 started_at,
                 ended_at,
+                git_branch,
                 tool_history,
             }
         })
