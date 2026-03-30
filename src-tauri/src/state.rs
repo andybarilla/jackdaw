@@ -3,6 +3,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use tokio::sync::broadcast;
 
 /// Incoming hook payload from Claude Code (via IPC socket)
 #[derive(Debug, Deserialize)]
@@ -46,13 +47,16 @@ pub struct ToolEvent {
 pub struct AppState {
     pub sessions: Mutex<HashMap<String, Session>>,
     pub db: Mutex<Connection>,
+    pub subscriber_tx: broadcast::Sender<String>,
 }
 
 impl AppState {
     pub fn new(db: Connection) -> Self {
+        let (subscriber_tx, _) = broadcast::channel(64);
         Self {
             sessions: Mutex::new(HashMap::new()),
             db: Mutex::new(db),
+            subscriber_tx,
         }
     }
 }

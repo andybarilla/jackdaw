@@ -232,6 +232,10 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
     let _ = app_handle.emit("session-update", &session_list);
     crate::tray::update_tray(app_handle, &session_list);
 
+    if let Ok(json) = serde_json::to_string(&session_list) {
+        let _ = state.subscriber_tx.send(json);
+    }
+
     // Fire desktop notification if appropriate
     {
         use tauri_plugin_notification::NotificationExt;
