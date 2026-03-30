@@ -165,7 +165,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
     let spawned_session = payload.spawned_session;
 
     // All synchronous session state updates in a block so MutexGuard is dropped before awaits
-    let (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git) = {
+    let (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git, rekey_info) = {
         // Lock ordering: always acquire sessions before db, or drop sessions before
         // acquiring db. Never hold both simultaneously in different orders — dismiss_session
         // in lib.rs holds sessions then db, so reversed ordering would deadlock.
@@ -173,6 +173,9 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
 
         // Ensure session exists for any event (except SessionEnd which removes it).
         // When creating a new session, check DB for offline tool history and rehydrate.
+        // Track rekey info so we can emit the event after session-update (correct ordering)
+        let mut rekey_info: Option<(String, String)> = None;
+
         if event_name != "SessionEnd" && !sessions.contains_key(&session_id) {
             if let Some(pty_id) = &spawned_session {
                 // Link: re-key the pre-created spawned session under Claude's session_id
@@ -183,11 +186,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                     if let Some(pty_mgr) = app_handle.try_state::<Arc<crate::pty::PtyManager>>() {
                         pty_mgr.rekey(pty_id, session_id.clone());
                     }
-                    // Notify frontend so it can update selectedSessionId and terminal filters
-                    let _ = app_handle.emit("session-rekey", serde_json::json!({
-                        "old_id": pty_id,
-                        "new_id": session_id,
-                    }));
+                    rekey_info = Some((pty_id.clone(), session_id.clone()));
                 }
             }
 
@@ -318,7 +317,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             None
         };
 
-        (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git)
+        (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git, rekey_info)
     };
 
     // Resolve git branch (async, outside lock scope)
@@ -339,6 +338,14 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
 
     let _ = app_handle.emit("session-update", &session_list);
     crate::tray::update_tray(app_handle, &session_list);
+
+    // Emit rekey AFTER session-update so frontend has the new session before updating selectedSessionId
+    if let Some((old_id, new_id)) = rekey_info {
+        let _ = app_handle.emit("session-rekey", serde_json::json!({
+            "old_id": old_id,
+            "new_id": new_id,
+        }));
+    }
 
     if let Ok(json) = serde_json::to_string(&session_list) {
         let _ = state.subscriber_tx.send(json);
