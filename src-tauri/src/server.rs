@@ -336,6 +336,13 @@ mod tests {
     }
 
     #[test]
+    fn session_has_git_branch_field() {
+        use crate::state::Session;
+        let session = Session::new("s1".into(), "/tmp".into());
+        assert_eq!(session.git_branch, None);
+    }
+
+    #[test]
     fn notification_while_processing_sets_pending_approval() {
         use crate::state::Session;
 
