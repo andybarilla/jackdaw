@@ -9,44 +9,44 @@ pub struct PtyInstance {
     child: Box<dyn portable_pty::Child + Send + Sync>,
 }
 
+pub struct SpawnConfig<'a> {
+    pub id: String,
+    pub cwd: &'a str,
+    pub cols: u16,
+    pub rows: u16,
+    pub program: &'a str,
+    pub args: &'a [&'a str],
+    pub env: &'a [(&'a str, &'a str)],
+}
+
+#[derive(Default)]
 pub struct PtyManager {
     instances: Mutex<HashMap<String, PtyInstance>>,
 }
 
 impl PtyManager {
     pub fn new() -> Self {
-        Self {
-            instances: Mutex::new(HashMap::new()),
-        }
+        Self::default()
     }
 
     /// Spawn a command in a new PTY with the given ID.
     /// Returns a reader for raw PTY output — caller should consume it on a background thread.
-    pub fn spawn(
-        &self,
-        id: String,
-        cwd: &str,
-        cols: u16,
-        rows: u16,
-        program: &str,
-        args: &[&str],
-        env: &[(&str, &str)],
-    ) -> Result<Box<dyn Read + Send>, String> {
+    pub fn spawn(&self, config: SpawnConfig) -> Result<Box<dyn Read + Send>, String> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
             .openpty(PtySize {
-                rows,
-                cols,
+                rows: config.rows,
+                cols: config.cols,
                 pixel_width: 0,
                 pixel_height: 0,
             })
             .map_err(|e| format!("failed to open PTY: {}", e))?;
 
-        let mut cmd = CommandBuilder::new(program);
-        cmd.args(args);
-        cmd.cwd(cwd);
-        for (k, v) in env {
+        let mut cmd = CommandBuilder::new(config.program);
+        cmd.args(config.args);
+        cmd.cwd(config.cwd);
+        for (k, v) in config.env {
             cmd.env(k, v);
         }
 
@@ -71,7 +71,7 @@ impl PtyManager {
             child,
         };
 
-        self.instances.lock().unwrap().insert(id, instance);
+        self.instances.lock().unwrap().insert(config.id, instance);
 
         Ok(reader)
     }
@@ -144,12 +144,22 @@ mod tests {
         assert!(instances.is_empty());
     }
 
+    fn spawn_config<'a>(id: &str, program: &'a str, args: &'a [&'a str]) -> SpawnConfig<'a> {
+        SpawnConfig {
+            id: id.to_string(),
+            cwd: "/tmp",
+            cols: 80,
+            rows: 24,
+            program,
+            args,
+            env: &[],
+        }
+    }
+
     #[test]
     fn spawn_creates_instance() {
         let mgr = PtyManager::new();
-        let reader = mgr
-            .spawn("test-1".into(), "/tmp", 80, 24, "echo", &["hello"], &[])
-            .unwrap();
+        let reader = mgr.spawn(spawn_config("test-1", "echo", &["hello"])).unwrap();
         assert!(mgr.instances.lock().unwrap().contains_key("test-1"));
         drop(reader);
     }
@@ -157,9 +167,7 @@ mod tests {
     #[test]
     fn write_sends_data_to_pty() {
         let mgr = PtyManager::new();
-        let _reader = mgr
-            .spawn("test-2".into(), "/tmp", 80, 24, "cat", &[], &[])
-            .unwrap();
+        let _reader = mgr.spawn(spawn_config("test-2", "cat", &[])).unwrap();
         let result = mgr.write("test-2", b"test\n");
         assert!(result.is_ok());
         mgr.close("test-2");
@@ -175,9 +183,7 @@ mod tests {
     #[test]
     fn resize_updates_pty_size() {
         let mgr = PtyManager::new();
-        let _reader = mgr
-            .spawn("test-3".into(), "/tmp", 80, 24, "cat", &[], &[])
-            .unwrap();
+        let _reader = mgr.spawn(spawn_config("test-3", "cat", &[])).unwrap();
         let result = mgr.resize("test-3", 120, 40);
         assert!(result.is_ok());
         mgr.close("test-3");
@@ -186,9 +192,7 @@ mod tests {
     #[test]
     fn close_removes_instance() {
         let mgr = PtyManager::new();
-        let _reader = mgr
-            .spawn("test-4".into(), "/tmp", 80, 24, "echo", &["hi"], &[])
-            .unwrap();
+        let _reader = mgr.spawn(spawn_config("test-4", "echo", &["hi"])).unwrap();
         mgr.close("test-4");
         assert!(!mgr.instances.lock().unwrap().contains_key("test-4"));
     }
@@ -203,15 +207,15 @@ mod tests {
     fn spawn_with_env_vars() {
         let mgr = PtyManager::new();
         let _reader = mgr
-            .spawn(
-                "test-5".into(),
-                "/tmp",
-                80,
-                24,
-                "env",
-                &[],
-                &[("JACKDAW_TEST", "hello")],
-            )
+            .spawn(SpawnConfig {
+                id: "test-5".into(),
+                cwd: "/tmp",
+                cols: 80,
+                rows: 24,
+                program: "env",
+                args: &[],
+                env: &[("JACKDAW_TEST", "hello")],
+            })
             .unwrap();
         mgr.close("test-5");
     }
