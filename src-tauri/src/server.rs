@@ -118,6 +118,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                 if let Some(session) = sessions.get_mut(&session_id) {
                     session.processing = false;
                     session.pending_approval = false;
+                    session.has_unread = true;
                     session.clear_current_tool();
                 }
             }
@@ -183,6 +184,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                 if let Some(session) = sessions.get_mut(&session_id) {
                     if session.processing {
                         session.pending_approval = true;
+                        session.has_unread = true;
                     }
                 }
             }
