@@ -90,6 +90,7 @@
             session_id: session.session_id,
             cwd: session.cwd,
             started_at: session.started_at,
+            git_branch: session.git_branch,
             current_tool: null,
             tool_history: session.tool_history.map(t => ({
               tool_name: t.tool_name,

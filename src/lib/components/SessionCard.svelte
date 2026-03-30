@@ -49,6 +49,13 @@
     </div>
   </div>
 
+  {#if session.git_branch}
+    <div class="metadata-row">
+      <span class="branch-icon">⎇</span>
+      <span class="branch-name">{session.git_branch}</span>
+    </div>
+  {/if}
+
   <!-- Tool row: visible when active -->
   {#if isActive || isPending}
     <div class="tool-row">
@@ -165,6 +172,26 @@
   .chevron {
     font-size: 10px;
     color: var(--text-muted);
+  }
+
+  .metadata-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 14px 6px;
+  }
+
+  .branch-icon {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .branch-name {
+    font-size: 11px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* Tool row */
