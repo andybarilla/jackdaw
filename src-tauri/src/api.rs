@@ -217,6 +217,15 @@ pub fn handle_action(
             }
             Ok(serde_json::json!({"updated": true}))
         }
+        "end_session" => {
+            let session_id = get_session_id()?;
+            let mut sessions = state.sessions.lock().unwrap();
+            if sessions.remove(&session_id).is_some() {
+                Ok(serde_json::json!({"ended": true}))
+            } else {
+                Err(format!("session not found: {}", session_id))
+            }
+        }
         _ => Err(format!("unknown action command: {}", command)),
     }
 }
@@ -560,6 +569,26 @@ mod tests {
         let sessions = state.sessions.lock().unwrap();
         let entry = sessions.get("s1").unwrap().metadata.get("status").unwrap();
         assert!(matches!(&entry.value, MetadataValue::Text(_)));
+    }
+
+    // --- end_session ---
+
+    #[test]
+    fn action_end_session_removes() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        let args = Some(serde_json::json!({"session_id": "s1"}));
+        let result = handle_action("end_session", &args, &state).unwrap();
+        assert_eq!(result["ended"], true);
+        assert!(state.sessions.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn action_end_session_not_found() {
+        let state = test_state();
+        let args = Some(serde_json::json!({"session_id": "nope"}));
+        let err = handle_action("end_session", &args, &state).unwrap_err();
+        assert!(err.contains("session not found"));
     }
 
     // --- E2E socket test ---
