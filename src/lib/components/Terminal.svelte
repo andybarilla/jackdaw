@@ -34,15 +34,6 @@
     term.loadAddon(fitAddon);
     term.open(containerEl);
 
-    requestAnimationFrame(() => {
-      fitAddon.fit();
-      invoke('resize_terminal', {
-        sessionId,
-        cols: term.cols,
-        rows: term.rows,
-      });
-    });
-
     const dataDisposable = term.onData((data: string) => {
       const encoded = btoa(data);
       invoke('write_terminal', { sessionId, data: encoded });
@@ -66,7 +57,11 @@
       unlistenExit = fn;
     });
 
-    const resizeObserver = new ResizeObserver(() => {
+    // Use ResizeObserver for both initial sizing and subsequent resizes.
+    // The first callback fires once the container has resolved dimensions.
+    const resizeObserver = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect;
+      if (width === 0 || height === 0) return;
       fitAddon.fit();
       if (!exited) {
         invoke('resize_terminal', {
@@ -88,18 +83,25 @@
   });
 </script>
 
-<div class="terminal-container" bind:this={containerEl}></div>
+<div class="terminal-wrapper">
+  <div class="terminal-container" bind:this={containerEl}></div>
+</div>
 
 <style>
-  .terminal-container {
-    width: 100%;
-    height: 100%;
+  .terminal-wrapper {
+    flex: 1;
+    position: relative;
     overflow: hidden;
+  }
+
+  .terminal-container {
+    position: absolute;
+    inset: 0;
+    padding: 8px;
   }
 
   .terminal-container :global(.xterm) {
     height: 100%;
-    padding: 8px;
   }
 
   .terminal-container :global(.xterm-viewport) {
