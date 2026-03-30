@@ -14,6 +14,7 @@ export interface Session {
   active_subagents: number;
   pending_approval: boolean;
   processing: boolean;
+  has_unread: boolean;
 }
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';

@@ -100,6 +100,7 @@
             active_subagents: 0,
             pending_approval: false,
             processing: false,
+            has_unread: false,
           }} onDismiss={handleDismiss} historyMode={true} endedAt={session.ended_at} />
         {/each}
       {/if}

@@ -20,6 +20,7 @@ describe('SessionStore', () => {
       active_subagents: 0,
       pending_approval: false,
       processing: false,
+      has_unread: false,
       ...overrides,
     };
   }
