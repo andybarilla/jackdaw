@@ -162,6 +162,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
     let session_id = payload.session_id;
     let cwd = payload.cwd;
     let event_name = payload.hook_event_name;
+    let spawned_session = payload.spawned_session;
 
     // All synchronous session state updates in a block so MutexGuard is dropped before awaits
     let (session_started_at, db_tool_name, db_tool_summary, db_tool_timestamp, cwd_for_git) = {
@@ -173,20 +174,28 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
         // Ensure session exists for any event (except SessionEnd which removes it).
         // When creating a new session, check DB for offline tool history and rehydrate.
         if event_name != "SessionEnd" && !sessions.contains_key(&session_id) {
-            // Drop sessions before acquiring db to maintain lock ordering
-            drop(sessions);
-            let db = state.db.lock().unwrap();
-            let history = crate::db::load_tool_events_for_session(&db, &session_id);
-            let git_branch = crate::db::load_session_git_branch(&db, &session_id);
-            drop(db);
-            // Re-acquire sessions lock
-            sessions = state.sessions.lock().unwrap();
-            // Double-check — another thread may have inserted while we released the lock
+            if let Some(pty_id) = &spawned_session {
+                // Link: re-key the pre-created spawned session under Claude's session_id
+                if let Some(mut session) = sessions.remove(pty_id.as_str()) {
+                    session.session_id = session_id.clone();
+                    sessions.insert(session_id.clone(), session);
+                }
+            }
+
+            // If still not present (external session or linking failed), create new
             if !sessions.contains_key(&session_id) {
-                let mut session = Session::new(session_id.clone(), cwd.clone());
-                session.hydrate_from_history(&history);
-                session.git_branch = git_branch;
-                sessions.insert(session_id.clone(), session);
+                drop(sessions);
+                let db = state.db.lock().unwrap();
+                let history = crate::db::load_tool_events_for_session(&db, &session_id);
+                let git_branch = crate::db::load_session_git_branch(&db, &session_id);
+                drop(db);
+                sessions = state.sessions.lock().unwrap();
+                if !sessions.contains_key(&session_id) {
+                    let mut session = Session::new(session_id.clone(), cwd.clone());
+                    session.hydrate_from_history(&history);
+                    session.git_branch = git_branch;
+                    sessions.insert(session_id.clone(), session);
+                }
             }
         }
 
@@ -524,6 +533,40 @@ mod tests {
         use crate::state::Session;
         let session = Session::new("s1".into(), "/tmp".into());
         assert!(!session.has_unread);
+    }
+
+    #[test]
+    fn spawned_session_linking_merges_into_existing() {
+        use crate::state::{AppState, Session, SessionSource};
+
+        let conn = db::init_memory();
+        let state = std::sync::Arc::new(AppState::new(conn));
+
+        // Pre-create a spawned session (as spawn_terminal would)
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let mut session = Session::new("pty-123".into(), "/home/test/project".into());
+            session.source = SessionSource::Spawned;
+            sessions.insert("pty-123".into(), session);
+        }
+
+        // Simulate linking
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let spawned_id = "pty-123";
+            let claude_session_id = "claude-abc";
+
+            if let Some(mut session) = sessions.remove(spawned_id) {
+                session.session_id = claude_session_id.to_string();
+                session.processing = true;
+                sessions.insert(claude_session_id.to_string(), session);
+            }
+
+            let session = sessions.get(claude_session_id).unwrap();
+            assert_eq!(session.source, SessionSource::Spawned);
+            assert!(session.processing);
+            assert!(!sessions.contains_key(spawned_id));
+        }
     }
 
     #[test]
