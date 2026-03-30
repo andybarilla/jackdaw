@@ -19,6 +19,13 @@ pub struct HookPayload {
     pub tool_use_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionSource {
+    External,
+    Spawned,
+}
+
 /// Internal session state
 #[derive(Debug, Clone, Serialize)]
 pub struct Session {
@@ -32,6 +39,7 @@ pub struct Session {
     pub pending_approval: bool,
     pub processing: bool,
     pub has_unread: bool,
+    pub source: SessionSource,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -104,6 +112,7 @@ impl Session {
             pending_approval: false,
             processing: false,
             has_unread: false,
+            source: SessionSource::External,
         }
     }
 
@@ -391,6 +400,20 @@ mod tests {
     async fn resolve_git_branch_returns_none_for_non_git_dir() {
         let branch = resolve_git_branch("/tmp").await;
         assert!(branch.is_none());
+    }
+
+    #[test]
+    fn session_source_defaults_to_external() {
+        let s = Session::new("s1".into(), "/tmp".into());
+        assert_eq!(s.source, SessionSource::External);
+    }
+
+    #[test]
+    fn session_source_serializes_as_lowercase() {
+        let json = serde_json::to_value(SessionSource::Spawned).unwrap();
+        assert_eq!(json, serde_json::json!("spawned"));
+        let json = serde_json::to_value(SessionSource::External).unwrap();
+        assert_eq!(json, serde_json::json!("external"));
     }
 
     #[test]
