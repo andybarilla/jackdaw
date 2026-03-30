@@ -179,6 +179,15 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                 if let Some(mut session) = sessions.remove(pty_id.as_str()) {
                     session.session_id = session_id.clone();
                     sessions.insert(session_id.clone(), session);
+                    // Re-key PTY instance so commands use the new ID
+                    if let Some(pty_mgr) = app_handle.try_state::<Arc<crate::pty::PtyManager>>() {
+                        pty_mgr.rekey(pty_id, session_id.clone());
+                    }
+                    // Notify frontend so it can update selectedSessionId and terminal filters
+                    let _ = app_handle.emit("session-rekey", serde_json::json!({
+                        "old_id": pty_id,
+                        "new_id": session_id,
+                    }));
                 }
             }
 

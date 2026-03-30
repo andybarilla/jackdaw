@@ -111,6 +111,14 @@ impl PtyManager {
         Ok(())
     }
 
+    /// Re-key a PTY instance from old_id to new_id.
+    pub fn rekey(&self, old_id: &str, new_id: String) {
+        let mut instances = self.instances.lock().unwrap();
+        if let Some(instance) = instances.remove(old_id) {
+            instances.insert(new_id, instance);
+        }
+    }
+
     /// Close a PTY and kill its child process.
     pub fn close(&self, id: &str) {
         let mut instances = self.instances.lock().unwrap();
