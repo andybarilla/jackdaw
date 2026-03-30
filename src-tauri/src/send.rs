@@ -55,6 +55,12 @@ fn fallback_to_db(conn: &Connection, json_payload: &str) -> bool {
     first
 }
 
+fn inject_spawned_session(payload: &mut serde_json::Value, spawned_id: Option<&str>) {
+    if let (Some(obj), Some(id)) = (payload.as_object_mut(), spawned_id) {
+        obj.insert("spawned_session".to_string(), serde_json::Value::String(id.to_string()));
+    }
+}
+
 pub fn run() {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -69,6 +75,18 @@ pub fn run() {
         }
 
         let payload = payload.trim().to_string();
+        let payload = match std::env::var("JACKDAW_SPAWNED_SESSION").ok() {
+            Some(pty_id) => {
+                match serde_json::from_str::<serde_json::Value>(&payload) {
+                    Ok(mut v) => {
+                        inject_spawned_session(&mut v, Some(&pty_id));
+                        serde_json::to_string(&v).unwrap_or(payload)
+                    }
+                    Err(_) => payload,
+                }
+            }
+            None => payload,
+        };
         if payload.is_empty() {
             eprintln!("jackdaw send: empty payload");
             std::process::exit(1);
@@ -154,6 +172,24 @@ mod tests {
         let history = crate::db::load_history(&conn, 50, 0);
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].session_id, "s1");
+    }
+
+    #[test]
+    fn inject_spawned_session_adds_field() {
+        let mut payload: serde_json::Value = serde_json::from_str(
+            r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}"#
+        ).unwrap();
+        inject_spawned_session(&mut payload, Some("pty-123"));
+        assert_eq!(payload["spawned_session"], "pty-123");
+    }
+
+    #[test]
+    fn inject_spawned_session_noop_when_none() {
+        let mut payload: serde_json::Value = serde_json::from_str(
+            r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}"#
+        ).unwrap();
+        inject_spawned_session(&mut payload, None);
+        assert!(payload.get("spawned_session").is_none());
     }
 
     #[test]
