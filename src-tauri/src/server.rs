@@ -87,6 +87,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             drop(sessions);
             let db = state.db.lock().unwrap();
             let history = crate::db::load_tool_events_for_session(&db, &session_id);
+            let git_branch = crate::db::load_session_git_branch(&db, &session_id);
             drop(db);
             // Re-acquire sessions lock
             sessions = state.sessions.lock().unwrap();
@@ -94,6 +95,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             if !sessions.contains_key(&session_id) {
                 let mut session = Session::new(session_id.clone(), cwd.clone());
                 session.hydrate_from_history(&history);
+                session.git_branch = git_branch;
                 sessions.insert(session_id.clone(), session);
             }
         }
@@ -198,7 +200,10 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
         }
 
         let cwd_for_git = if event_name != "SessionEnd" {
-            sessions.get(&session_id).map(|s| s.cwd.clone())
+            sessions
+                .get(&session_id)
+                .filter(|s| s.git_branch.is_none())
+                .map(|s| s.cwd.clone())
         } else {
             None
         };
@@ -374,6 +379,48 @@ mod tests {
         use crate::state::Session;
         let session = Session::new("s1".into(), "/tmp".into());
         assert_eq!(session.git_branch, None);
+    }
+
+    #[test]
+    fn rehydration_restores_git_branch_from_db() {
+        use crate::state::{AppState, Session};
+
+        let conn = db::init_memory();
+        db::save_session(&conn, "s1", "/tmp", "2026-03-30T00:00:00Z");
+        db::update_git_branch(&conn, "s1", Some("feat-my-branch"));
+        db::save_tool_event(&conn, "s1", "Bash", Some("ls"), "2026-03-30T00:01:00Z");
+
+        let state = std::sync::Arc::new(AppState::new(conn));
+        let mut sessions = state.sessions.lock().unwrap();
+
+        if !sessions.contains_key("s1") {
+            let db = state.db.lock().unwrap();
+            let history = db::load_tool_events_for_session(&db, "s1");
+            let git_branch = db::load_session_git_branch(&db, "s1");
+            drop(db);
+            let mut session = Session::new("s1".into(), "/tmp".into());
+            session.hydrate_from_history(&history);
+            session.git_branch = git_branch;
+            sessions.insert("s1".into(), session);
+        }
+
+        let session = sessions.get("s1").unwrap();
+        assert_eq!(session.git_branch, Some("feat-my-branch".into()));
+    }
+
+    #[test]
+    fn load_session_git_branch_returns_none_for_unknown() {
+        let conn = db::init_memory();
+        let branch = db::load_session_git_branch(&conn, "nonexistent");
+        assert!(branch.is_none());
+    }
+
+    #[test]
+    fn load_session_git_branch_returns_none_when_not_set() {
+        let conn = db::init_memory();
+        db::save_session(&conn, "s1", "/tmp", "2026-03-30T00:00:00Z");
+        let branch = db::load_session_git_branch(&conn, "s1");
+        assert!(branch.is_none());
     }
 
     #[test]

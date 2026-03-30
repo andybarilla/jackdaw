@@ -139,6 +139,16 @@ pub fn load_history(conn: &Connection, limit: u32, offset: u32) -> Vec<HistorySe
         .collect()
 }
 
+pub fn load_session_git_branch(conn: &Connection, session_id: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT git_branch FROM sessions WHERE session_id = ?1",
+        rusqlite::params![session_id],
+        |row| row.get(0),
+    )
+    .ok()
+    .flatten()
+}
+
 pub fn load_tool_events_for_session(conn: &Connection, session_id: &str) -> Vec<HistoryToolEvent> {
     let mut stmt = conn
         .prepare(
