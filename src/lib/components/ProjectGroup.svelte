@@ -1,8 +1,6 @@
 <script lang="ts">
   import type { Session } from '$lib/types';
-  import { getProjectName } from '$lib/utils';
-  import { getSessionState } from '$lib/utils';
-  import type { SessionState } from '$lib/utils';
+  import { getProjectName, getSessionState, type SessionState } from '$lib/utils';
   import SessionCard from './SessionCard.svelte';
 
   interface Props {
@@ -79,7 +77,6 @@
     padding: 8px 14px;
     cursor: pointer;
     user-select: none;
-    border-bottom: 1px solid var(--border);
   }
 
   .header-left {
@@ -134,6 +131,7 @@
   }
 
   .group-body {
+    border-top: 1px solid var(--border);
     padding: 6px;
     display: flex;
     flex-direction: column;

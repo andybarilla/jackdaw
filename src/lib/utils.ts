@@ -40,9 +40,9 @@ export function formatEndedAt(isoDate: string): string {
   return d.toLocaleDateString();
 }
 
-export type SessionState = 'approval' | 'input' | 'running' | 'idle';
+export type SessionState = 'approval' | 'input' | 'running';
 
-/** Derive the visual state of a session (same logic as SessionCard's cardState) */
+/** Derive the visual state of an active session */
 export function getSessionState(session: { pending_approval: boolean; current_tool: unknown | null; active_subagents: number; processing: boolean }): SessionState {
   if (session.pending_approval) return 'approval';
   if (session.current_tool !== null || session.active_subagents > 0 || session.processing) return 'running';
