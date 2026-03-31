@@ -389,6 +389,27 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
         }
     }
 
+    // Persist notification to DB and emit event
+    if let Some((title, body)) = crate::notify::notification_content(&event_name, &cwd) {
+        let now = chrono::Utc::now();
+        let sc = state.clone();
+        let sid = session_id.clone();
+        let evt = event_name.clone();
+        let cwd_clone = cwd.clone();
+        let app = app_handle.clone();
+        let t = title.to_string();
+        let b = body;
+        tokio::task::spawn_blocking(move || {
+            let db = sc.db.lock().unwrap();
+            if let Some(notif) = crate::notification::insert_notification(
+                &db, &sid, &evt, &t, &b, &cwd_clone, &now,
+            ) {
+                drop(db);
+                let _ = app.emit("notification-event", &notif);
+            }
+        });
+    }
+
     // DB persistence (best-effort, non-blocking)
 
     if let (Some(tn), Some(ts)) = (db_tool_name, db_tool_timestamp) {
@@ -591,6 +612,48 @@ mod tests {
             assert!(session.processing);
             assert!(!sessions.contains_key(spawned_id));
         }
+    }
+
+    #[test]
+    fn notification_event_inserts_db_row() {
+        let conn = db::init_memory();
+        let now = chrono::Utc::now();
+        let notif = crate::notification::insert_notification(
+            &conn, "s1", "Notification", "Approval Needed",
+            "Session in /tmp needs approval", "/tmp", &now,
+        );
+        assert!(notif.is_some());
+        let loaded = crate::notification::load_notifications(&conn, 50, 0, None);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].event_type, "Notification");
+    }
+
+    #[test]
+    fn stop_event_inserts_notification_row() {
+        let conn = db::init_memory();
+        let now = chrono::Utc::now();
+        let notif = crate::notification::insert_notification(
+            &conn, "s1", "Stop", "Waiting for Input",
+            "Session in /tmp is waiting", "/tmp", &now,
+        );
+        assert!(notif.is_some());
+        let loaded = crate::notification::load_notifications(&conn, 50, 0, None);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].event_type, "Stop");
+    }
+
+    #[test]
+    fn session_end_inserts_notification_row() {
+        let conn = db::init_memory();
+        let now = chrono::Utc::now();
+        let notif = crate::notification::insert_notification(
+            &conn, "s1", "SessionEnd", "Session Ended",
+            "Session in /tmp has ended", "/tmp", &now,
+        );
+        assert!(notif.is_some());
+        let loaded = crate::notification::load_notifications(&conn, 50, 0, None);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].event_type, "SessionEnd");
     }
 
     #[test]
