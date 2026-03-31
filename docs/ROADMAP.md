@@ -4,15 +4,10 @@ Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and J
 
 ## High Priority
 
-### Sidebar Metadata API
-Accept custom metadata via IPC socket — status labels, progress percentages, log lines — rendered on SessionCard. Any tool (not just Claude Code) can push rich status updates, making Jackdaw a general-purpose agent dashboard.
-
-**Spec**: None yet
-
 ### Notification Command / Custom Actions
 Run arbitrary shell commands on notification events. Expose env vars (`JACKDAW_SESSION_ID`, `JACKDAW_EVENT`, `JACKDAW_CWD`) for automation — text-to-speech, sounds, logging, webhook triggers.
 
-**Spec**: None yet (extends `docs/superpowers/specs/2026-03-22-notifications-design.md`)
+**Spec**: `docs/superpowers/specs/2026-03-30-notification-commands-design.md`
 
 ### Bidirectional Socket API
 Add request/response protocol to the IPC socket. Commands: `list-sessions`, `get-session`, `session-state`, `dismiss-session`. Enables external tools, scripts, Alfred workflows, and other UIs to query Jackdaw state.
@@ -26,6 +21,11 @@ Group sessions by `cwd` with collapsible project headers, project-level status b
 
 ### Notification Panel & History
 Dedicated notification log with timestamps, event types, and click-to-focus. "Jump to most recent unread" shortcut. Extends existing `has_unread` tracking.
+
+**Spec**: None yet
+
+### Quick Terminal Launch
+Open a new terminal tab from a session card, pre-cd'd to the session's cwd. One-click access to run commands alongside the active Claude instance.
 
 **Spec**: None yet
 
@@ -87,3 +87,4 @@ Predefined configurations for which projects to watch, notification settings per
 - **Embedded Terminals**
 - **Auto-Update**
 - **Tray Session Icons**
+- **Sidebar Metadata API**
