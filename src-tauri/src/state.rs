@@ -169,6 +169,16 @@ impl Session {
             || self.pending_approval
     }
 
+    pub fn explicit_progress(&self) -> Option<f64> {
+        self.metadata.get("progress").and_then(|entry| {
+            if let MetadataValue::Progress(v) = &entry.value {
+                Some(*v)
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn set_current_tool(&mut self, tool: ToolEvent) {
         // If there's already a current tool, move it to history first
         if let Some(prev) = self.current_tool.take() {
@@ -634,5 +644,37 @@ mod tests {
     fn detect_shell_name_has_no_path_separator() {
         let (_, name) = super::detect_shell();
         assert!(!name.contains('/'));
+    }
+
+    #[test]
+    fn explicit_progress_returns_none_when_no_progress_metadata() {
+        let s = Session::new("s1".into(), "/tmp".into());
+        assert_eq!(s.explicit_progress(), None);
+    }
+
+    #[test]
+    fn explicit_progress_returns_value_when_progress_metadata_set() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.metadata.insert(
+            "progress".into(),
+            MetadataEntry {
+                key: "progress".into(),
+                value: MetadataValue::Progress(75.0),
+            },
+        );
+        assert_eq!(s.explicit_progress(), Some(75.0));
+    }
+
+    #[test]
+    fn explicit_progress_ignores_non_progress_metadata_with_progress_key() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.metadata.insert(
+            "progress".into(),
+            MetadataEntry {
+                key: "progress".into(),
+                value: MetadataValue::Text("75%".into()),
+            },
+        );
+        assert_eq!(s.explicit_progress(), None);
     }
 }
