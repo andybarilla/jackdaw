@@ -24,6 +24,7 @@ describe('SessionStore', () => {
       source: 'external' as const,
       display_name: null,
       metadata: {},
+      shell_pty_id: null,
       ...overrides,
     };
   }

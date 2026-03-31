@@ -270,6 +270,7 @@
                 source: 'external',
                 display_name: null,
                 metadata: {},
+                shell_pty_id: null,
               }} onDismiss={handleDismiss} historyMode={true} endedAt={session.ended_at} />
             {/each}
           {/if}
