@@ -1,5 +1,5 @@
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize)]
@@ -222,6 +222,102 @@ pub fn prune_old_sessions(conn: &Connection, retention_days: u32) {
         eprintln!("Jackdaw: failed to prune sessions: {}", e);
         0
     });
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DateFilter {
+    Today,
+    ThisWeek,
+    ThisMonth,
+}
+
+pub fn search_history(
+    conn: &Connection,
+    query: Option<&str>,
+    date_filter: Option<DateFilter>,
+    limit: u32,
+    offset: u32,
+) -> Vec<HistorySession> {
+    let mut sql = String::from(
+        "SELECT session_id, cwd, started_at, ended_at, git_branch FROM sessions WHERE ended_at IS NOT NULL",
+    );
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+    if let Some(q) = query {
+        let pattern = format!("%{}%", q);
+        sql.push_str(" AND (cwd LIKE ?1 COLLATE NOCASE OR git_branch LIKE ?2 COLLATE NOCASE)");
+        params.push(Box::new(pattern.clone()));
+        params.push(Box::new(pattern));
+    }
+
+    let param_offset = params.len();
+    match date_filter {
+        Some(DateFilter::Today) => {
+            sql.push_str(" AND ended_at >= datetime('now', 'start of day')");
+        }
+        Some(DateFilter::ThisWeek) => {
+            sql.push_str(" AND ended_at >= datetime('now', '-7 days')");
+        }
+        Some(DateFilter::ThisMonth) => {
+            sql.push_str(" AND ended_at >= datetime('now', '-30 days')");
+        }
+        None => {}
+    }
+
+    let limit_idx = param_offset + 1;
+    let offset_idx = param_offset + 2;
+    sql.push_str(&format!(
+        " ORDER BY ended_at DESC LIMIT ?{} OFFSET ?{}",
+        limit_idx, offset_idx
+    ));
+    params.push(Box::new(limit));
+    params.push(Box::new(offset));
+
+    let mut stmt = conn.prepare(&sql).unwrap();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let sessions: Vec<(String, String, String, String, Option<String>)> = stmt
+        .query_map(param_refs.as_slice(), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut tool_stmt = conn
+        .prepare(
+            "SELECT tool_name, summary, timestamp FROM tool_events
+             WHERE session_id = ?1
+             ORDER BY timestamp ASC
+             LIMIT 50",
+        )
+        .unwrap();
+
+    sessions
+        .into_iter()
+        .map(|(session_id, cwd, started_at, ended_at, git_branch)| {
+            let tool_history: Vec<HistoryToolEvent> = tool_stmt
+                .query_map(rusqlite::params![&session_id], |row| {
+                    Ok(HistoryToolEvent {
+                        tool_name: row.get(0)?,
+                        summary: row.get(1)?,
+                        timestamp: row.get(2)?,
+                    })
+                })
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect();
+
+            HistorySession {
+                session_id,
+                cwd,
+                started_at,
+                ended_at,
+                git_branch,
+                tool_history,
+            }
+        })
+        .collect()
 }
 
 fn setup_connection(conn: &Connection) {
@@ -601,5 +697,104 @@ mod tests {
         let page2 = load_history(&conn, 2, 2);
         assert_eq!(page2.len(), 2);
         assert_eq!(page2[0].session_id, "s2");
+    }
+
+    #[test]
+    fn search_history_no_filters_returns_all_ended() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/home/user/alpha", "2026-03-20T00:00:00Z");
+        end_session(&conn, "s1", "2026-03-20T01:00:00Z");
+        save_session(&conn, "s2", "/home/user/beta", "2026-03-21T00:00:00Z");
+        end_session(&conn, "s2", "2026-03-21T01:00:00Z");
+        save_session(&conn, "s3", "/home/user/gamma", "2026-03-22T00:00:00Z");
+        // s3 not ended — should not appear
+        let results = search_history(&conn, None, None, 50, 0);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].session_id, "s2"); // newest first
+        assert_eq!(results[1].session_id, "s1");
+    }
+
+    #[test]
+    fn search_history_query_matches_cwd() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/home/user/jackdaw", "2026-03-20T00:00:00Z");
+        end_session(&conn, "s1", "2026-03-20T01:00:00Z");
+        save_session(&conn, "s2", "/home/user/sparrow", "2026-03-21T00:00:00Z");
+        end_session(&conn, "s2", "2026-03-21T01:00:00Z");
+        let results = search_history(&conn, Some("jackdaw"), None, 50, 0);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].session_id, "s1");
+    }
+
+    #[test]
+    fn search_history_query_matches_git_branch() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/home/user/project", "2026-03-20T00:00:00Z");
+        update_git_branch(&conn, "s1", Some("feat-auth"));
+        end_session(&conn, "s1", "2026-03-20T01:00:00Z");
+        save_session(&conn, "s2", "/home/user/project", "2026-03-21T00:00:00Z");
+        update_git_branch(&conn, "s2", Some("main"));
+        end_session(&conn, "s2", "2026-03-21T01:00:00Z");
+        let results = search_history(&conn, Some("feat-auth"), None, 50, 0);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].session_id, "s1");
+    }
+
+    #[test]
+    fn search_history_query_is_case_insensitive() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/home/user/Jackdaw", "2026-03-20T00:00:00Z");
+        end_session(&conn, "s1", "2026-03-20T01:00:00Z");
+        let results = search_history(&conn, Some("jackdaw"), None, 50, 0);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn search_history_date_filter_today() {
+        let conn = init_memory();
+        save_session(&conn, "old", "/tmp", "2026-03-28T00:00:00Z");
+        end_session(&conn, "old", "2026-03-28T01:00:00Z");
+        save_session(&conn, "recent", "/tmp", "2026-03-31T10:00:00Z");
+        end_session(&conn, "recent", &chrono::Utc::now().to_rfc3339());
+        let results = search_history(&conn, None, Some(DateFilter::Today), 50, 0);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].session_id, "recent");
+    }
+
+    #[test]
+    fn search_history_query_plus_date_filter() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/home/user/jackdaw", "2026-03-31T10:00:00Z");
+        end_session(&conn, "s1", &chrono::Utc::now().to_rfc3339());
+        save_session(&conn, "s2", "/home/user/sparrow", "2026-03-31T11:00:00Z");
+        end_session(&conn, "s2", &chrono::Utc::now().to_rfc3339());
+        let results = search_history(&conn, Some("jackdaw"), Some(DateFilter::Today), 50, 0);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].session_id, "s1");
+    }
+
+    #[test]
+    fn search_history_pagination() {
+        let conn = init_memory();
+        for i in 0..5 {
+            let id = format!("s{}", i);
+            save_session(&conn, &id, "/tmp", &format!("2026-03-21T0{}:00:00Z", i));
+            end_session(&conn, &id, &format!("2026-03-21T0{}:30:00Z", i));
+        }
+        let page1 = search_history(&conn, None, None, 2, 0);
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1[0].session_id, "s4");
+        let page2 = search_history(&conn, None, None, 2, 2);
+        assert_eq!(page2.len(), 2);
+        assert_eq!(page2[0].session_id, "s2");
+    }
+
+    #[test]
+    fn search_history_no_matches() {
+        let conn = init_memory();
+        save_session(&conn, "s1", "/home/user/project", "2026-03-20T00:00:00Z");
+        end_session(&conn, "s1", "2026-03-20T01:00:00Z");
+        let results = search_history(&conn, Some("nonexistent"), None, 50, 0);
+        assert!(results.is_empty());
     }
 }

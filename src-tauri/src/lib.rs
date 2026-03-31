@@ -60,6 +60,18 @@ fn get_session_history(
 }
 
 #[tauri::command]
+fn search_session_history(
+    query: Option<String>,
+    date_filter: Option<db::DateFilter>,
+    limit: u32,
+    offset: u32,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Vec<db::HistorySession> {
+    let db = state.db.lock().unwrap();
+    db::search_history(&db, query.as_deref(), date_filter, limit, offset)
+}
+
+#[tauri::command]
 fn get_retention_days(state: tauri::State<'_, Arc<AppState>>) -> u32 {
     let db = state.db.lock().unwrap();
     db::get_retention_days(&db)
@@ -222,6 +234,130 @@ async fn spawn_terminal(
     });
 
     Ok(session_id)
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct ResumeResult {
+    pty_id: String,
+    resumed: bool,
+}
+
+#[tauri::command]
+async fn resume_session(
+    session_id: String,
+    cwd: String,
+    app: AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+) -> Result<ResumeResult, String> {
+    let pty_id = uuid::Uuid::new_v4().to_string();
+
+    // Pre-create the session so it appears immediately
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        let mut session = Session::new(pty_id.clone(), cwd.clone());
+        session.source = SessionSource::Spawned;
+        sessions.insert(pty_id.clone(), session);
+    }
+
+    // Emit updated session list
+    {
+        let sessions = state.sessions.lock().unwrap();
+        let mut session_list: Vec<_> = sessions.values().cloned().collect();
+        session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        let _ = app.emit("session-update", &session_list);
+        crate::tray::update_tray(&app, &session_list);
+    }
+
+    // Try claude --resume first
+    let pty_mgr_inner = pty_mgr.inner().clone();
+    let cwd_clone = cwd.clone();
+    let pty_id_for_spawn = pty_id.clone();
+    let session_id_clone = session_id.clone();
+
+    let resume_result = tokio::task::spawn_blocking(move || {
+        pty_mgr_inner.spawn(pty::SpawnConfig {
+            id: pty_id_for_spawn,
+            cwd: &cwd_clone,
+            cols: 80,
+            rows: 24,
+            program: "claude",
+            args: &["--resume", &session_id_clone],
+            env: &[],
+        })
+    })
+    .await
+    .map_err(|e| format!("spawn task failed: {}", e))?;
+
+    let (reader, resumed) = match resume_result {
+        Ok(reader) => (reader, true),
+        Err(_) => {
+            // Fallback: spawn claude without --resume
+            let pty_mgr_inner = pty_mgr.inner().clone();
+            let cwd_clone = cwd.clone();
+            let pty_id_for_spawn = pty_id.clone();
+
+            let reader = tokio::task::spawn_blocking(move || {
+                pty_mgr_inner.spawn(pty::SpawnConfig {
+                    id: pty_id_for_spawn,
+                    cwd: &cwd_clone,
+                    cols: 80,
+                    rows: 24,
+                    program: "claude",
+                    args: &[],
+                    env: &[],
+                })
+            })
+            .await
+            .map_err(|e| format!("spawn task failed: {}", e))??;
+
+            (reader, false)
+        }
+    };
+
+    // Spawn background reader thread (same pattern as spawn_terminal)
+    let app_clone = app.clone();
+    let pty_id_for_reader = pty_id.clone();
+    let pty_mgr_for_exit = pty_mgr.inner().clone();
+
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut reader = reader;
+        let mut buf = [0u8; 4096];
+        let engine = base64::engine::general_purpose::STANDARD;
+
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let encoded = engine.encode(&buf[..n]);
+                    let _ = app_clone.emit(
+                        "terminal-output",
+                        serde_json::json!({
+                            "session_id": pty_id_for_reader,
+                            "data": encoded,
+                        }),
+                    );
+                }
+                Err(_) => break,
+            }
+        }
+
+        let exit_code = pty_mgr_for_exit.try_wait(&pty_id_for_reader).ok().flatten();
+
+        let _ = app_clone.emit(
+            "terminal-exited",
+            serde_json::json!({
+                "session_id": pty_id_for_reader,
+                "exit_code": exit_code,
+            }),
+        );
+    });
+
+    Ok(ResumeResult {
+        pty_id,
+        resumed,
+    })
 }
 
 #[tauri::command]
@@ -517,6 +653,8 @@ pub fn run() {
             install_hooks,
             uninstall_hooks,
             get_session_history,
+            search_session_history,
+            resume_session,
             get_retention_days,
             set_retention_days,
             spawn_terminal,

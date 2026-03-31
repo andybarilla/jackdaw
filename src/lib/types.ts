@@ -80,3 +80,10 @@ export interface Notification {
   is_read: boolean;
   created_at: string;
 }
+
+export type DateFilter = 'today' | 'this_week' | 'this_month';
+
+export interface ResumeResult {
+  pty_id: string;
+  resumed: boolean;
+}
