@@ -24,6 +24,16 @@ fn dismiss_session(
     pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
     app: AppHandle,
 ) {
+    // Close shell PTY if one exists
+    {
+        let sessions = state.sessions.lock().unwrap();
+        if let Some(session) = sessions.get(&session_id) {
+            if let Some(ref shell_id) = session.shell_pty_id {
+                pty_mgr.close(shell_id);
+            }
+        }
+    }
+
     pty_mgr.close(&session_id);
 
     let mut sessions = state.sessions.lock().unwrap();
@@ -258,6 +268,145 @@ fn close_terminal(
 }
 
 #[tauri::command]
+async fn open_session_shell(
+    session_id: String,
+    app: AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+) -> Result<String, String> {
+    let cwd = {
+        let sessions = state.sessions.lock().unwrap();
+        let session = sessions
+            .get(&session_id)
+            .ok_or_else(|| format!("session not found: {}", session_id))?;
+        if let Some(ref pty_id) = session.shell_pty_id {
+            return Ok(pty_id.clone());
+        }
+        session.cwd.clone()
+    };
+
+    let pty_id = uuid::Uuid::new_v4().to_string();
+    let (shell_path, _shell_name) = state::detect_shell();
+
+    let pty_mgr_inner = pty_mgr.inner().clone();
+    let pty_id_for_spawn = pty_id.clone();
+    let cwd_clone = cwd.clone();
+
+    let reader = tokio::task::spawn_blocking(move || {
+        pty_mgr_inner.spawn(pty::SpawnConfig {
+            id: pty_id_for_spawn,
+            cwd: &cwd_clone,
+            cols: 80,
+            rows: 24,
+            program: &shell_path,
+            args: &[],
+            env: &[],
+        })
+    })
+    .await
+    .map_err(|e| format!("spawn task failed: {}", e))??;
+
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(&session_id) {
+            session.shell_pty_id = Some(pty_id.clone());
+        }
+    }
+
+    // Emit updated session list
+    {
+        let sessions = state.sessions.lock().unwrap();
+        let mut session_list: Vec<_> = sessions.values().cloned().collect();
+        session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        let _ = app.emit("session-update", &session_list);
+        crate::tray::update_tray(&app, &session_list);
+    }
+
+    // Spawn background thread to read PTY output and emit events
+    let app_clone = app.clone();
+    let pty_id_for_reader = pty_id.clone();
+    let session_id_for_cleanup = session_id.clone();
+    let state_for_cleanup = state.inner().clone();
+    let pty_mgr_for_exit = pty_mgr.inner().clone();
+
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut reader = reader;
+        let mut buf = [0u8; 4096];
+        let engine = base64::engine::general_purpose::STANDARD;
+
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let encoded = engine.encode(&buf[..n]);
+                    let _ = app_clone.emit(
+                        "terminal-output",
+                        serde_json::json!({
+                            "session_id": pty_id_for_reader,
+                            "data": encoded,
+                        }),
+                    );
+                }
+                Err(_) => break,
+            }
+        }
+
+        let exit_code = pty_mgr_for_exit.try_wait(&pty_id_for_reader).ok().flatten();
+
+        let _ = app_clone.emit(
+            "terminal-exited",
+            serde_json::json!({
+                "session_id": pty_id_for_reader,
+                "exit_code": exit_code,
+            }),
+        );
+
+        // Clear shell_pty_id on the parent session
+        {
+            let mut sessions = state_for_cleanup.sessions.lock().unwrap();
+            if let Some(session) = sessions.get_mut(&session_id_for_cleanup) {
+                session.shell_pty_id = None;
+            }
+            let mut session_list: Vec<_> = sessions.values().cloned().collect();
+            session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+            let _ = app_clone.emit("session-update", &session_list);
+            crate::tray::update_tray(&app_clone, &session_list);
+        }
+    });
+
+    Ok(pty_id)
+}
+
+#[tauri::command]
+fn close_session_shell(
+    session_id: String,
+    state: tauri::State<'_, Arc<AppState>>,
+    pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let pty_id = {
+        let mut sessions = state.sessions.lock().unwrap();
+        let session = sessions
+            .get_mut(&session_id)
+            .ok_or_else(|| format!("session not found: {}", session_id))?;
+        session.shell_pty_id.take()
+    };
+
+    if let Some(id) = pty_id {
+        pty_mgr.close(&id);
+    }
+
+    let sessions = state.sessions.lock().unwrap();
+    let mut session_list: Vec<_> = sessions.values().cloned().collect();
+    session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    let _ = app.emit("session-update", &session_list);
+    crate::tray::update_tray(&app, &session_list);
+
+    Ok(())
+}
+
+#[tauri::command]
 fn get_recent_cwds(state: tauri::State<'_, Arc<AppState>>) -> Vec<String> {
     let db = state.db.lock().unwrap();
     db::load_recent_cwds(&db, 20)
@@ -374,6 +523,8 @@ pub fn run() {
             write_terminal,
             resize_terminal,
             close_terminal,
+            open_session_shell,
+            close_session_shell,
             get_recent_cwds,
             get_busy_session_count,
             force_quit,
