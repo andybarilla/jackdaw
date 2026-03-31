@@ -9,11 +9,6 @@ Run arbitrary shell commands on notification events. Expose env vars (`JACKDAW_S
 
 **Spec**: `docs/superpowers/specs/2026-03-30-notification-commands-design.md`
 
-### Bidirectional Socket API
-Add request/response protocol to the IPC socket. Commands: `list-sessions`, `get-session`, `session-state`, `dismiss-session`. Enables external tools, scripts, Alfred workflows, and other UIs to query Jackdaw state.
-
-**Spec**: `docs/superpowers/specs/2026-03-30-cmux-inspired-enhancements-design.md` (Feature 3)
-
 ### Project Grouping
 Group sessions by `cwd` with collapsible project headers, project-level status badges, and aggregate counts. Scales better when monitoring many concurrent agents.
 
@@ -88,3 +83,4 @@ Predefined configurations for which projects to watch, notification settings per
 - **Auto-Update**
 - **Tray Session Icons**
 - **Sidebar Metadata API**
+- **Bidirectional Socket API**
