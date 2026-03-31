@@ -1,12 +1,14 @@
 <script lang="ts">
-  import { ShieldAlert, MessageSquare, Play, Circle } from 'lucide-svelte';
+  import { ShieldAlert, MessageSquare, Play, Circle, Bell } from 'lucide-svelte';
 
   interface Props {
     sessionCount: number;
     globalState: 'approval' | 'input' | 'running' | 'idle';
+    unreadCount: number;
+    onToggleNotifications: () => void;
   }
 
-  let { sessionCount, globalState }: Props = $props();
+  let { sessionCount, globalState, unreadCount, onToggleNotifications }: Props = $props();
 
   const stateConfig = {
     approval: { icon: ShieldAlert, colorClass: 'status-orange' },
@@ -34,6 +36,12 @@
     {:else}
       <span class="status-text">No active sessions</span>
     {/if}
+    <button class="bell-btn" onclick={onToggleNotifications} title="Notifications">
+      <Bell size={14} strokeWidth={2} />
+      {#if unreadCount > 0}
+        <span class="bell-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+      {/if}
+    </button>
   </div>
 </header>
 
@@ -71,5 +79,38 @@
   .status-text {
     font-size: 13px;
     color: var(--text-secondary);
+  }
+
+  .bell-btn {
+    position: relative;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    padding: 4px;
+    transition: color 0.15s;
+  }
+
+  .bell-btn:hover {
+    color: var(--text-primary);
+  }
+
+  .bell-badge {
+    position: absolute;
+    top: -2px;
+    right: -4px;
+    background: var(--active);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    min-width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
   }
 </style>
