@@ -12,7 +12,7 @@ Visual progress bars on SessionCard. Accept explicit progress events via socket,
 ### Custom Commands / Quick Actions
 Per-project actions defined in a config file (e.g., "run tests", "restart agent", "open in terminal") that appear as buttons on session cards or in a context menu.
 
-**Spec**: None yet
+**Spec**: `docs/superpowers/specs/2026-03-31-custom-commands-design.md`
 
 ### Multi-Agent Orchestration View
 Tree/graph visualization of parent→subagent relationships with status propagation. Leverages existing `spawned_session` and `active_subagents` tracking. Unique differentiator — no other tool visualizes agent spawn trees.
