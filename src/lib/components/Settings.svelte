@@ -18,6 +18,7 @@
   });
 
   let store: Awaited<ReturnType<typeof Store.load>> | null = $state(null);
+  let notificationCommand = $state('');
   let autoUpdateEnabled = $state(true);
   let appVersion = $state<string | null>(null);
   let checking = $state(false);
@@ -27,6 +28,10 @@
     const saved = await store.get<NotificationPrefs>('notifications');
     if (saved) {
       prefs = saved;
+    }
+    const savedCommand = await store.get<string>('notification_command');
+    if (savedCommand) {
+      notificationCommand = savedCommand;
     }
     const savedAutoUpdate = await store.get<boolean>('auto_update_enabled');
     if (savedAutoUpdate !== undefined) {
@@ -42,6 +47,13 @@
     prefs[key] = !prefs[key];
     if (store) {
       await store.set('notifications', prefs);
+      await store.save();
+    }
+  }
+
+  async function saveCommand() {
+    if (store) {
+      await store.set('notification_command', notificationCommand);
       await store.save();
     }
   }
@@ -81,6 +93,17 @@
     <input type="checkbox" checked={prefs.on_session_end} onchange={() => toggle('on_session_end')} />
     <span>Notify when session ends</span>
   </label>
+  <div class="command-row">
+    <label class="command-label" for="notification-command">Run command on notification</label>
+    <input
+      id="notification-command"
+      type="text"
+      class="command-input"
+      placeholder="e.g. ~/.config/jackdaw/on-notify.sh"
+      bind:value={notificationCommand}
+      onblur={saveCommand}
+    />
+  </div>
   <h3 class="settings-title">Updates</h3>
   <label class="toggle-row">
     <input type="checkbox" checked={autoUpdateEnabled} onchange={toggleAutoUpdate} />
@@ -123,6 +146,38 @@
 
   .toggle-row input[type="checkbox"] {
     accent-color: var(--active);
+  }
+
+  .command-row {
+    padding: 8px 0 12px 0;
+  }
+
+  .command-label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+
+  .command-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: monospace;
+  }
+
+  .command-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .command-input:focus {
+    outline: none;
+    border-color: var(--active);
   }
 
   .update-actions {

@@ -29,6 +29,51 @@ pub fn should_notify(event_name: &str, is_visible: bool, prefs: &NotificationPre
     }
 }
 
+pub async fn run_notification_command(
+    command: &str,
+    session_id: &str,
+    event_name: &str,
+    cwd: &str,
+    title: &str,
+    body: &str,
+) {
+    let expanded = if command.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            format!("{}{}", home.display(), &command[1..])
+        } else {
+            command.to_string()
+        }
+    } else {
+        command.to_string()
+    };
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        tokio::process::Command::new("sh")
+            .args(["-c", &expanded])
+            .env("JACKDAW_SESSION_ID", session_id)
+            .env("JACKDAW_EVENT", event_name)
+            .env("JACKDAW_CWD", cwd)
+            .env("JACKDAW_TITLE", title)
+            .env("JACKDAW_BODY", body)
+            .output(),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(output)) if !output.status.success() => {
+            eprintln!(
+                "notification command exited {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        Ok(Err(e)) => eprintln!("notification command failed: {e}"),
+        Err(_) => eprintln!("notification command timed out"),
+        _ => {}
+    }
+}
+
 pub fn notification_content(event_name: &str, cwd: &str) -> Option<(&'static str, String)> {
     let (title, body) = match event_name {
         "Notification" => ("Approval Needed", format!("Session in {} needs approval", cwd)),
@@ -111,5 +156,54 @@ mod tests {
     fn notification_content_none_for_irrelevant_events() {
         assert!(notification_content("PreToolUse", "/tmp").is_none());
         assert!(notification_content("PostToolUse", "/tmp").is_none());
+    }
+
+    #[tokio::test]
+    async fn command_runs_successfully() {
+        run_notification_command("true", "sid", "Stop", "/tmp", "title", "body").await;
+    }
+
+    #[tokio::test]
+    async fn command_receives_env_vars() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("env.txt");
+        let cmd = format!("env | grep JACKDAW > {}", out.display());
+        run_notification_command(&cmd, "test-session", "Notification", "/home/user", "Approval Needed", "body text").await;
+
+        let contents = std::fs::read_to_string(&out).unwrap();
+        assert!(contents.contains("JACKDAW_SESSION_ID=test-session"));
+        assert!(contents.contains("JACKDAW_EVENT=Notification"));
+        assert!(contents.contains("JACKDAW_CWD=/home/user"));
+        assert!(contents.contains("JACKDAW_TITLE=Approval Needed"));
+        assert!(contents.contains("JACKDAW_BODY=body text"));
+    }
+
+    #[tokio::test]
+    async fn command_nonzero_exit_does_not_panic() {
+        run_notification_command("exit 1", "sid", "Stop", "/tmp", "t", "b").await;
+    }
+
+    #[tokio::test]
+    async fn command_timeout() {
+        let start = std::time::Instant::now();
+        run_notification_command("sleep 30", "sid", "Stop", "/tmp", "t", "b").await;
+        assert!(start.elapsed().as_secs() < 15);
+    }
+
+    #[tokio::test]
+    async fn tilde_expansion() {
+        let home = dirs::home_dir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("tilde.txt");
+        // Create a script in home dir, run it via tilde path
+        let script = home.join(".jackdaw-test-tilde.sh");
+        std::fs::write(&script, format!("#!/bin/sh\necho ok > {}", out.display())).unwrap();
+        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+        run_notification_command("~/.jackdaw-test-tilde.sh", "sid", "Stop", "/tmp", "t", "b").await;
+
+        let contents = std::fs::read_to_string(&out).unwrap();
+        assert_eq!(contents.trim(), "ok");
+        std::fs::remove_file(&script).unwrap();
     }
 }
