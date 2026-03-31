@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { getUptime, getProjectName, shortenPath, shortenSessionId, formatEndedAt } from './utils';
+import { getUptime, getProjectName, shortenPath, shortenSessionId, formatEndedAt, getSessionState } from './utils';
 
 describe('getProjectName', () => {
   it('returns last path segment', () => {
@@ -88,6 +88,34 @@ describe('formatEndedAt', () => {
   it('returns date for older than a week', () => {
     const result = formatEndedAt('2026-03-01T12:00:00Z');
     expect(result).toMatch(/3\/1\/2026|1\/3\/2026|2026/);
+  });
+});
+
+describe('getSessionState', () => {
+  const base = { pending_approval: false, current_tool: null, active_subagents: 0, processing: false };
+
+  it('returns approval when pending_approval is true', () => {
+    expect(getSessionState({ ...base, pending_approval: true })).toBe('approval');
+  });
+
+  it('returns running when processing', () => {
+    expect(getSessionState({ ...base, processing: true })).toBe('running');
+  });
+
+  it('returns running when current_tool is set', () => {
+    expect(getSessionState({ ...base, current_tool: { tool_name: 'Bash' } })).toBe('running');
+  });
+
+  it('returns running when active_subagents > 0', () => {
+    expect(getSessionState({ ...base, active_subagents: 2 })).toBe('running');
+  });
+
+  it('returns input when idle', () => {
+    expect(getSessionState(base)).toBe('input');
+  });
+
+  it('approval takes priority over running', () => {
+    expect(getSessionState({ ...base, pending_approval: true, processing: true })).toBe('approval');
   });
 });
 

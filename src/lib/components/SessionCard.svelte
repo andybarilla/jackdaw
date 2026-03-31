@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Session } from '$lib/types';
   import { invoke } from '@tauri-apps/api/core';
-  import { getUptime, getProjectName, shortenSessionId, formatEndedAt } from '$lib/utils';
+  import { getUptime, getProjectName, shortenSessionId, formatEndedAt, getSessionState } from '$lib/utils';
   import { slide } from 'svelte/transition';
   import ToolIcon from './ToolIcon.svelte';
   import MetadataDisplay from './MetadataDisplay.svelte';
@@ -18,16 +18,14 @@
 
   let expanded = $state(false);
 
-  type CardState = 'approval' | 'input' | 'running' | 'idle';
-
-  let cardState = $derived<CardState>(
-    session.pending_approval
-      ? 'approval'
-      : (session.current_tool !== null || session.active_subagents > 0 || session.processing)
-        ? 'running'
-        : historyMode
-          ? 'idle'
-          : 'input'
+  let cardState = $derived(
+    historyMode
+      ? (session.pending_approval
+          ? 'approval'
+          : (session.current_tool !== null || session.active_subagents > 0 || session.processing)
+            ? 'running'
+            : 'idle')
+      : getSessionState(session)
   );
 
   let isActive = $derived(cardState === 'running');
