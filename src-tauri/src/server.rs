@@ -364,8 +364,27 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             if let Some((title, body)) = crate::notify::notification_content(&event_name, &cwd) {
                 let _ = app_handle.notification().builder()
                     .title(title)
-                    .body(body)
+                    .body(&body)
                     .show();
+
+                let notification_command = app_handle
+                    .store("settings.json")
+                    .ok()
+                    .and_then(|store| store.get("notification_command"))
+                    .and_then(|v| v.as_str().map(String::from))
+                    .unwrap_or_default();
+
+                if !notification_command.is_empty() {
+                    let cmd = notification_command;
+                    let sid = session_id.clone();
+                    let evt = event_name.clone();
+                    let cwd = cwd.clone();
+                    let t = title.to_string();
+                    let b = body.clone();
+                    tokio::spawn(async move {
+                        crate::notify::run_notification_command(&cmd, &sid, &evt, &cwd, &t, &b).await;
+                    });
+                }
             }
         }
     }
