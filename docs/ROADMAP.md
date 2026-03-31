@@ -4,11 +4,6 @@ Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and J
 
 ## High Priority
 
-### Quick Terminal Launch
-Open a new terminal tab from a session card, pre-cd'd to the session's cwd. One-click access to run commands alongside the active Claude instance.
-
-**Spec**: `docs/superpowers/specs/2026-03-31-quick-terminal-launch-design.md`
-
 ### Session History Browser
 Expose the existing `db.rs` history in the UI — a "Recent Sessions" view with search/filter by project, date, and branch. Positions Jackdaw as an audit/review tool.
 
@@ -72,3 +67,4 @@ Predefined configurations for which projects to watch, notification settings per
 - **Project Grouping**
 - **Notification Panel & History**
 - **Bidirectional Socket API**
+- **Quick Terminal Launch**
