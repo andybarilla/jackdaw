@@ -68,3 +68,14 @@ export interface UpdateProgress {
   chunk_length: number;
   content_length: number | null;
 }
+
+export interface Notification {
+  id: number;
+  session_id: string;
+  event_type: string;
+  title: string;
+  body: string;
+  cwd: string;
+  is_read: boolean;
+  created_at: string;
+}

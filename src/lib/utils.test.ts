@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { getUptime, getProjectName, shortenPath, shortenSessionId, formatEndedAt, getSessionState } from './utils';
+import { getUptime, getProjectName, shortenPath, shortenSessionId, formatEndedAt, getSessionState, relativeTime } from './utils';
 
 describe('getProjectName', () => {
   it('returns last path segment', () => {
@@ -140,5 +140,27 @@ describe('getUptime', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-19T12:00:00Z'));
     expect(getUptime('2026-03-19T12:00:00Z')).toBe('0m ago');
+  });
+});
+
+describe('relativeTime', () => {
+  it('returns "just now" for less than 1 minute ago', () => {
+    const now = new Date().toISOString();
+    expect(relativeTime(now)).toBe('just now');
+  });
+
+  it('returns minutes for less than 1 hour', () => {
+    const d = new Date(Date.now() - 5 * 60000).toISOString();
+    expect(relativeTime(d)).toBe('5m ago');
+  });
+
+  it('returns hours for less than 24 hours', () => {
+    const d = new Date(Date.now() - 3 * 3600000).toISOString();
+    expect(relativeTime(d)).toBe('3h ago');
+  });
+
+  it('returns days for 1+ days', () => {
+    const d = new Date(Date.now() - 2 * 86400000).toISOString();
+    expect(relativeTime(d)).toBe('2d ago');
   });
 });

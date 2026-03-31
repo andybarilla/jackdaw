@@ -40,6 +40,18 @@ export function formatEndedAt(isoDate: string): string {
   return d.toLocaleDateString();
 }
 
+/** Format an ISO timestamp as a relative time: "just now", "5m ago", "3h ago", "2d ago" */
+export function relativeTime(isoDate: string): string {
+  const diffMs = Date.now() - new Date(isoDate).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 export type SessionState = 'approval' | 'input' | 'running';
 
 /** Derive the visual state of an active session */
