@@ -285,6 +285,78 @@ async fn subscribe_push_includes_subscription_id() {
 }
 
 #[tokio::test]
+async fn action_register_session_via_socket() {
+    let (state, _dir) = test_state();
+
+    let client = spawn_dispatch(state.clone());
+    let (read_half, mut write_half) = tokio::io::split(client);
+    let mut lines = BufReader::new(read_half).lines();
+
+    write_half
+        .write_all(
+            b"{\"type\":\"action\",\"command\":\"register_session\",\"id\":\"r1\",\"args\":{\"session_id\":\"build-1\",\"display_name\":\"CI Build\"}}\n",
+        )
+        .await
+        .unwrap();
+
+    let resp: serde_json::Value =
+        serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    assert!(resp["ok"].as_bool().unwrap());
+    assert_eq!(resp["data"]["registered"], true);
+
+    let sessions = state.sessions.lock().unwrap();
+    assert_eq!(sessions.get("build-1").unwrap().display_name.as_deref(), Some("CI Build"));
+}
+
+#[tokio::test]
+async fn action_set_metadata_via_socket() {
+    let (state, _dir) = test_state();
+    insert_session(&state, "s1");
+
+    let client = spawn_dispatch(state.clone());
+    let (read_half, mut write_half) = tokio::io::split(client);
+    let mut lines = BufReader::new(read_half).lines();
+
+    write_half
+        .write_all(
+            b"{\"type\":\"action\",\"command\":\"set_metadata\",\"id\":\"r2\",\"args\":{\"session_id\":\"s1\",\"entries\":[{\"key\":\"status\",\"value\":\"building\"}]}}\n",
+        )
+        .await
+        .unwrap();
+
+    let resp: serde_json::Value =
+        serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    assert!(resp["ok"].as_bool().unwrap());
+    assert_eq!(resp["data"]["updated"], true);
+
+    let sessions = state.sessions.lock().unwrap();
+    assert!(sessions.get("s1").unwrap().metadata.contains_key("status"));
+}
+
+#[tokio::test]
+async fn action_end_session_via_socket() {
+    let (state, _dir) = test_state();
+    insert_session(&state, "s1");
+
+    let client = spawn_dispatch(state.clone());
+    let (read_half, mut write_half) = tokio::io::split(client);
+    let mut lines = BufReader::new(read_half).lines();
+
+    write_half
+        .write_all(
+            b"{\"type\":\"action\",\"command\":\"end_session\",\"id\":\"r3\",\"args\":{\"session_id\":\"s1\"}}\n",
+        )
+        .await
+        .unwrap();
+
+    let resp: serde_json::Value =
+        serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    assert!(resp["ok"].as_bool().unwrap());
+    assert_eq!(resp["data"]["ended"], true);
+    assert!(state.sessions.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn unknown_request_type_returns_error() {
     let (state, _dir) = test_state();
     let client = spawn_dispatch(state);

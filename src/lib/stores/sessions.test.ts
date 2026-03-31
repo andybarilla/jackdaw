@@ -22,6 +22,8 @@ describe('SessionStore', () => {
       processing: false,
       has_unread: false,
       source: 'external' as const,
+      display_name: null,
+      metadata: {},
       ...overrides,
     };
   }
