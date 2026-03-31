@@ -1,3 +1,5 @@
+import type { ToolEvent } from './types';
+
 /** Format a started_at timestamp as relative uptime like "5m ago" or "1h 30m ago" */
 export function getUptime(startedAt: string): string {
   const start = new Date(startedAt);
@@ -59,4 +61,26 @@ export function getSessionState(session: { pending_approval: boolean; current_to
   if (session.pending_approval) return 'approval';
   if (session.current_tool !== null || session.active_subagents > 0 || session.processing) return 'running';
   return 'input';
+}
+
+/** Compute tool count and recent rate (tools/min over last 5 minutes) */
+export function computeToolVelocity(
+  toolHistory: ToolEvent[],
+  currentTool: ToolEvent | null,
+  startedAt: string
+): { total: number; rate: number } {
+  const total = toolHistory.length + (currentTool ? 1 : 0);
+  const now = Date.now();
+  const fiveMinAgo = now - 5 * 60 * 1000;
+  const recentCount = toolHistory.filter(
+    (t) => new Date(t.timestamp).getTime() > fiveMinAgo
+  ).length;
+  const startTime = new Date(startedAt).getTime();
+  const windowMinutes =
+    startTime > fiveMinAgo ? (now - startTime) / 60000 : 5;
+  const rate =
+    windowMinutes > 0
+      ? Math.round((recentCount / windowMinutes) * 10) / 10
+      : 0;
+  return { total, rate };
 }

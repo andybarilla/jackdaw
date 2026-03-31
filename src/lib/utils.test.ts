@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { getUptime, getProjectName, shortenPath, shortenSessionId, formatEndedAt, getSessionState, relativeTime } from './utils';
+import { getUptime, getProjectName, shortenPath, shortenSessionId, formatEndedAt, getSessionState, relativeTime, computeToolVelocity } from './utils';
+import type { ToolEvent } from './types';
 
 describe('getProjectName', () => {
   it('returns last path segment', () => {
@@ -162,5 +163,57 @@ describe('relativeTime', () => {
   it('returns days for 1+ days', () => {
     const d = new Date(Date.now() - 2 * 86400000).toISOString();
     expect(relativeTime(d)).toBe('2d ago');
+  });
+});
+
+describe('computeToolVelocity', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-31T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns zero for empty history and no current tool', () => {
+    expect(computeToolVelocity([], null, '2026-03-31T11:50:00Z')).toEqual({ total: 0, rate: 0 });
+  });
+
+  it('counts current tool in total', () => {
+    const current: ToolEvent = { tool_name: 'Bash', timestamp: '2026-03-31T11:59:00Z', summary: null };
+    expect(computeToolVelocity([], current, '2026-03-31T11:50:00Z').total).toBe(1);
+  });
+
+  it('calculates rate from tools in last 5 minutes', () => {
+    const history: ToolEvent[] = [
+      { tool_name: 'Bash', timestamp: '2026-03-31T11:56:00Z', summary: null },
+      { tool_name: 'Read', timestamp: '2026-03-31T11:57:00Z', summary: null },
+      { tool_name: 'Edit', timestamp: '2026-03-31T11:58:00Z', summary: null },
+      { tool_name: 'Bash', timestamp: '2026-03-31T11:59:00Z', summary: null },
+    ];
+    const result = computeToolVelocity(history, null, '2026-03-31T11:50:00Z');
+    expect(result.total).toBe(4);
+    expect(result.rate).toBe(0.8);
+  });
+
+  it('excludes tools older than 5 minutes from rate', () => {
+    const history: ToolEvent[] = [
+      { tool_name: 'Bash', timestamp: '2026-03-31T11:50:00Z', summary: null },
+      { tool_name: 'Read', timestamp: '2026-03-31T11:58:00Z', summary: null },
+    ];
+    const result = computeToolVelocity(history, null, '2026-03-31T11:50:00Z');
+    expect(result.total).toBe(2);
+    expect(result.rate).toBe(0.2);
+  });
+
+  it('uses session start time for rate window when session started less than 5 minutes ago', () => {
+    const history: ToolEvent[] = [
+      { tool_name: 'Bash', timestamp: '2026-03-31T11:58:00Z', summary: null },
+      { tool_name: 'Read', timestamp: '2026-03-31T11:59:00Z', summary: null },
+    ];
+    const result = computeToolVelocity(history, null, '2026-03-31T11:58:00Z');
+    expect(result.total).toBe(2);
+    expect(result.rate).toBe(1);
   });
 });
