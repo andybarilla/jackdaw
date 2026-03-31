@@ -60,6 +60,18 @@ fn get_session_history(
 }
 
 #[tauri::command]
+fn search_session_history(
+    query: Option<String>,
+    date_filter: Option<db::DateFilter>,
+    limit: u32,
+    offset: u32,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Vec<db::HistorySession> {
+    let db = state.db.lock().unwrap();
+    db::search_history(&db, query.as_deref(), date_filter, limit, offset)
+}
+
+#[tauri::command]
 fn get_retention_days(state: tauri::State<'_, Arc<AppState>>) -> u32 {
     let db = state.db.lock().unwrap();
     db::get_retention_days(&db)
@@ -517,6 +529,7 @@ pub fn run() {
             install_hooks,
             uninstall_hooks,
             get_session_history,
+            search_session_history,
             get_retention_days,
             set_retention_days,
             spawn_terminal,
