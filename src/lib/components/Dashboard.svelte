@@ -56,8 +56,14 @@
     notificationPanelOpen = !notificationPanelOpen;
   }
 
-  function handleNotificationSelect(sessionId: string): void {
-    selectSession(sessionId);
+  function handleNotificationSelect(sessionId: string, cwd: string): void {
+    const exists = sessionStore.sessions.some(s => s.session_id === sessionId);
+    if (exists) {
+      selectSession(sessionId);
+    } else {
+      const byCwd = sessionStore.sessions.find(s => s.cwd === cwd);
+      if (byCwd) selectSession(byCwd.session_id);
+    }
     notificationPanelOpen = false;
   }
 
@@ -275,16 +281,24 @@
 
     <!-- Main area -->
     <div class="main-area">
-      {#if selectedSession?.source === 'spawned'}
-        <Terminal sessionId={selectedSession.session_id} />
-      {:else if selectedSession}
-        <div class="detail-view">
-          <SessionCard session={selectedSession} onDismiss={handleDismiss} />
-        </div>
-      {:else}
-        <div class="no-selection">
-          <span class="no-selection-text">Select a session</span>
-        </div>
+      {#each sessionStore.sessions as session (session.session_id)}
+        {#if session.source === 'spawned'}
+          <div class="terminal-pane" class:active={selectedSessionId === session.session_id}>
+            <Terminal sessionId={session.session_id} />
+          </div>
+        {/if}
+      {/each}
+
+      {#if selectedSession?.source !== 'spawned'}
+        {#if selectedSession}
+          <div class="detail-view">
+            <SessionCard session={selectedSession} onDismiss={handleDismiss} />
+          </div>
+        {:else}
+          <div class="no-selection">
+            <span class="no-selection-text">Select a session</span>
+          </div>
+        {/if}
       {/if}
     </div>
   </div>
@@ -452,6 +466,18 @@
     flex: 1;
     overflow: hidden;
     display: flex;
+    position: relative;
+  }
+
+  .terminal-pane {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    visibility: hidden;
+  }
+
+  .terminal-pane.active {
+    visibility: visible;
   }
 
   .detail-view {

@@ -6,7 +6,7 @@
   interface Props {
     open: boolean;
     onClose: () => void;
-    onSelectSession: (sessionId: string) => void;
+    onSelectSession: (sessionId: string, cwd: string) => void;
   }
 
   let { open, onClose, onSelectSession }: Props = $props();
@@ -43,7 +43,7 @@
 
   function handleClick(notification: Notification): void {
     notificationStore.markRead(notification.id);
-    onSelectSession(notification.session_id);
+    onSelectSession(notification.session_id, notification.cwd);
     onClose();
   }
 
