@@ -8,10 +8,10 @@
   import type { TerminalOutputPayload, TerminalExitedPayload } from '$lib/types';
 
   interface Props {
-    sessionId: string;
+    ptyId: string;
   }
 
-  let { sessionId }: Props = $props();
+  let { ptyId }: Props = $props();
 
   let containerEl: HTMLDivElement;
   let exited = $state(false);
@@ -36,12 +36,12 @@
 
     const dataDisposable = term.onData((data: string) => {
       const encoded = btoa(data);
-      invoke('write_terminal', { sessionId, data: encoded });
+      invoke('write_terminal', { sessionId: ptyId, data: encoded });
     });
 
     let unlistenOutput: (() => void) | undefined;
     listen<TerminalOutputPayload>('terminal-output', (event) => {
-      if (event.payload.session_id !== sessionId) return;
+      if (event.payload.session_id !== ptyId) return;
       const bytes = Uint8Array.from(atob(event.payload.data), (c) => c.charCodeAt(0));
       term.write(bytes);
     }).then((fn) => {
@@ -50,7 +50,7 @@
 
     let unlistenExit: (() => void) | undefined;
     listen<TerminalExitedPayload>('terminal-exited', (event) => {
-      if (event.payload.session_id !== sessionId) return;
+      if (event.payload.session_id !== ptyId) return;
       exited = true;
       term.write('\r\n\x1b[90m[Process exited]\x1b[0m\r\n');
     }).then((fn) => {
@@ -65,7 +65,7 @@
       fitAddon.fit();
       if (!exited) {
         invoke('resize_terminal', {
-          sessionId,
+          sessionId: ptyId,
           cols: term.cols,
           rows: term.rows,
         });

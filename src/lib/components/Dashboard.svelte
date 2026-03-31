@@ -285,7 +285,7 @@
       {#each sessionStore.sessions as session (session.session_id)}
         {#if session.source === 'spawned'}
           <div class="terminal-pane" class:active={selectedSessionId === session.session_id}>
-            <Terminal sessionId={session.session_id} />
+            <Terminal ptyId={session.session_id} />
           </div>
         {/if}
       {/each}
