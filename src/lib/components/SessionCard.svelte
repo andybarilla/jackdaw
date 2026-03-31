@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Session } from '$lib/types';
   import { invoke } from '@tauri-apps/api/core';
-  import { getUptime, getProjectName, shortenSessionId, formatEndedAt, getSessionState } from '$lib/utils';
+  import { getUptime, getProjectName, shortenSessionId, formatEndedAt, getSessionState, computeToolVelocity } from '$lib/utils';
   import { slide } from 'svelte/transition';
   import ToolIcon from './ToolIcon.svelte';
   import MetadataDisplay from './MetadataDisplay.svelte';
@@ -39,7 +39,33 @@
 
   // Last completed tool for dimmed state between rapid tool calls
   let lastTool = $derived(session.tool_history.length > 0 ? session.tool_history[session.tool_history.length - 1] : null);
-  let metadataEntries = $derived(Object.values(session.metadata));
+  let metadataEntries = $derived(
+    Object.values(session.metadata).filter(
+      (e) => !(e.key === 'progress' && e.value.type === 'progress')
+    )
+  );
+
+  let explicitProgress = $derived(
+    session.metadata['progress']?.value.type === 'progress'
+      ? session.metadata['progress'].value.content
+      : null
+  );
+
+  let toolVelocity = $derived(
+    computeToolVelocity(session.tool_history, session.current_tool, session.started_at)
+  );
+
+  let prevProcessing = $state(session.processing);
+  let showCompletion = $state(false);
+
+  $effect(() => {
+    if (prevProcessing && !session.processing) {
+      showCompletion = true;
+      const timer = setTimeout(() => (showCompletion = false), 2000);
+      return () => clearTimeout(timer);
+    }
+    prevProcessing = session.processing;
+  });
 
   async function toggleExpand(): Promise<void> {
     expanded = !expanded;
@@ -52,6 +78,7 @@
 <div
   class="card"
   class:expanded
+  class:completion-flash={showCompletion}
   style="--accent-color: var(--state-{cardState})"
   class:has-attention={cardState === 'approval' || cardState === 'input'}
 >
@@ -72,6 +99,9 @@
       {/if}
     </div>
     <div class="row-right">
+      {#if isActive && toolVelocity.total > 0}
+        <span class="tool-velocity">{toolVelocity.total} tools · {toolVelocity.rate}/min</span>
+      {/if}
       <span class="uptime">{uptime}</span>
       {#if onOpenShell && !historyMode}
         <button
@@ -88,6 +118,15 @@
     <div class="metadata-row">
       <span class="branch-icon">⎇</span>
       <span class="branch-name">{session.git_branch}</span>
+    </div>
+  {/if}
+
+  {#if explicitProgress !== null}
+    <div class="card-progress">
+      <div
+        class="card-progress-fill"
+        style="width: {Math.min(100, Math.max(0, explicitProgress))}%; background: var(--accent-color)"
+      ></div>
     </div>
   {/if}
 
@@ -381,6 +420,33 @@
     border-radius: 50%;
     background: var(--accent-color);
     flex-shrink: 0;
+  }
+
+  .card-progress {
+    height: 2px;
+    background: var(--border);
+    width: 100%;
+  }
+
+  .card-progress-fill {
+    height: 100%;
+    border-radius: 1px;
+    transition: width 0.5s ease;
+  }
+
+  .tool-velocity {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card.completion-flash {
+    animation: flash-complete 2s ease-out;
+  }
+
+  @keyframes flash-complete {
+    0% { border-left-color: var(--success); }
+    100% { border-left-color: var(--accent-color); }
   }
 
 </style>

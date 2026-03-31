@@ -4,17 +4,10 @@ Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and J
 
 ## High Priority
 
-### Session History Browser
-Expose the existing `db.rs` history in the UI — a "Recent Sessions" view with search/filter by project, date, and branch. Positions Jackdaw as an audit/review tool.
-
-**Spec**: None yet (builds on `docs/superpowers/specs/2026-03-21-session-persistence-design.md`)
-
-## Medium Priority
-
 ### Progress Indicators
 Visual progress bars on SessionCard. Accept explicit progress events via socket, or estimate from tool count against a known plan length.
 
-**Spec**: None yet
+**Spec**: `docs/superpowers/specs/2026-03-31-progress-indicators-design.md`
 
 ### Custom Commands / Quick Actions
 Per-project actions defined in a config file (e.g., "run tests", "restart agent", "open in terminal") that appear as buttons on session cards or in a context menu.
@@ -68,3 +61,4 @@ Predefined configurations for which projects to watch, notification settings per
 - **Notification Panel & History**
 - **Bidirectional Socket API**
 - **Quick Terminal Launch**
+- **Session History Browser**
