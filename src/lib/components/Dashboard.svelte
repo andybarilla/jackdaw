@@ -17,12 +17,16 @@
   import { matchShortcut } from '$lib/shortcuts';
   import ProjectGroup from './ProjectGroup.svelte';
   import { buildRenderList } from '$lib/grouping';
-  import type { HistorySession } from '$lib/types';
+  import type { HistorySession, DateFilter } from '$lib/types';
 
   let activeTab = $state<'active' | 'history' | 'settings'>('active');
   let selectedSessionId = $state<string | null>(null);
   let historySessions = $state<HistorySession[]>([]);
   let historyLoading = $state(false);
+  let historySearchQuery = $state('');
+  let historyDateFilter = $state<DateFilter | null>(null);
+  let historyHasMore = $state(true);
+  let debounceTimer = $state<ReturnType<typeof setTimeout> | null>(null);
   let showNewSessionMenu = $state(false);
   let recentCwds = $state<string[]>([]);
   let confirmCloseCount = $state<number | null>(null);
@@ -96,22 +100,62 @@
   async function switchTab(tab: 'active' | 'history' | 'settings') {
     activeTab = tab;
     if (tab === 'history') {
-      await loadHistory();
+      await searchHistory();
     }
   }
 
-  async function loadHistory() {
-    historyLoading = true;
+  async function searchHistory(append: boolean = false) {
+    if (!append) {
+      historyLoading = true;
+      historyHasMore = true;
+    }
+    const offset = append ? historySessions.length : 0;
     try {
-      historySessions = await invoke<HistorySession[]>('get_session_history', {
+      const results = await invoke<HistorySession[]>('search_session_history', {
+        query: historySearchQuery || null,
+        dateFilter: historyDateFilter,
         limit: 50,
-        offset: 0,
+        offset,
       });
+      if (append) {
+        historySessions = [...historySessions, ...results];
+      } else {
+        historySessions = results;
+      }
+      historyHasMore = results.length === 50;
     } catch (e) {
-      console.error('Failed to load history:', e);
+      console.error('Failed to search history:', e);
     } finally {
       historyLoading = false;
     }
+  }
+
+  function handleSearchInput(value: string) {
+    historySearchQuery = value;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => searchHistory(), 300);
+  }
+
+  function toggleDateFilter(filter: DateFilter) {
+    historyDateFilter = historyDateFilter === filter ? null : filter;
+    searchHistory();
+  }
+
+  function observeIntersection(node: HTMLElement) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !historyLoading && historyHasMore) {
+          searchHistory(true);
+        }
+      },
+      { rootMargin: '100px' }
+    );
+    observer.observe(node);
+    return {
+      destroy() {
+        observer.disconnect();
+      },
+    };
   }
 
   async function openNewSessionMenu() {
@@ -258,33 +302,71 @@
             {/each}
           {/if}
         {:else if activeTab === 'history'}
+          <div class="history-controls">
+            <input
+              class="history-search"
+              type="text"
+              placeholder="Search projects, branches..."
+              value={historySearchQuery}
+              oninput={(e) => handleSearchInput(e.currentTarget.value)}
+            />
+            <div class="filter-chips">
+              <button
+                class="chip"
+                class:active={historyDateFilter === 'today'}
+                onclick={() => toggleDateFilter('today')}
+              >Today</button>
+              <button
+                class="chip"
+                class:active={historyDateFilter === 'this_week'}
+                onclick={() => toggleDateFilter('this_week')}
+              >This Week</button>
+              <button
+                class="chip"
+                class:active={historyDateFilter === 'this_month'}
+                onclick={() => toggleDateFilter('this_month')}
+              >This Month</button>
+            </div>
+          </div>
           {#if historyLoading}
             <div class="empty"><span class="loading-text">Loading...</span></div>
           {:else if historySessions.length === 0}
-            <div class="empty"><span class="empty-text">No history</span></div>
+            <div class="empty"><span class="empty-text">No matching sessions</span></div>
           {:else}
             {#each historySessions as session (session.session_id)}
-              <SessionCard session={{
-                session_id: session.session_id,
-                cwd: session.cwd,
-                started_at: session.started_at,
-                git_branch: session.git_branch,
-                current_tool: null,
-                tool_history: session.tool_history.map(t => ({
-                  tool_name: t.tool_name,
-                  summary: t.summary,
-                  timestamp: t.timestamp,
-                })),
-                active_subagents: 0,
-                pending_approval: false,
-                processing: false,
-                has_unread: false,
-                source: 'external',
-                display_name: null,
-                metadata: {},
-                shell_pty_id: null,
-              }} onDismiss={handleDismiss} historyMode={true} endedAt={session.ended_at} />
+              <div
+                class="sidebar-session"
+                class:selected={selectedSessionId === session.session_id}
+                onclick={() => { selectedSessionId = session.session_id; }}
+                role="button"
+                tabindex="0"
+                onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (selectedSessionId = session.session_id)}
+              >
+                <SessionCard session={{
+                  session_id: session.session_id,
+                  cwd: session.cwd,
+                  started_at: session.started_at,
+                  git_branch: session.git_branch,
+                  current_tool: null,
+                  tool_history: session.tool_history.map(t => ({
+                    tool_name: t.tool_name,
+                    summary: t.summary,
+                    timestamp: t.timestamp,
+                  })),
+                  active_subagents: 0,
+                  pending_approval: false,
+                  processing: false,
+                  has_unread: false,
+                  source: 'external',
+                  display_name: null,
+                  metadata: {},
+                  shell_pty_id: null,
+                }} onDismiss={handleDismiss} historyMode={true} endedAt={session.ended_at} compact />
+              </div>
             {/each}
+            {#if historyHasMore}
+              <div class="load-sentinel" use:observeIntersection></div>
+            {/if}
           {/if}
         {:else if activeTab === 'settings'}
           <Settings />
@@ -709,5 +791,61 @@
     flex: 1;
     text-align: center;
     padding: 40px;
+  }
+
+  .history-controls {
+    padding: 8px 8px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .history-search {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--tool-bg);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-size: 12px;
+    outline: none;
+    box-sizing: border-box;
+  }
+
+  .history-search:focus {
+    border-color: var(--active);
+  }
+
+  .history-search::placeholder {
+    color: var(--text-muted);
+  }
+
+  .filter-chips {
+    display: flex;
+    gap: 4px;
+  }
+
+  .chip {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 3px 8px;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+  }
+
+  .chip:hover {
+    color: var(--text-secondary);
+    border-color: var(--text-muted);
+  }
+
+  .chip.active {
+    background: var(--active);
+    color: var(--bg);
+    border-color: var(--active);
+  }
+
+  .load-sentinel {
+    height: 1px;
   }
 </style>
