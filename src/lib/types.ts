@@ -28,6 +28,7 @@ export interface Session {
   source: 'external' | 'spawned';
   display_name: string | null;
   metadata: Record<string, MetadataEntry>;
+  shell_pty_id: string | null;
 }
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';

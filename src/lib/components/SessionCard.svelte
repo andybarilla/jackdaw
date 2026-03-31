@@ -12,9 +12,10 @@
     historyMode?: boolean;
     endedAt?: string;
     compact?: boolean;
+    onOpenShell?: (sessionId: string) => void;
   }
 
-  let { session, onDismiss, historyMode = false, endedAt, compact = false }: Props = $props();
+  let { session, onDismiss, historyMode = false, endedAt, compact = false, onOpenShell }: Props = $props();
 
   let expanded = $state(false);
 
@@ -72,6 +73,13 @@
     </div>
     <div class="row-right">
       <span class="uptime">{uptime}</span>
+      {#if onOpenShell && !historyMode}
+        <button
+          class="open-terminal"
+          title="Open terminal"
+          onclick={(e) => { e.stopPropagation(); onOpenShell(session.session_id); }}
+        >&#x25B8;_</button>
+      {/if}
       <span class="chevron">{expanded ? '▼' : '▶'}</span>
     </div>
   </div>
@@ -193,6 +201,27 @@
   .chevron {
     font-size: 10px;
     color: var(--text-muted);
+  }
+
+  .open-terminal {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 11px;
+    font-family: monospace;
+    padding: 1px 4px;
+    opacity: 0;
+    transition: opacity 0.1s, color 0.1s, border-color 0.1s;
+  }
+
+  .card:hover .open-terminal {
+    opacity: 1;
+  }
+
+  .open-terminal:hover {
+    color: var(--text-primary);
+    border-color: var(--border);
   }
 
   .metadata-row {

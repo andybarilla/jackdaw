@@ -59,6 +59,7 @@ pub struct Session {
     pub source: SessionSource,
     pub display_name: Option<String>,
     pub metadata: IndexMap<String, MetadataEntry>,
+    pub shell_pty_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -120,6 +121,25 @@ pub async fn resolve_git_branch(cwd: &str) -> Option<String> {
     if branch.is_empty() { None } else { Some(branch) }
 }
 
+/// Detect the user's default shell. Returns (path, display_name).
+pub fn detect_shell() -> (String, String) {
+    #[cfg(unix)]
+    {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let name = std::path::Path::new(&shell)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "sh".to_string());
+        (shell, name)
+    }
+    #[cfg(windows)]
+    {
+        let shell = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
+        let name = "cmd".to_string();
+        (shell, name)
+    }
+}
+
 const MAX_TOOL_HISTORY: usize = 50;
 
 impl Session {
@@ -138,6 +158,7 @@ impl Session {
             source: SessionSource::External,
             display_name: None,
             metadata: IndexMap::new(),
+            shell_pty_id: None,
         }
     }
 
@@ -579,5 +600,39 @@ mod tests {
         assert_eq!(s.tool_history.len(), 50);
         assert_eq!(s.tool_history[0].tool_name, "Tool4");
         assert_eq!(s.tool_history[49].tool_name, "Tool53");
+    }
+
+    #[test]
+    fn session_new_shell_pty_id_is_none() {
+        let s = Session::new("s1".into(), "/tmp".into());
+        assert!(s.shell_pty_id.is_none());
+    }
+
+    #[test]
+    fn session_shell_pty_id_serializes() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.shell_pty_id = Some("pty-abc".into());
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["shell_pty_id"], "pty-abc");
+    }
+
+    #[test]
+    fn session_shell_pty_id_serializes_null_when_none() {
+        let s = Session::new("s1".into(), "/tmp".into());
+        let json = serde_json::to_value(&s).unwrap();
+        assert!(json["shell_pty_id"].is_null());
+    }
+
+    #[test]
+    fn detect_shell_returns_non_empty() {
+        let (path, name) = super::detect_shell();
+        assert!(!path.is_empty());
+        assert!(!name.is_empty());
+    }
+
+    #[test]
+    fn detect_shell_name_has_no_path_separator() {
+        let (_, name) = super::detect_shell();
+        assert!(!name.contains('/'));
     }
 }

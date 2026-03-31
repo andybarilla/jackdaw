@@ -17,6 +17,7 @@ function makeSession(id: string, cwd: string, startedAt: string): Session {
     source: 'external',
     display_name: null,
     metadata: {},
+    shell_pty_id: null,
   };
 }
 

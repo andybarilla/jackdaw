@@ -27,6 +27,7 @@
   let recentCwds = $state<string[]>([]);
   let confirmCloseCount = $state<number | null>(null);
   let notificationPanelOpen = $state(false);
+  let tabState = $state<Record<string, 'detail' | 'terminal'>>({});
 
   let selectedSession = $derived(
     sessionStore.sessions.find(s => s.session_id === selectedSessionId) ?? null
@@ -132,6 +133,16 @@
     }
   }
 
+  async function openShell(sessionId: string) {
+    try {
+      const ptyId = await invoke<string>('open_session_shell', { sessionId });
+      selectedSessionId = sessionId;
+      tabState[sessionId] = 'terminal';
+    } catch (e) {
+      console.error('Failed to open shell:', e);
+    }
+  }
+
   function closeNewSessionMenu() {
     showNewSessionMenu = false;
   }
@@ -230,6 +241,7 @@
                   {selectedSessionId}
                   onSelect={selectSession}
                   onDismiss={handleDismiss}
+                  onOpenShell={openShell}
                 />
               {:else}
                 <div
@@ -240,7 +252,7 @@
                   tabindex="0"
                   onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectSession(item.session.session_id)}
                 >
-                  <SessionCard session={item.session} onDismiss={handleDismiss} compact />
+                  <SessionCard session={item.session} onDismiss={handleDismiss} onOpenShell={openShell} compact />
                 </div>
               {/if}
             {/each}
@@ -270,6 +282,7 @@
                 source: 'external',
                 display_name: null,
                 metadata: {},
+                shell_pty_id: null,
               }} onDismiss={handleDismiss} historyMode={true} endedAt={session.ended_at} />
             {/each}
           {/if}
@@ -284,16 +297,40 @@
       {#each sessionStore.sessions as session (session.session_id)}
         {#if session.source === 'spawned'}
           <div class="terminal-pane" class:active={selectedSessionId === session.session_id}>
-            <Terminal sessionId={session.session_id} />
+            <Terminal ptyId={session.session_id} />
+          </div>
+        {/if}
+      {/each}
+
+      {#each sessionStore.sessions as session (session.session_id)}
+        {#if session.shell_pty_id}
+          <div class="terminal-pane" class:active={selectedSessionId === session.session_id && tabState[session.session_id] === 'terminal'}>
+            <Terminal ptyId={session.shell_pty_id} />
           </div>
         {/if}
       {/each}
 
       {#if selectedSession?.source !== 'spawned'}
         {#if selectedSession}
-          <div class="detail-view">
-            <SessionCard session={selectedSession} onDismiss={handleDismiss} />
-          </div>
+          {#if selectedSession.shell_pty_id}
+            <div class="tab-bar">
+              <button
+                class="tab-btn"
+                class:active={tabState[selectedSession.session_id] !== 'terminal'}
+                onclick={() => { tabState[selectedSession.session_id] = 'detail'; }}
+              >Detail</button>
+              <button
+                class="tab-btn"
+                class:active={tabState[selectedSession.session_id] === 'terminal'}
+                onclick={() => { tabState[selectedSession.session_id] = 'terminal'; }}
+              >Terminal</button>
+            </div>
+          {/if}
+          {#if tabState[selectedSession.session_id] !== 'terminal'}
+            <div class="detail-view">
+              <SessionCard session={selectedSession} onDismiss={handleDismiss} onOpenShell={openShell} />
+            </div>
+          {/if}
         {:else}
           <div class="no-selection">
             <span class="no-selection-text">Select a session</span>
@@ -484,6 +521,33 @@
     flex: 1;
     padding: 16px;
     overflow-y: auto;
+  }
+
+  .tab-bar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    padding: 0 12px;
+    flex-shrink: 0;
+  }
+
+  .tab-btn {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 8px 12px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .tab-btn:hover {
+    color: var(--text-secondary);
+  }
+
+  .tab-btn.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--active);
   }
 
   .no-selection {
