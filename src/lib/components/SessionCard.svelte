@@ -51,6 +51,18 @@
     computeToolVelocity(session.tool_history, session.current_tool, session.started_at)
   );
 
+  let prevProcessing = $state(session.processing);
+  let showCompletion = $state(false);
+
+  $effect(() => {
+    if (prevProcessing && !session.processing) {
+      showCompletion = true;
+      const timer = setTimeout(() => (showCompletion = false), 2000);
+      return () => clearTimeout(timer);
+    }
+    prevProcessing = session.processing;
+  });
+
   async function toggleExpand(): Promise<void> {
     expanded = !expanded;
     if (expanded && session.has_unread) {
@@ -62,6 +74,7 @@
 <div
   class="card"
   class:expanded
+  class:completion-flash={showCompletion}
   style="--accent-color: var(--state-{cardState})"
   class:has-attention={cardState === 'approval' || cardState === 'input'}
 >
@@ -421,6 +434,15 @@
     font-size: 10px;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
+  }
+
+  .card.completion-flash {
+    animation: flash-complete 2s ease-out;
+  }
+
+  @keyframes flash-complete {
+    0% { border-left-color: var(--success); }
+    100% { border-left-color: var(--accent-color); }
   }
 
 </style>
