@@ -229,6 +229,8 @@
                 processing: false,
                 has_unread: false,
                 source: 'external',
+                display_name: null,
+                metadata: {},
               }} onDismiss={handleDismiss} historyMode={true} endedAt={session.ended_at} />
             {/each}
           {/if}

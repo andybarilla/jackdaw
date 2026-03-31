@@ -1,6 +1,8 @@
-use crate::state::AppState;
+use crate::state::{AppState, MetadataEntry, MetadataValue, Session};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+const MAX_METADATA_LOG: usize = 50;
 
 #[derive(Debug, Deserialize)]
 pub struct Request {
@@ -126,6 +128,100 @@ pub fn handle_action(
             if let Some(session) = sessions.get_mut(&session_id) {
                 session.has_unread = false;
                 Ok(serde_json::json!({"marked": true}))
+            } else {
+                Err(format!("session not found: {}", session_id))
+            }
+        }
+        "register_session" => {
+            let session_id = get_session_id()?;
+            let display_name = args
+                .as_ref()
+                .and_then(|a| a.get("display_name"))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "missing args.display_name".to_string())?;
+            let mut sessions = state.sessions.lock().unwrap();
+            if let Some(existing) = sessions.get_mut(&session_id) {
+                existing.display_name = Some(display_name.to_string());
+            } else {
+                let mut session = Session::new(session_id.clone(), String::new());
+                session.display_name = Some(display_name.to_string());
+                sessions.insert(session_id, session);
+            }
+            Ok(serde_json::json!({"registered": true}))
+        }
+        "set_metadata" => {
+            let session_id = get_session_id()?;
+            let entries = args
+                .as_ref()
+                .and_then(|a| a.get("entries"))
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| "missing args.entries".to_string())?;
+            let mut sessions = state.sessions.lock().unwrap();
+            let session = sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| format!("session not found: {}", session_id))?;
+            for entry in entries {
+                let key = entry
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "entry missing key".to_string())?;
+                if entry.get("value").is_some_and(|v| v.is_null()) {
+                    session.metadata.shift_remove(key);
+                    continue;
+                }
+                let entry_type = entry
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("text");
+                let metadata_value = match entry_type {
+                    "progress" => {
+                        let v = entry
+                            .get("value")
+                            .and_then(|v| v.as_f64())
+                            .ok_or_else(|| "progress value must be a number".to_string())?;
+                        MetadataValue::Progress(v)
+                    }
+                    "log" => {
+                        let line = entry
+                            .get("value")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| "log value must be a string".to_string())?
+                            .to_string();
+                        if let Some(existing) = session.metadata.get_mut(key) {
+                            if let MetadataValue::Log(ref mut lines) = existing.value {
+                                lines.push(line);
+                                if lines.len() > MAX_METADATA_LOG {
+                                    lines.drain(..lines.len() - MAX_METADATA_LOG);
+                                }
+                                continue;
+                            }
+                        }
+                        MetadataValue::Log(vec![line])
+                    }
+                    _ => {
+                        let v = entry
+                            .get("value")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| "text value must be a string".to_string())?
+                            .to_string();
+                        MetadataValue::Text(v)
+                    }
+                };
+                session.metadata.insert(
+                    key.to_string(),
+                    MetadataEntry {
+                        key: key.to_string(),
+                        value: metadata_value,
+                    },
+                );
+            }
+            Ok(serde_json::json!({"updated": true}))
+        }
+        "end_session" => {
+            let session_id = get_session_id()?;
+            let mut sessions = state.sessions.lock().unwrap();
+            if sessions.remove(&session_id).is_some() {
+                Ok(serde_json::json!({"ended": true}))
             } else {
                 Err(format!("session not found: {}", session_id))
             }
@@ -310,6 +406,189 @@ mod tests {
         let state = test_state();
         let err = handle_action("bogus", &None, &state).unwrap_err();
         assert!(err.contains("unknown action command"));
+    }
+
+    // --- register_session ---
+
+    #[test]
+    fn action_register_session_creates_new() {
+        let state = test_state();
+        let args = Some(serde_json::json!({
+            "session_id": "build-1",
+            "display_name": "CI Build #456"
+        }));
+        let result = handle_action("register_session", &args, &state).unwrap();
+        assert_eq!(result["registered"], true);
+        let sessions = state.sessions.lock().unwrap();
+        let session = sessions.get("build-1").unwrap();
+        assert_eq!(session.display_name.as_deref(), Some("CI Build #456"));
+        assert_eq!(session.cwd, "");
+        assert!(!session.processing);
+    }
+
+    #[test]
+    fn action_register_session_updates_existing_display_name() {
+        let state = test_state();
+        insert_session(&state, "build-1");
+        let args = Some(serde_json::json!({
+            "session_id": "build-1",
+            "display_name": "Updated Name"
+        }));
+        let result = handle_action("register_session", &args, &state).unwrap();
+        assert_eq!(result["registered"], true);
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(sessions.get("build-1").unwrap().display_name.as_deref(), Some("Updated Name"));
+    }
+
+    #[test]
+    fn action_register_session_missing_display_name() {
+        let state = test_state();
+        let args = Some(serde_json::json!({"session_id": "build-1"}));
+        let err = handle_action("register_session", &args, &state).unwrap_err();
+        assert!(err.contains("missing args.display_name"));
+    }
+
+    // --- set_metadata ---
+
+    #[test]
+    fn action_set_metadata_text() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        let args = Some(serde_json::json!({
+            "session_id": "s1",
+            "entries": [{"key": "status", "value": "compiling"}]
+        }));
+        let result = handle_action("set_metadata", &args, &state).unwrap();
+        assert_eq!(result["updated"], true);
+        let sessions = state.sessions.lock().unwrap();
+        let entry = sessions.get("s1").unwrap().metadata.get("status").unwrap();
+        assert!(matches!(&entry.value, MetadataValue::Text(s) if s == "compiling"));
+    }
+
+    #[test]
+    fn action_set_metadata_progress() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        let args = Some(serde_json::json!({
+            "session_id": "s1",
+            "entries": [{"key": "coverage", "value": 87.5, "type": "progress"}]
+        }));
+        handle_action("set_metadata", &args, &state).unwrap();
+        let sessions = state.sessions.lock().unwrap();
+        let entry = sessions.get("s1").unwrap().metadata.get("coverage").unwrap();
+        assert!(matches!(&entry.value, MetadataValue::Progress(v) if (*v - 87.5).abs() < f64::EPSILON));
+    }
+
+    #[test]
+    fn action_set_metadata_log_appends() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        let args1 = Some(serde_json::json!({
+            "session_id": "s1",
+            "entries": [{"key": "log", "value": "line 1", "type": "log"}]
+        }));
+        handle_action("set_metadata", &args1, &state).unwrap();
+        let args2 = Some(serde_json::json!({
+            "session_id": "s1",
+            "entries": [{"key": "log", "value": "line 2", "type": "log"}]
+        }));
+        handle_action("set_metadata", &args2, &state).unwrap();
+        let sessions = state.sessions.lock().unwrap();
+        let entry = sessions.get("s1").unwrap().metadata.get("log").unwrap();
+        match &entry.value {
+            MetadataValue::Log(lines) => {
+                assert_eq!(lines.len(), 2);
+                assert_eq!(lines[0], "line 1");
+                assert_eq!(lines[1], "line 2");
+            }
+            _ => panic!("expected Log variant"),
+        }
+    }
+
+    #[test]
+    fn action_set_metadata_log_caps_at_50() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        for i in 0..55 {
+            let args = Some(serde_json::json!({
+                "session_id": "s1",
+                "entries": [{"key": "log", "value": format!("line {}", i), "type": "log"}]
+            }));
+            handle_action("set_metadata", &args, &state).unwrap();
+        }
+        let sessions = state.sessions.lock().unwrap();
+        let entry = sessions.get("s1").unwrap().metadata.get("log").unwrap();
+        match &entry.value {
+            MetadataValue::Log(lines) => {
+                assert_eq!(lines.len(), 50);
+                assert_eq!(lines[0], "line 5");
+                assert_eq!(lines[49], "line 54");
+            }
+            _ => panic!("expected Log variant"),
+        }
+    }
+
+    #[test]
+    fn action_set_metadata_null_removes_key() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        let args = Some(serde_json::json!({
+            "session_id": "s1",
+            "entries": [{"key": "status", "value": "ok"}]
+        }));
+        handle_action("set_metadata", &args, &state).unwrap();
+        let args_remove = Some(serde_json::json!({
+            "session_id": "s1",
+            "entries": [{"key": "status", "value": null}]
+        }));
+        handle_action("set_metadata", &args_remove, &state).unwrap();
+        let sessions = state.sessions.lock().unwrap();
+        assert!(sessions.get("s1").unwrap().metadata.get("status").is_none());
+    }
+
+    #[test]
+    fn action_set_metadata_session_not_found() {
+        let state = test_state();
+        let args = Some(serde_json::json!({
+            "session_id": "nope",
+            "entries": [{"key": "status", "value": "ok"}]
+        }));
+        let err = handle_action("set_metadata", &args, &state).unwrap_err();
+        assert!(err.contains("session not found"));
+    }
+
+    #[test]
+    fn action_set_metadata_default_type_is_text() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        let args = Some(serde_json::json!({
+            "session_id": "s1",
+            "entries": [{"key": "status", "value": "building"}]
+        }));
+        handle_action("set_metadata", &args, &state).unwrap();
+        let sessions = state.sessions.lock().unwrap();
+        let entry = sessions.get("s1").unwrap().metadata.get("status").unwrap();
+        assert!(matches!(&entry.value, MetadataValue::Text(_)));
+    }
+
+    // --- end_session ---
+
+    #[test]
+    fn action_end_session_removes() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        let args = Some(serde_json::json!({"session_id": "s1"}));
+        let result = handle_action("end_session", &args, &state).unwrap();
+        assert_eq!(result["ended"], true);
+        assert!(state.sessions.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn action_end_session_not_found() {
+        let state = test_state();
+        let args = Some(serde_json::json!({"session_id": "nope"}));
+        let err = handle_action("end_session", &args, &state).unwrap_err();
+        assert!(err.contains("session not found"));
     }
 
     // --- E2E socket test ---

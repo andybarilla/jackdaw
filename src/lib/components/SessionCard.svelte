@@ -4,6 +4,7 @@
   import { getUptime, getProjectName, shortenSessionId, formatEndedAt } from '$lib/utils';
   import { slide } from 'svelte/transition';
   import ToolIcon from './ToolIcon.svelte';
+  import MetadataDisplay from './MetadataDisplay.svelte';
 
   interface Props {
     session: Session;
@@ -39,6 +40,7 @@
 
   // Last completed tool for dimmed state between rapid tool calls
   let lastTool = $derived(session.tool_history.length > 0 ? session.tool_history[session.tool_history.length - 1] : null);
+  let metadataEntries = $derived(Object.values(session.metadata));
 
   async function toggleExpand(): Promise<void> {
     expanded = !expanded;
@@ -57,7 +59,7 @@
   <!-- Header row: always visible, clickable -->
   <div class="row-header" onclick={() => !compact && toggleExpand()} role="button" tabindex="0" onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), !compact && toggleExpand())}>
     <div class="row-left">
-      <span class="project-name">{getProjectName(session.cwd)}</span>
+      <span class="project-name">{getProjectName(session.cwd, session.display_name)}</span>
       {#if session.has_unread}
         <span class="unread-dot"></span>
       {/if}
@@ -108,6 +110,10 @@
         </div>
       {/if}
     </div>
+  {/if}
+
+  {#if metadataEntries.length > 0}
+    <MetadataDisplay entries={metadataEntries} accentColor="var(--accent-color)" />
   {/if}
 
   <!-- Expanded section: toggle on click -->

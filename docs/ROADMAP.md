@@ -1,0 +1,89 @@
+# Jackdaw Roadmap
+
+Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and Jackdaw's identity as a lightweight agent monitoring tray app.
+
+## High Priority
+
+### Sidebar Metadata API
+Accept custom metadata via IPC socket — status labels, progress percentages, log lines — rendered on SessionCard. Any tool (not just Claude Code) can push rich status updates, making Jackdaw a general-purpose agent dashboard.
+
+**Spec**: None yet
+
+### Notification Command / Custom Actions
+Run arbitrary shell commands on notification events. Expose env vars (`JACKDAW_SESSION_ID`, `JACKDAW_EVENT`, `JACKDAW_CWD`) for automation — text-to-speech, sounds, logging, webhook triggers.
+
+**Spec**: None yet (extends `docs/superpowers/specs/2026-03-22-notifications-design.md`)
+
+### Bidirectional Socket API
+Add request/response protocol to the IPC socket. Commands: `list-sessions`, `get-session`, `session-state`, `dismiss-session`. Enables external tools, scripts, Alfred workflows, and other UIs to query Jackdaw state.
+
+**Spec**: `docs/superpowers/specs/2026-03-30-cmux-inspired-enhancements-design.md` (Feature 3)
+
+### Project Grouping
+Group sessions by `cwd` with collapsible project headers, project-level status badges, and aggregate counts. Scales better when monitoring many concurrent agents.
+
+**Spec**: None yet
+
+### Notification Panel & History
+Dedicated notification log with timestamps, event types, and click-to-focus. "Jump to most recent unread" shortcut. Extends existing `has_unread` tracking.
+
+**Spec**: None yet
+
+### Session History Browser
+Expose the existing `db.rs` history in the UI — a "Recent Sessions" view with search/filter by project, date, and branch. Positions Jackdaw as an audit/review tool.
+
+**Spec**: None yet (builds on `docs/superpowers/specs/2026-03-21-session-persistence-design.md`)
+
+## Medium Priority
+
+### Progress Indicators
+Visual progress bars on SessionCard. Accept explicit progress events via socket, or estimate from tool count against a known plan length.
+
+**Spec**: None yet
+
+### Custom Commands / Quick Actions
+Per-project actions defined in a config file (e.g., "run tests", "restart agent", "open in terminal") that appear as buttons on session cards or in a context menu.
+
+**Spec**: None yet
+
+### Multi-Agent Orchestration View
+Tree/graph visualization of parent→subagent relationships with status propagation. Leverages existing `spawned_session` and `active_subagents` tracking. Unique differentiator — no other tool visualizes agent spawn trees.
+
+**Spec**: None yet
+
+### HTTP API
+Optional HTTP endpoint alongside the Unix socket for remote monitoring — check agent status from a phone, or aggregate multiple developers' Jackdaw instances into a team dashboard.
+
+**Spec**: None yet
+
+### Configurable Sound/Visual Alerts
+Per-event-type sounds, screen flash, menubar icon animation for different urgency levels. Goes beyond the current boolean notification prefs.
+
+**Spec**: None yet
+
+## Lower Priority
+
+### Cross-Tool Agent Support
+Document a stable wire protocol and build adapters for other agents (Codex, Aider, Gemini CLI, OpenCode). The IPC protocol is already generic enough — this is mostly documentation and community outreach.
+
+**Spec**: None yet
+
+### Embedded Browser Preview
+Lightweight version of cmux's browser panes: clickable links in tool output open a small preview pane via Tauri's webview. Useful for reviewing agent-generated web content without leaving Jackdaw.
+
+**Spec**: None yet
+
+### Monitoring Profiles
+Predefined configurations for which projects to watch, notification settings per project, and dashboard layout preferences. Equivalent to cmux's workspace layout templates.
+
+**Spec**: None yet
+
+## Completed
+
+- **Git Branch Metadata** — tracks branch per session
+- **Accent Bar + State Labels + Unread Tracking**
+- **Session Persistence**
+- **Desktop Notifications**
+- **Embedded Terminals**
+- **Auto-Update**
+- **Tray Session Icons**

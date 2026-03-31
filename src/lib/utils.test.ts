@@ -21,6 +21,14 @@ describe('getProjectName', () => {
   it('returns / for empty string', () => {
     expect(getProjectName('')).toBe('/');
   });
+
+  it('returns display_name when provided', () => {
+    expect(getProjectName('', 'CI Build #456')).toBe('CI Build #456');
+  });
+
+  it('prefers display_name over cwd', () => {
+    expect(getProjectName('/home/user/project', 'Custom Name')).toBe('Custom Name');
+  });
 });
 
 describe('shortenPath', () => {

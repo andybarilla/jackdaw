@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use indexmap::IndexMap;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -28,6 +29,20 @@ pub enum SessionSource {
     Spawned,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", content = "content", rename_all = "lowercase")]
+pub enum MetadataValue {
+    Text(String),
+    Progress(f64),
+    Log(Vec<String>),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MetadataEntry {
+    pub key: String,
+    pub value: MetadataValue,
+}
+
 /// Internal session state
 #[derive(Debug, Clone, Serialize)]
 pub struct Session {
@@ -42,6 +57,8 @@ pub struct Session {
     pub processing: bool,
     pub has_unread: bool,
     pub source: SessionSource,
+    pub display_name: Option<String>,
+    pub metadata: IndexMap<String, MetadataEntry>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -119,6 +136,8 @@ impl Session {
             processing: false,
             has_unread: false,
             source: SessionSource::External,
+            display_name: None,
+            metadata: IndexMap::new(),
         }
     }
 
@@ -475,6 +494,80 @@ mod tests {
         assert_eq!(json, serde_json::json!("spawned"));
         let json = serde_json::to_value(SessionSource::External).unwrap();
         assert_eq!(json, serde_json::json!("external"));
+    }
+
+    #[test]
+    fn metadata_value_text_serializes_as_tagged() {
+        let entry = MetadataEntry {
+            key: "status".into(),
+            value: MetadataValue::Text("compiling".into()),
+        };
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["key"], "status");
+        assert_eq!(json["value"]["type"], "text");
+        assert_eq!(json["value"]["content"], "compiling");
+    }
+
+    #[test]
+    fn metadata_value_progress_serializes_as_tagged() {
+        let entry = MetadataEntry {
+            key: "coverage".into(),
+            value: MetadataValue::Progress(87.5),
+        };
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["value"]["type"], "progress");
+        assert_eq!(json["value"]["content"], 87.5);
+    }
+
+    #[test]
+    fn metadata_value_log_serializes_as_tagged() {
+        let entry = MetadataEntry {
+            key: "build_log".into(),
+            value: MetadataValue::Log(vec!["line 1".into(), "line 2".into()]),
+        };
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["value"]["type"], "log");
+        let content = json["value"]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0], "line 1");
+    }
+
+    #[test]
+    fn session_new_has_empty_metadata() {
+        let s = Session::new("s1".into(), "/tmp".into());
+        assert!(s.metadata.is_empty());
+        assert!(s.display_name.is_none());
+    }
+
+    #[test]
+    fn session_display_name_serializes() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.display_name = Some("CI Build #456".into());
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["display_name"], "CI Build #456");
+    }
+
+    #[test]
+    fn session_metadata_serializes_in_order() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.metadata.insert(
+            "status".into(),
+            MetadataEntry {
+                key: "status".into(),
+                value: MetadataValue::Text("building".into()),
+            },
+        );
+        s.metadata.insert(
+            "progress".into(),
+            MetadataEntry {
+                key: "progress".into(),
+                value: MetadataValue::Progress(50.0),
+            },
+        );
+        let json = serde_json::to_value(&s).unwrap();
+        let meta = json["metadata"].as_object().unwrap();
+        let keys: Vec<&String> = meta.keys().collect();
+        assert_eq!(keys, vec!["status", "progress"]);
     }
 
     #[test]

@@ -4,6 +4,16 @@ export interface ToolEvent {
   summary: string | null;
 }
 
+export type MetadataValue =
+  | { type: 'text'; content: string }
+  | { type: 'progress'; content: number }
+  | { type: 'log'; content: string[] };
+
+export interface MetadataEntry {
+  key: string;
+  value: MetadataValue;
+}
+
 export interface Session {
   session_id: string;
   cwd: string;
@@ -16,6 +26,8 @@ export interface Session {
   processing: boolean;
   has_unread: boolean;
   source: 'external' | 'spawned';
+  display_name: string | null;
+  metadata: Record<string, MetadataEntry>;
 }
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';
