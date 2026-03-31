@@ -245,7 +245,18 @@ fn setup_connection(conn: &Connection) {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-        INSERT OR IGNORE INTO config (key, value) VALUES ('retention_days', '30');",
+        INSERT OR IGNORE INTO config (key, value) VALUES ('retention_days', '30');
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            cwd TEXT NOT NULL,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);",
     )
     .unwrap();
 
@@ -565,6 +576,15 @@ mod tests {
         let cwds = load_recent_cwds(&conn, 10);
         assert_eq!(cwds.len(), 1);
         assert_eq!(cwds[0], "/home/user/active-project");
+    }
+
+    #[test]
+    fn init_creates_notifications_table() {
+        let conn = init_memory();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM notifications", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[test]

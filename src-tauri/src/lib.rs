@@ -1,6 +1,7 @@
 pub mod api;
 pub mod db;
 mod hooks;
+pub mod notification;
 pub mod ipc;
 mod notify;
 pub mod pty;
@@ -66,6 +67,29 @@ fn mark_session_read(session_id: String, state: tauri::State<'_, Arc<AppState>>)
     if let Some(session) = sessions.get_mut(&session_id) {
         session.has_unread = false;
     }
+}
+
+#[tauri::command]
+fn get_notifications(
+    limit: u32,
+    offset: u32,
+    event_type_filter: Option<String>,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Vec<notification::Notification> {
+    let db = state.db.lock().unwrap();
+    notification::load_notifications(&db, limit, offset, event_type_filter.as_deref())
+}
+
+#[tauri::command]
+fn mark_notification_read(id: i64, state: tauri::State<'_, Arc<AppState>>) {
+    let db = state.db.lock().unwrap();
+    notification::mark_read(&db, id);
+}
+
+#[tauri::command]
+fn mark_all_notifications_read(state: tauri::State<'_, Arc<AppState>>) {
+    let db = state.db.lock().unwrap();
+    notification::mark_all_read(&db);
 }
 
 #[tauri::command]
@@ -271,8 +295,27 @@ pub fn run() {
         .manage(pty_manager)
         .manage(updater::UpdateState::new())
         .setup(move |app| {
+            // Prune old notifications on startup
+            {
+                let db = app_state.db.lock().unwrap();
+                notification::prune_old_notifications(&db, 7);
+            }
+
             let handle = app.handle().clone();
             let state = app_state.clone();
+
+            // Prune notifications every 6 hours
+            let prune_state = state.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
+                interval.tick().await; // skip immediate tick
+                loop {
+                    interval.tick().await;
+                    let db = prune_state.db.lock().unwrap();
+                    notification::prune_old_notifications(&db, 7);
+                }
+            });
+
             tauri::async_runtime::spawn(async move {
                 server::start_server(handle, state).await;
             });
@@ -318,6 +361,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             dismiss_session,
             mark_session_read,
+            get_notifications,
+            mark_notification_read,
+            mark_all_notifications_read,
             check_hooks_status,
             install_hooks,
             uninstall_hooks,

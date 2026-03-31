@@ -5,7 +5,9 @@
   import Settings from './Settings.svelte';
   import Terminal from './Terminal.svelte';
   import UpdateBanner from './UpdateBanner.svelte';
+  import NotificationPanel from './NotificationPanel.svelte';
   import { sessionStore, initSessionListener } from '$lib/stores/sessions.svelte';
+  import { notificationStore, initNotificationListener } from '$lib/stores/notifications.svelte';
   import { initUpdaterListener } from '$lib/stores/updater.svelte';
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -24,6 +26,7 @@
   let showNewSessionMenu = $state(false);
   let recentCwds = $state<string[]>([]);
   let confirmCloseCount = $state<number | null>(null);
+  let notificationPanelOpen = $state(false);
 
   let selectedSession = $derived(
     sessionStore.sessions.find(s => s.session_id === selectedSessionId) ?? null
@@ -34,6 +37,7 @@
   onMount(() => {
     const cleanupSessions = initSessionListener();
     const cleanupUpdater = initUpdaterListener();
+    const cleanupNotifications = initNotificationListener();
     let cleanupConfirmClose: (() => void) | undefined;
     listen<number>('confirm-close', (event) => {
       confirmCloseCount = event.payload;
@@ -43,9 +47,19 @@
     return () => {
       cleanupSessions();
       cleanupUpdater();
+      cleanupNotifications();
       cleanupConfirmClose?.();
     };
   });
+
+  function toggleNotificationPanel(): void {
+    notificationPanelOpen = !notificationPanelOpen;
+  }
+
+  function handleNotificationSelect(sessionId: string): void {
+    selectSession(sessionId);
+    notificationPanelOpen = false;
+  }
 
   function dismissConfirmClose() {
     confirmCloseCount = null;
@@ -164,7 +178,12 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="app-layout">
-  <Header sessionCount={sessionStore.count} globalState={sessionStore.globalState} />
+  <Header
+    sessionCount={sessionStore.count}
+    globalState={sessionStore.globalState}
+    unreadCount={notificationStore.unreadCount}
+    onToggleNotifications={toggleNotificationPanel}
+  />
 
   <div class="main-content">
     <!-- Sidebar -->
@@ -269,6 +288,12 @@
       {/if}
     </div>
   </div>
+
+  <NotificationPanel
+    open={notificationPanelOpen}
+    onClose={() => { notificationPanelOpen = false; }}
+    onSelectSession={handleNotificationSelect}
+  />
 
   <!-- New Session Modal -->
   {#if showNewSessionMenu}
