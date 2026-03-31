@@ -4,21 +4,6 @@ Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and J
 
 ## High Priority
 
-### Notification Command / Custom Actions
-Run arbitrary shell commands on notification events. Expose env vars (`JACKDAW_SESSION_ID`, `JACKDAW_EVENT`, `JACKDAW_CWD`) for automation — text-to-speech, sounds, logging, webhook triggers.
-
-**Spec**: `docs/superpowers/specs/2026-03-30-notification-commands-design.md`
-
-### Project Grouping
-Group sessions by `cwd` with collapsible project headers, project-level status badges, and aggregate counts. Scales better when monitoring many concurrent agents.
-
-**Spec**: None yet
-
-### Notification Panel & History
-Dedicated notification log with timestamps, event types, and click-to-focus. "Jump to most recent unread" shortcut. Extends existing `has_unread` tracking.
-
-**Spec**: None yet
-
 ### Quick Terminal Launch
 Open a new terminal tab from a session card, pre-cd'd to the session's cwd. One-click access to run commands alongside the active Claude instance.
 
@@ -83,4 +68,7 @@ Predefined configurations for which projects to watch, notification settings per
 - **Auto-Update**
 - **Tray Session Icons**
 - **Sidebar Metadata API**
+- **Notification Commands**
+- **Project Grouping**
+- **Notification Panel & History**
 - **Bidirectional Socket API**
