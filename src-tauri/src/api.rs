@@ -226,6 +226,28 @@ pub fn handle_action(
                 Err(format!("session not found: {}", session_id))
             }
         }
+        "open_session_shell" => {
+            let session_id = get_session_id()?;
+            let mut sessions = state.sessions.lock().unwrap();
+            let session = sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| format!("session not found: {}", session_id))?;
+            if let Some(ref pty_id) = session.shell_pty_id {
+                return Ok(serde_json::json!({"pty_id": pty_id}));
+            }
+            let pty_id = uuid::Uuid::new_v4().to_string();
+            session.shell_pty_id = Some(pty_id.clone());
+            Ok(serde_json::json!({"pty_id": pty_id}))
+        }
+        "close_session_shell" => {
+            let session_id = get_session_id()?;
+            let mut sessions = state.sessions.lock().unwrap();
+            let session = sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| format!("session not found: {}", session_id))?;
+            session.shell_pty_id = None;
+            Ok(serde_json::json!({"closed": true}))
+        }
         _ => Err(format!("unknown action command: {}", command)),
     }
 }
@@ -569,6 +591,70 @@ mod tests {
         let sessions = state.sessions.lock().unwrap();
         let entry = sessions.get("s1").unwrap().metadata.get("status").unwrap();
         assert!(matches!(&entry.value, MetadataValue::Text(_)));
+    }
+
+    // --- open_session_shell / close_session_shell ---
+
+    #[test]
+    fn action_open_session_shell_sets_pty_id() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        let args = Some(serde_json::json!({"session_id": "s1"}));
+        let result = handle_action("open_session_shell", &args, &state).unwrap();
+        let pty_id = result["pty_id"].as_str().unwrap();
+        assert!(!pty_id.is_empty());
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(sessions.get("s1").unwrap().shell_pty_id.as_deref(), Some(pty_id));
+    }
+
+    #[test]
+    fn action_open_session_shell_idempotent() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        let args = Some(serde_json::json!({"session_id": "s1"}));
+        let result1 = handle_action("open_session_shell", &args, &state).unwrap();
+        let result2 = handle_action("open_session_shell", &args, &state).unwrap();
+        assert_eq!(result1["pty_id"], result2["pty_id"]);
+    }
+
+    #[test]
+    fn action_open_session_shell_not_found() {
+        let state = test_state();
+        let args = Some(serde_json::json!({"session_id": "nope"}));
+        let err = handle_action("open_session_shell", &args, &state).unwrap_err();
+        assert!(err.contains("session not found"));
+    }
+
+    #[test]
+    fn action_close_session_shell_clears_pty_id() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.get_mut("s1").unwrap().shell_pty_id = Some("pty-123".into());
+        }
+        let args = Some(serde_json::json!({"session_id": "s1"}));
+        let result = handle_action("close_session_shell", &args, &state).unwrap();
+        assert_eq!(result["closed"], true);
+        let sessions = state.sessions.lock().unwrap();
+        assert!(sessions.get("s1").unwrap().shell_pty_id.is_none());
+    }
+
+    #[test]
+    fn action_close_session_shell_noop_when_no_shell() {
+        let state = test_state();
+        insert_session(&state, "s1");
+        let args = Some(serde_json::json!({"session_id": "s1"}));
+        let result = handle_action("close_session_shell", &args, &state).unwrap();
+        assert_eq!(result["closed"], true);
+    }
+
+    #[test]
+    fn action_close_session_shell_not_found() {
+        let state = test_state();
+        let args = Some(serde_json::json!({"session_id": "nope"}));
+        let err = handle_action("close_session_shell", &args, &state).unwrap_err();
+        assert!(err.contains("session not found"));
     }
 
     // --- end_session ---
