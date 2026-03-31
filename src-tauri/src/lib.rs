@@ -1,6 +1,7 @@
 pub mod api;
 pub mod db;
 mod hooks;
+pub mod notification;
 pub mod ipc;
 mod notify;
 pub mod pty;
