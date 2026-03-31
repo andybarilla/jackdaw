@@ -37,6 +37,10 @@
     sessionStore.sessions.find(s => s.session_id === selectedSessionId) ?? null
   );
 
+  let selectedHistorySession = $derived(
+    historySessions.find(s => s.session_id === selectedSessionId) ?? null
+  );
+
   let renderList = $derived(buildRenderList(sessionStore.sessions));
 
   onMount(() => {
@@ -189,6 +193,29 @@
 
   function closeNewSessionMenu() {
     showNewSessionMenu = false;
+  }
+
+  async function handleHistoryOpenTerminal(cwd: string) {
+    try {
+      const sessionId = await invoke<string>('spawn_terminal', { cwd });
+      selectedSessionId = sessionId;
+      activeTab = 'active';
+    } catch (e) {
+      console.error('Failed to spawn terminal:', e);
+    }
+  }
+
+  async function handleResumeSession(sessionId: string, cwd: string) {
+    try {
+      const result = await invoke<{ pty_id: string; resumed: boolean }>('resume_session', {
+        sessionId,
+        cwd,
+      });
+      selectedSessionId = result.pty_id;
+      activeTab = 'active';
+    } catch (e) {
+      console.error('Failed to resume session:', e);
+    }
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -413,6 +440,37 @@
               <SessionCard session={selectedSession} onDismiss={handleDismiss} onOpenShell={openShell} />
             </div>
           {/if}
+        {:else if activeTab === 'history' && selectedHistorySession}
+          <div class="detail-view">
+            <div class="history-actions">
+              <button class="action-btn" onclick={() => handleHistoryOpenTerminal(selectedHistorySession.cwd)}>
+                Open Terminal
+              </button>
+              <button class="action-btn action-btn-primary" onclick={() => handleResumeSession(selectedHistorySession.session_id, selectedHistorySession.cwd)}>
+                Resume Session
+              </button>
+            </div>
+            <SessionCard session={{
+              session_id: selectedHistorySession.session_id,
+              cwd: selectedHistorySession.cwd,
+              started_at: selectedHistorySession.started_at,
+              git_branch: selectedHistorySession.git_branch,
+              current_tool: null,
+              tool_history: selectedHistorySession.tool_history.map(t => ({
+                tool_name: t.tool_name,
+                summary: t.summary,
+                timestamp: t.timestamp,
+              })),
+              active_subagents: 0,
+              pending_approval: false,
+              processing: false,
+              has_unread: false,
+              source: 'external',
+              display_name: null,
+              metadata: {},
+              shell_pty_id: null,
+            }} onDismiss={handleDismiss} historyMode={true} endedAt={selectedHistorySession.ended_at} />
+          </div>
         {:else}
           <div class="no-selection">
             <span class="no-selection-text">Select a session</span>
@@ -847,5 +905,36 @@
 
   .load-sentinel {
     height: 1px;
+  }
+
+  .history-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .action-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 14px;
+    transition: background 0.1s, color 0.1s;
+  }
+
+  .action-btn:hover {
+    background: var(--tool-bg);
+    color: var(--text-primary);
+  }
+
+  .action-btn-primary {
+    background: var(--active);
+    color: var(--bg);
+    border-color: var(--active);
+  }
+
+  .action-btn-primary:hover {
+    opacity: 0.9;
   }
 </style>
