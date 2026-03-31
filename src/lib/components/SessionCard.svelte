@@ -39,7 +39,11 @@
 
   // Last completed tool for dimmed state between rapid tool calls
   let lastTool = $derived(session.tool_history.length > 0 ? session.tool_history[session.tool_history.length - 1] : null);
-  let metadataEntries = $derived(Object.values(session.metadata));
+  let metadataEntries = $derived(
+    Object.values(session.metadata).filter(
+      (e) => !(e.key === 'progress' && e.value.type === 'progress')
+    )
+  );
 
   let explicitProgress = $derived(
     session.metadata['progress']?.value.type === 'progress'
