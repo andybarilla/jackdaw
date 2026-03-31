@@ -13,6 +13,8 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { shortenPath, getProjectName } from '$lib/utils';
   import { matchShortcut } from '$lib/shortcuts';
+  import ProjectGroup from './ProjectGroup.svelte';
+  import { buildRenderList } from '$lib/grouping';
   import type { HistorySession } from '$lib/types';
 
   let activeTab = $state<'active' | 'history' | 'settings'>('active');
@@ -26,6 +28,8 @@
   let selectedSession = $derived(
     sessionStore.sessions.find(s => s.session_id === selectedSessionId) ?? null
   );
+
+  let renderList = $derived(buildRenderList(sessionStore.sessions));
 
   onMount(() => {
     const cleanupSessions = initSessionListener();
@@ -193,17 +197,27 @@
               <HookSetup />
             </div>
           {:else}
-            {#each sessionStore.sessions as session (session.session_id)}
-              <div
-                class="sidebar-session"
-                class:selected={selectedSessionId === session.session_id}
-                onclick={() => selectSession(session.session_id)}
-                role="button"
-                tabindex="0"
-                onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectSession(session.session_id)}
-              >
-                <SessionCard {session} onDismiss={handleDismiss} compact />
-              </div>
+            {#each renderList as item (item.key)}
+              {#if item.type === 'group'}
+                <ProjectGroup
+                  cwd={item.cwd}
+                  sessions={item.sessions}
+                  {selectedSessionId}
+                  onSelect={selectSession}
+                  onDismiss={handleDismiss}
+                />
+              {:else}
+                <div
+                  class="sidebar-session"
+                  class:selected={selectedSessionId === item.session.session_id}
+                  onclick={() => selectSession(item.session.session_id)}
+                  role="button"
+                  tabindex="0"
+                  onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectSession(item.session.session_id)}
+                >
+                  <SessionCard session={item.session} onDismiss={handleDismiss} compact />
+                </div>
+              {/if}
             {/each}
           {/if}
         {:else if activeTab === 'history'}
