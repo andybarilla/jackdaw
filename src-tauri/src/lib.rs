@@ -608,6 +608,15 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 server::start_server(handle, state).await;
             });
+
+            {
+                let http_state = app_state.clone();
+                let http_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    http::start_http_server(http_state, http_handle).await;
+                });
+            }
+
             tray::create_tray(app.handle())?;
 
             // Request notification permission if not already granted (required on macOS)
