@@ -388,6 +388,7 @@
                   display_name: null,
                   metadata: {},
                   shell_pty_id: null,
+                  parent_session_id: null,
                 }} onDismiss={handleDismiss} historyMode={true} endedAt={session.ended_at} compact />
               </div>
             {/each}
@@ -469,6 +470,7 @@
               display_name: null,
               metadata: {},
               shell_pty_id: null,
+              parent_session_id: null,
             }} onDismiss={handleDismiss} historyMode={true} endedAt={selectedHistorySession.ended_at} />
           </div>
         {:else}

@@ -6,8 +6,21 @@ export type RenderItem = GroupItem | SessionItem;
 
 /** Group sessions by cwd for sidebar rendering. Groups only formed for 2+ sessions sharing a cwd. */
 export function buildRenderList(sessions: Session[]): RenderItem[] {
-  const byCwd = new Map<string, Session[]>();
+  const sessionIds = new Set(sessions.map(s => s.session_id));
+
+  // Separate children (those with a parent that exists in the current session list)
+  const children = new Set<string>();
   for (const s of sessions) {
+    if (s.parent_session_id && sessionIds.has(s.parent_session_id)) {
+      children.add(s.session_id);
+    }
+  }
+
+  // Only group top-level sessions (non-children)
+  const topLevel = sessions.filter(s => !children.has(s.session_id));
+
+  const byCwd = new Map<string, Session[]>();
+  for (const s of topLevel) {
     const group = byCwd.get(s.cwd);
     if (group) {
       group.push(s);
@@ -25,7 +38,6 @@ export function buildRenderList(sessions: Session[]): RenderItem[] {
     }
   }
 
-  // Sort by most recent started_at descending (groups use max of their sessions)
   items.sort((a, b) => {
     const aTime = a.type === 'group'
       ? Math.max(...a.sessions.map(s => new Date(s.started_at).getTime()))
