@@ -17,7 +17,7 @@
   import { matchShortcut } from '$lib/shortcuts';
   import ProjectGroup from './ProjectGroup.svelte';
   import { buildRenderList } from '$lib/grouping';
-  import type { HistorySession, DateFilter } from '$lib/types';
+  import type { Session, HistorySession, DateFilter } from '$lib/types';
 
   let activeTab = $state<'active' | 'history' | 'settings'>('active');
   let selectedSessionId = $state<string | null>(null);
@@ -42,6 +42,22 @@
   );
 
   let renderList = $derived(buildRenderList(sessionStore.sessions));
+
+  function getChildrenByParent(): Map<string, Session[]> {
+    const map = new Map<string, Session[]>();
+    const sessionIds = new Set(sessionStore.sessions.map(s => s.session_id));
+    for (const s of sessionStore.sessions) {
+      if (s.parent_session_id && sessionIds.has(s.parent_session_id)) {
+        const list = map.get(s.parent_session_id) || [];
+        list.push(s);
+        map.set(s.parent_session_id, list);
+      }
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
+    }
+    return map;
+  }
 
   onMount(() => {
     const cleanupSessions = initSessionListener();
@@ -325,6 +341,20 @@
                 >
                   <SessionCard session={item.session} onDismiss={handleDismiss} onOpenShell={openShell} compact />
                 </div>
+                {#if getChildrenByParent().has(item.session.session_id)}
+                  {#each getChildrenByParent().get(item.session.session_id) ?? [] as child (child.session_id)}
+                    <div
+                      class="sidebar-session child-session"
+                      class:selected={selectedSessionId === child.session_id}
+                      onclick={() => selectSession(child.session_id)}
+                      role="button"
+                      tabindex="0"
+                      onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectSession(child.session_id)}
+                    >
+                      <SessionCard session={child} onDismiss={handleDismiss} onOpenShell={openShell} compact />
+                    </div>
+                  {/each}
+                {/if}
               {/if}
             {/each}
           {/if}
@@ -639,6 +669,12 @@
   .sidebar-session.selected {
     background: var(--card-bg);
     outline: 1px solid var(--border);
+  }
+
+  .child-session {
+    margin-left: 20px;
+    border-left: 1px solid var(--border);
+    padding-left: 8px;
   }
 
   .main-area {
