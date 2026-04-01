@@ -1,4 +1,5 @@
 pub mod api;
+pub mod commands;
 pub mod db;
 mod hooks;
 pub mod notification;
