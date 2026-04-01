@@ -1,10 +1,11 @@
 <script lang="ts">
-  import type { Session } from '$lib/types';
+  import type { Session, CustomCommand } from '$lib/types';
   import { invoke } from '@tauri-apps/api/core';
   import { getUptime, getProjectName, shortenSessionId, formatEndedAt, getSessionState, computeToolVelocity } from '$lib/utils';
   import { slide } from 'svelte/transition';
   import ToolIcon from './ToolIcon.svelte';
   import MetadataDisplay from './MetadataDisplay.svelte';
+  import CommandBar from './CommandBar.svelte';
 
   interface Props {
     session: Session;
@@ -65,6 +66,16 @@
       return () => clearTimeout(timer);
     }
     prevProcessing = session.processing;
+  });
+
+  let customCommands = $state<CustomCommand[]>([]);
+
+  $effect(() => {
+    if (!historyMode) {
+      invoke<CustomCommand[]>('get_custom_commands', { cwd: session.cwd }).then(
+        (cmds) => (customCommands = cmds)
+      );
+    }
   });
 
   async function toggleExpand(): Promise<void> {
@@ -155,6 +166,10 @@
         </div>
       {/if}
     </div>
+  {/if}
+
+  {#if customCommands.length > 0 && !historyMode}
+    <CommandBar commands={customCommands} cwd={session.cwd} />
   {/if}
 
   {#if metadataEntries.length > 0}

@@ -87,3 +87,17 @@ export interface ResumeResult {
   pty_id: string;
   resumed: boolean;
 }
+
+export interface CustomCommand {
+  name: string;
+  command: string;
+  icon: string | null;
+  timeout: number;
+}
+
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  timed_out: boolean;
+}

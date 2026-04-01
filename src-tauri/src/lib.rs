@@ -1,4 +1,5 @@
 pub mod api;
+pub mod commands;
 pub mod db;
 mod hooks;
 pub mod notification;
@@ -669,6 +670,8 @@ pub fn run() {
             updater::check_for_update,
             updater::install_update,
             updater::set_auto_update,
+            commands::get_custom_commands,
+            commands::run_custom_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
