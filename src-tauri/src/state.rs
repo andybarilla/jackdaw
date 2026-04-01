@@ -60,6 +60,7 @@ pub struct Session {
     pub display_name: Option<String>,
     pub metadata: IndexMap<String, MetadataEntry>,
     pub shell_pty_id: Option<String>,
+    pub parent_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,6 +80,7 @@ pub struct AppState {
     /// Maps Claude's session_id → PTY session_id for spawned sessions.
     /// Hook events arrive with Claude's ID; this lets us find the session under its PTY ID.
     pub spawned_id_map: Mutex<HashMap<String, String>>,
+    pub pending_subagent_starts: Mutex<Vec<(String, String, DateTime<Utc>)>>,
 }
 
 impl AppState {
@@ -89,6 +91,7 @@ impl AppState {
             db: Mutex::new(db),
             subscriber_tx,
             spawned_id_map: Mutex::new(HashMap::new()),
+            pending_subagent_starts: Mutex::new(Vec::new()),
         }
     }
 }
@@ -159,6 +162,7 @@ impl Session {
             display_name: None,
             metadata: IndexMap::new(),
             shell_pty_id: None,
+            parent_session_id: None,
         }
     }
 
@@ -676,5 +680,26 @@ mod tests {
             },
         );
         assert_eq!(s.explicit_progress(), None);
+    }
+
+    #[test]
+    fn session_new_parent_session_id_is_none() {
+        let s = Session::new("s1".into(), "/tmp".into());
+        assert!(s.parent_session_id.is_none());
+    }
+
+    #[test]
+    fn session_parent_session_id_serializes_null_when_none() {
+        let s = Session::new("s1".into(), "/tmp".into());
+        let json = serde_json::to_value(&s).unwrap();
+        assert!(json["parent_session_id"].is_null());
+    }
+
+    #[test]
+    fn session_parent_session_id_serializes_when_set() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.parent_session_id = Some("parent-1".into());
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["parent_session_id"], "parent-1");
     }
 }
