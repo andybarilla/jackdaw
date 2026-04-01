@@ -4,18 +4,22 @@
   import { invoke } from '@tauri-apps/api/core';
   import { getVersion } from '@tauri-apps/api/app';
   import { updaterStore } from '$lib/stores/updater.svelte';
+  import type { AlertTier } from '$lib/types';
+  import { sessionStore } from '$lib/stores/sessions.svelte';
 
-  interface NotificationPrefs {
-    on_approval_needed: boolean;
-    on_session_end: boolean;
-    on_stop: boolean;
+  interface AlertPrefs {
+    on_approval_needed: AlertTier;
+    on_session_end: AlertTier;
+    on_stop: AlertTier;
   }
 
-  let prefs = $state<NotificationPrefs>({
-    on_approval_needed: true,
-    on_session_end: true,
-    on_stop: true,
+  let alertPrefs = $state<AlertPrefs>({
+    on_approval_needed: 'high',
+    on_session_end: 'low',
+    on_stop: 'medium',
   });
+
+  let alertVolume = $state(80);
 
   let store: Awaited<ReturnType<typeof Store.load>> | null = $state(null);
   let notificationCommand = $state('');
@@ -39,9 +43,24 @@
 
   onMount(async () => {
     store = await Store.load('settings.json');
-    const saved = await store.get<NotificationPrefs>('notifications');
+    const saved = await store.get<AlertPrefs>('notifications');
     if (saved) {
-      prefs = saved;
+      const raw = saved as unknown as Record<string, unknown>;
+      if (typeof raw.on_approval_needed === 'boolean') {
+        alertPrefs = {
+          on_approval_needed: raw.on_approval_needed ? 'high' : 'off',
+          on_stop: (raw as Record<string, unknown>).on_stop ? 'medium' : 'off',
+          on_session_end: (raw as Record<string, unknown>).on_session_end ? 'low' : 'off',
+        };
+        await store.set('notifications', alertPrefs);
+        await store.save();
+      } else {
+        alertPrefs = saved;
+      }
+    }
+    const savedVolume = await store.get<number>('alert_volume');
+    if (savedVolume !== undefined && savedVolume !== null) {
+      alertVolume = savedVolume;
     }
     const savedCommand = await store.get<string>('notification_command');
     if (savedCommand) {
@@ -68,11 +87,18 @@
     }
   });
 
-  async function toggle(key: keyof NotificationPrefs) {
-    prefs[key] = !prefs[key];
+  async function saveAlertPrefs() {
     if (store) {
-      await store.set('notifications', prefs);
+      await store.set('notifications', alertPrefs);
       await store.save();
+    }
+  }
+
+  async function saveVolume() {
+    if (store) {
+      await store.set('alert_volume', alertVolume);
+      await store.save();
+      sessionStore.setVolume(alertVolume);
     }
   }
 
@@ -118,21 +144,56 @@
 </script>
 
 <div class="settings">
-  <h3 class="settings-title">Notifications</h3>
-  <label class="toggle-row">
-    <input type="checkbox" checked={prefs.on_approval_needed} onchange={() => toggle('on_approval_needed')} />
-    <span>Notify when approval needed</span>
-  </label>
-  <label class="toggle-row">
-    <input type="checkbox" checked={prefs.on_stop} onchange={() => toggle('on_stop')} />
-    <span>Notify when waiting for input</span>
-  </label>
-  <label class="toggle-row">
-    <input type="checkbox" checked={prefs.on_session_end} onchange={() => toggle('on_session_end')} />
-    <span>Notify when session ends</span>
-  </label>
+  <h3 class="settings-title">Alerts</h3>
+  <div class="alert-row">
+    <span class="alert-label">Approval Needed</span>
+    <select class="alert-select" bind:value={alertPrefs.on_approval_needed} onchange={saveAlertPrefs}>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+      <option value="off">Off</option>
+    </select>
+  </div>
+  <div class="alert-row">
+    <span class="alert-label">Waiting for Input</span>
+    <select class="alert-select" bind:value={alertPrefs.on_stop} onchange={saveAlertPrefs}>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+      <option value="off">Off</option>
+    </select>
+  </div>
+  <div class="alert-row">
+    <span class="alert-label">Session Ended</span>
+    <select class="alert-select" bind:value={alertPrefs.on_session_end} onchange={saveAlertPrefs}>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+      <option value="off">Off</option>
+    </select>
+  </div>
+  <div class="alert-row">
+    <span class="alert-label">Sound theme</span>
+    <select class="alert-select">
+      <option value="default">Default</option>
+    </select>
+  </div>
+  <div class="alert-row">
+    <span class="alert-label">Volume</span>
+    <div class="volume-row">
+      <input
+        type="range"
+        min="0"
+        max="100"
+        bind:value={alertVolume}
+        onchange={saveVolume}
+        class="volume-slider"
+      />
+      <span class="volume-value">{alertVolume}%</span>
+    </div>
+  </div>
   <div class="command-row">
-    <label class="command-label" for="notification-command">Run command on notification</label>
+    <label class="command-label" for="notification-command">Run command on alert</label>
     <input
       id="notification-command"
       type="text"
@@ -338,6 +399,51 @@
 
   .copy-btn:hover {
     border-color: var(--text-muted);
+  }
+
+  .alert-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+  }
+
+  .alert-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .alert-select {
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .alert-select:focus {
+    outline: none;
+    border-color: var(--active);
+  }
+
+  .volume-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .volume-slider {
+    width: 120px;
+    accent-color: var(--active);
+  }
+
+  .volume-value {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 32px;
+    text-align: right;
   }
 
   .token-display {

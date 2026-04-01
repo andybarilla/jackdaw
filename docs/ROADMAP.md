@@ -4,16 +4,6 @@ Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and J
 
 ## High Priority
 
-### Multi-Agent Orchestration View
-Tree/graph visualization of parent→subagent relationships with status propagation. Leverages existing `spawned_session` and `active_subagents` tracking. Unique differentiator — no other tool visualizes agent spawn trees.
-
-**Spec**: `docs/superpowers/specs/2026-04-01-orchestration-view-design.md`
-
-### HTTP API
-Optional HTTP endpoint alongside the Unix socket for remote monitoring — check agent status from a phone, or aggregate multiple developers' Jackdaw instances into a team dashboard.
-
-**Spec**: None yet
-
 ### Configurable Sound/Visual Alerts
 Per-event-type sounds, screen flash, menubar icon animation for different urgency levels. Goes beyond the current boolean notification prefs.
 
@@ -38,6 +28,8 @@ Predefined configurations for which projects to watch, notification settings per
 
 ## Completed
 
+- **HTTP API** — optional HTTP endpoint for remote session monitoring
+- **Multi-Agent Orchestration View** — tree/graph visualization of parent→subagent relationships
 - **Git Branch Metadata** — tracks branch per session
 - **Accent Bar + State Labels + Unread Tracking**
 - **Session Persistence**
