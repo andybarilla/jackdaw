@@ -7,7 +7,7 @@ Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and J
 ### Multi-Agent Orchestration View
 Tree/graph visualization of parent→subagent relationships with status propagation. Leverages existing `spawned_session` and `active_subagents` tracking. Unique differentiator — no other tool visualizes agent spawn trees.
 
-**Spec**: None yet
+**Spec**: `docs/superpowers/specs/2026-04-01-orchestration-view-design.md`
 
 ### HTTP API
 Optional HTTP endpoint alongside the Unix socket for remote monitoring — check agent status from a phone, or aggregate multiple developers' Jackdaw instances into a team dashboard.
