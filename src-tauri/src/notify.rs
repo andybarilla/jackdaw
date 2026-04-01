@@ -111,18 +111,6 @@ pub fn migrate_alert_prefs(value: serde_json::Value) -> AlertPrefs {
     AlertPrefs::default()
 }
 
-pub fn should_notify(event_name: &str, is_visible: bool, prefs: &NotificationPrefs) -> bool {
-    if is_visible {
-        return false;
-    }
-    match event_name {
-        "Notification" => prefs.on_approval_needed,
-        "Stop" => prefs.on_stop,
-        "SessionEnd" => prefs.on_session_end,
-        _ => false,
-    }
-}
-
 pub async fn run_notification_command(
     command: &str,
     session_id: &str,
@@ -202,55 +190,6 @@ mod tests {
         assert_eq!(prefs.on_approval_needed, AlertTier::High);
         assert_eq!(prefs.on_stop, AlertTier::Medium);
         assert_eq!(prefs.on_session_end, AlertTier::Low);
-    }
-
-    #[test]
-    fn not_notified_when_focused() {
-        let prefs = NotificationPrefs::default();
-        assert!(!should_notify("Notification", true, &prefs));
-        assert!(!should_notify("Stop", true, &prefs));
-        assert!(!should_notify("SessionEnd", true, &prefs));
-    }
-
-    #[test]
-    fn notified_when_not_focused_and_enabled() {
-        let prefs = NotificationPrefs::default();
-        assert!(should_notify("Notification", false, &prefs));
-        assert!(should_notify("Stop", false, &prefs));
-        assert!(should_notify("SessionEnd", false, &prefs));
-    }
-
-    #[test]
-    fn not_notified_when_pref_disabled() {
-        let prefs = NotificationPrefs {
-            on_approval_needed: false,
-            on_session_end: false,
-            on_stop: false,
-        };
-        assert!(!should_notify("Notification", false, &prefs));
-        assert!(!should_notify("Stop", false, &prefs));
-        assert!(!should_notify("SessionEnd", false, &prefs));
-    }
-
-    #[test]
-    fn not_notified_for_irrelevant_events() {
-        let prefs = NotificationPrefs::default();
-        assert!(!should_notify("PreToolUse", false, &prefs));
-        assert!(!should_notify("PostToolUse", false, &prefs));
-        assert!(!should_notify("SessionStart", false, &prefs));
-        assert!(!should_notify("UserPromptSubmit", false, &prefs));
-    }
-
-    #[test]
-    fn selective_prefs() {
-        let prefs = NotificationPrefs {
-            on_approval_needed: true,
-            on_session_end: false,
-            on_stop: true,
-        };
-        assert!(should_notify("Notification", false, &prefs));
-        assert!(!should_notify("SessionEnd", false, &prefs));
-        assert!(should_notify("Stop", false, &prefs));
     }
 
     #[test]
