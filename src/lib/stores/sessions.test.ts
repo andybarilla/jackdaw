@@ -5,6 +5,16 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
 }));
 
+vi.mock('@tauri-apps/plugin-store', () => ({
+  Store: {
+    load: vi.fn(() => Promise.resolve({ get: vi.fn(() => Promise.resolve(null)) })),
+  },
+}));
+
+vi.mock('./alertSound.svelte', () => ({
+  playAlertSound: vi.fn(),
+}));
+
 // Dynamic import after mock is set up
 const { sessionStore } = await import('./sessions.svelte');
 
@@ -26,6 +36,7 @@ describe('SessionStore', () => {
       metadata: {},
       shell_pty_id: null,
       parent_session_id: null,
+      alert_tier: null,
       ...overrides,
     };
   }

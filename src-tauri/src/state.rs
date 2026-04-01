@@ -61,6 +61,7 @@ pub struct Session {
     pub metadata: IndexMap<String, MetadataEntry>,
     pub shell_pty_id: Option<String>,
     pub parent_session_id: Option<String>,
+    pub alert_tier: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -163,6 +164,7 @@ impl Session {
             metadata: IndexMap::new(),
             shell_pty_id: None,
             parent_session_id: None,
+            alert_tier: None,
         }
     }
 
@@ -680,6 +682,27 @@ mod tests {
             },
         );
         assert_eq!(s.explicit_progress(), None);
+    }
+
+    #[test]
+    fn session_new_alert_tier_is_none() {
+        let s = Session::new("s1".into(), "/tmp".into());
+        assert!(s.alert_tier.is_none());
+    }
+
+    #[test]
+    fn session_alert_tier_serializes_when_set() {
+        let mut s = Session::new("s1".into(), "/tmp".into());
+        s.alert_tier = Some("high".into());
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["alert_tier"], "high");
+    }
+
+    #[test]
+    fn session_alert_tier_serializes_null_when_none() {
+        let s = Session::new("s1".into(), "/tmp".into());
+        let json = serde_json::to_value(&s).unwrap();
+        assert!(json["alert_tier"].is_null());
     }
 
     #[test]

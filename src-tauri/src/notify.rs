@@ -1,5 +1,31 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AlertTier {
+    High,
+    Medium,
+    Low,
+    Off,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlertPrefs {
+    pub on_approval_needed: AlertTier,
+    pub on_session_end: AlertTier,
+    pub on_stop: AlertTier,
+}
+
+impl Default for AlertPrefs {
+    fn default() -> Self {
+        Self {
+            on_approval_needed: AlertTier::High,
+            on_session_end: AlertTier::Low,
+            on_stop: AlertTier::Medium,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationPrefs {
     pub on_approval_needed: bool,
@@ -17,16 +43,72 @@ impl Default for NotificationPrefs {
     }
 }
 
-pub fn should_notify(event_name: &str, is_visible: bool, prefs: &NotificationPrefs) -> bool {
+pub fn resolve_alert_tier(event_name: &str, is_visible: bool, prefs: &AlertPrefs) -> AlertTier {
     if is_visible {
-        return false;
+        return AlertTier::Off;
     }
     match event_name {
         "Notification" => prefs.on_approval_needed,
         "Stop" => prefs.on_stop,
         "SessionEnd" => prefs.on_session_end,
-        _ => false,
+        _ => AlertTier::Off,
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlertChannels {
+    pub sound: bool,
+    pub tray_animation: bool,
+    pub card_pulse: bool,
+    pub dock_bounce: bool,
+    pub desktop_notification: bool,
+}
+
+pub fn alert_channels(tier: AlertTier) -> AlertChannels {
+    match tier {
+        AlertTier::High => AlertChannels {
+            sound: true,
+            tray_animation: true,
+            card_pulse: true,
+            dock_bounce: true,
+            desktop_notification: true,
+        },
+        AlertTier::Medium => AlertChannels {
+            sound: true,
+            tray_animation: true,
+            card_pulse: true,
+            dock_bounce: false,
+            desktop_notification: true,
+        },
+        AlertTier::Low => AlertChannels {
+            sound: true,
+            tray_animation: false,
+            card_pulse: true,
+            dock_bounce: false,
+            desktop_notification: false,
+        },
+        AlertTier::Off => AlertChannels {
+            sound: false,
+            tray_animation: false,
+            card_pulse: false,
+            dock_bounce: false,
+            desktop_notification: false,
+        },
+    }
+}
+
+pub fn migrate_alert_prefs(value: serde_json::Value) -> AlertPrefs {
+    if let Ok(prefs) = serde_json::from_value::<AlertPrefs>(value.clone()) {
+        return prefs;
+    }
+    if let Ok(old) = serde_json::from_value::<NotificationPrefs>(value) {
+        return AlertPrefs {
+            on_approval_needed: if old.on_approval_needed { AlertTier::High } else { AlertTier::Off },
+            on_stop: if old.on_stop { AlertTier::Medium } else { AlertTier::Off },
+            on_session_end: if old.on_session_end { AlertTier::Low } else { AlertTier::Off },
+        };
+    }
+    AlertPrefs::default()
 }
 
 pub async fn run_notification_command(
@@ -89,52 +171,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn not_notified_when_focused() {
-        let prefs = NotificationPrefs::default();
-        assert!(!should_notify("Notification", true, &prefs));
-        assert!(!should_notify("Stop", true, &prefs));
-        assert!(!should_notify("SessionEnd", true, &prefs));
+    fn alert_tier_serializes_lowercase() {
+        assert_eq!(serde_json::to_value(AlertTier::High).unwrap(), "high");
+        assert_eq!(serde_json::to_value(AlertTier::Medium).unwrap(), "medium");
+        assert_eq!(serde_json::to_value(AlertTier::Low).unwrap(), "low");
+        assert_eq!(serde_json::to_value(AlertTier::Off).unwrap(), "off");
     }
 
     #[test]
-    fn notified_when_not_focused_and_enabled() {
-        let prefs = NotificationPrefs::default();
-        assert!(should_notify("Notification", false, &prefs));
-        assert!(should_notify("Stop", false, &prefs));
-        assert!(should_notify("SessionEnd", false, &prefs));
+    fn alert_tier_deserializes_lowercase() {
+        assert_eq!(serde_json::from_str::<AlertTier>("\"high\"").unwrap(), AlertTier::High);
+        assert_eq!(serde_json::from_str::<AlertTier>("\"off\"").unwrap(), AlertTier::Off);
     }
 
     #[test]
-    fn not_notified_when_pref_disabled() {
-        let prefs = NotificationPrefs {
-            on_approval_needed: false,
-            on_session_end: false,
-            on_stop: false,
-        };
-        assert!(!should_notify("Notification", false, &prefs));
-        assert!(!should_notify("Stop", false, &prefs));
-        assert!(!should_notify("SessionEnd", false, &prefs));
-    }
-
-    #[test]
-    fn not_notified_for_irrelevant_events() {
-        let prefs = NotificationPrefs::default();
-        assert!(!should_notify("PreToolUse", false, &prefs));
-        assert!(!should_notify("PostToolUse", false, &prefs));
-        assert!(!should_notify("SessionStart", false, &prefs));
-        assert!(!should_notify("UserPromptSubmit", false, &prefs));
-    }
-
-    #[test]
-    fn selective_prefs() {
-        let prefs = NotificationPrefs {
-            on_approval_needed: true,
-            on_session_end: false,
-            on_stop: true,
-        };
-        assert!(should_notify("Notification", false, &prefs));
-        assert!(!should_notify("SessionEnd", false, &prefs));
-        assert!(should_notify("Stop", false, &prefs));
+    fn alert_prefs_defaults() {
+        let prefs = AlertPrefs::default();
+        assert_eq!(prefs.on_approval_needed, AlertTier::High);
+        assert_eq!(prefs.on_stop, AlertTier::Medium);
+        assert_eq!(prefs.on_session_end, AlertTier::Low);
     }
 
     #[test]
@@ -188,6 +243,130 @@ mod tests {
         let start = std::time::Instant::now();
         run_notification_command("sleep 30", "sid", "Stop", "/tmp", "t", "b").await;
         assert!(start.elapsed().as_secs() < 15);
+    }
+
+    #[test]
+    fn resolve_tier_returns_off_when_visible() {
+        let prefs = AlertPrefs::default();
+        assert_eq!(resolve_alert_tier("Notification", true, &prefs), AlertTier::Off);
+        assert_eq!(resolve_alert_tier("Stop", true, &prefs), AlertTier::Off);
+        assert_eq!(resolve_alert_tier("SessionEnd", true, &prefs), AlertTier::Off);
+    }
+
+    #[test]
+    fn resolve_tier_returns_configured_tier_when_not_visible() {
+        let prefs = AlertPrefs::default();
+        assert_eq!(resolve_alert_tier("Notification", false, &prefs), AlertTier::High);
+        assert_eq!(resolve_alert_tier("Stop", false, &prefs), AlertTier::Medium);
+        assert_eq!(resolve_alert_tier("SessionEnd", false, &prefs), AlertTier::Low);
+    }
+
+    #[test]
+    fn resolve_tier_returns_off_for_irrelevant_events() {
+        let prefs = AlertPrefs::default();
+        assert_eq!(resolve_alert_tier("PreToolUse", false, &prefs), AlertTier::Off);
+        assert_eq!(resolve_alert_tier("PostToolUse", false, &prefs), AlertTier::Off);
+        assert_eq!(resolve_alert_tier("SessionStart", false, &prefs), AlertTier::Off);
+    }
+
+    #[test]
+    fn resolve_tier_respects_custom_prefs() {
+        let prefs = AlertPrefs {
+            on_approval_needed: AlertTier::Low,
+            on_session_end: AlertTier::Off,
+            on_stop: AlertTier::High,
+        };
+        assert_eq!(resolve_alert_tier("Notification", false, &prefs), AlertTier::Low);
+        assert_eq!(resolve_alert_tier("SessionEnd", false, &prefs), AlertTier::Off);
+        assert_eq!(resolve_alert_tier("Stop", false, &prefs), AlertTier::High);
+    }
+
+    #[test]
+    fn alert_channels_high() {
+        let ch = alert_channels(AlertTier::High);
+        assert!(ch.sound);
+        assert!(ch.tray_animation);
+        assert!(ch.card_pulse);
+        assert!(ch.dock_bounce);
+        assert!(ch.desktop_notification);
+    }
+
+    #[test]
+    fn alert_channels_medium() {
+        let ch = alert_channels(AlertTier::Medium);
+        assert!(ch.sound);
+        assert!(ch.tray_animation);
+        assert!(ch.card_pulse);
+        assert!(!ch.dock_bounce);
+        assert!(ch.desktop_notification);
+    }
+
+    #[test]
+    fn alert_channels_low() {
+        let ch = alert_channels(AlertTier::Low);
+        assert!(ch.sound);
+        assert!(!ch.tray_animation);
+        assert!(ch.card_pulse);
+        assert!(!ch.dock_bounce);
+        assert!(!ch.desktop_notification);
+    }
+
+    #[test]
+    fn alert_channels_off() {
+        let ch = alert_channels(AlertTier::Off);
+        assert!(!ch.sound);
+        assert!(!ch.tray_animation);
+        assert!(!ch.card_pulse);
+        assert!(!ch.dock_bounce);
+        assert!(!ch.desktop_notification);
+    }
+
+    #[test]
+    fn migrate_old_bool_prefs_all_enabled() {
+        let old_json = serde_json::json!({
+            "on_approval_needed": true,
+            "on_session_end": true,
+            "on_stop": true
+        });
+        let prefs = migrate_alert_prefs(old_json);
+        assert_eq!(prefs.on_approval_needed, AlertTier::High);
+        assert_eq!(prefs.on_stop, AlertTier::Medium);
+        assert_eq!(prefs.on_session_end, AlertTier::Low);
+    }
+
+    #[test]
+    fn migrate_old_bool_prefs_some_disabled() {
+        let old_json = serde_json::json!({
+            "on_approval_needed": false,
+            "on_session_end": true,
+            "on_stop": false
+        });
+        let prefs = migrate_alert_prefs(old_json);
+        assert_eq!(prefs.on_approval_needed, AlertTier::Off);
+        assert_eq!(prefs.on_stop, AlertTier::Off);
+        assert_eq!(prefs.on_session_end, AlertTier::Low);
+    }
+
+    #[test]
+    fn migrate_new_tier_prefs_passes_through() {
+        let new_json = serde_json::json!({
+            "on_approval_needed": "medium",
+            "on_session_end": "off",
+            "on_stop": "high"
+        });
+        let prefs = migrate_alert_prefs(new_json);
+        assert_eq!(prefs.on_approval_needed, AlertTier::Medium);
+        assert_eq!(prefs.on_stop, AlertTier::High);
+        assert_eq!(prefs.on_session_end, AlertTier::Off);
+    }
+
+    #[test]
+    fn migrate_invalid_json_returns_defaults() {
+        let bad_json = serde_json::json!("garbage");
+        let prefs = migrate_alert_prefs(bad_json);
+        assert_eq!(prefs.on_approval_needed, AlertTier::High);
+        assert_eq!(prefs.on_stop, AlertTier::Medium);
+        assert_eq!(prefs.on_session_end, AlertTier::Low);
     }
 
     #[tokio::test]

@@ -19,6 +19,7 @@ function makeSession(id: string, cwd: string, startedAt: string): Session {
     metadata: {},
     shell_pty_id: null,
     parent_session_id: null,
+    alert_tier: null,
   };
 }
 

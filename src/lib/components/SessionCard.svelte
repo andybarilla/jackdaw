@@ -92,6 +92,9 @@
   class:completion-flash={showCompletion}
   style="--accent-color: var(--state-{cardState})"
   class:has-attention={cardState === 'approval' || cardState === 'input'}
+  class:alert-high={session.alert_tier === 'high'}
+  class:alert-medium={session.alert_tier === 'medium'}
+  class:alert-low={session.alert_tier === 'low'}
 >
   <!-- Header row: always visible, clickable -->
   <div class="row-header" onclick={() => !compact && toggleExpand()} role="button" tabindex="0" onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), !compact && toggleExpand())}>
@@ -462,6 +465,36 @@
   @keyframes flash-complete {
     0% { border-left-color: var(--success); }
     100% { border-left-color: var(--accent-color); }
+  }
+
+  .card.alert-high {
+    animation: pulse-alert 1.5s ease-out;
+    --alert-color: #e74c3c;
+  }
+
+  .card.alert-medium {
+    animation: pulse-alert 1.5s ease-out;
+    --alert-color: #f39c12;
+  }
+
+  .card.alert-low {
+    animation: pulse-alert 1.5s ease-out;
+    --alert-color: #3498db;
+  }
+
+  @keyframes pulse-alert {
+    0% {
+      border-left-color: var(--alert-color);
+      box-shadow: 0 0 16px color-mix(in srgb, var(--alert-color) 30%, transparent);
+    }
+    50% {
+      border-left-color: var(--alert-color);
+      box-shadow: 0 0 8px color-mix(in srgb, var(--alert-color) 15%, transparent);
+    }
+    100% {
+      border-left-color: var(--accent-color);
+      box-shadow: none;
+    }
   }
 
 </style>
