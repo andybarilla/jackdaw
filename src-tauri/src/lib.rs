@@ -8,6 +8,7 @@ mod notify;
 pub mod pty;
 pub mod send;
 mod server;
+pub mod http;
 pub mod state;
 mod tray;
 pub mod updater;
@@ -558,6 +559,17 @@ fn get_busy_session_count(state: tauri::State<'_, Arc<AppState>>) -> usize {
 }
 
 #[tauri::command]
+fn get_api_token() -> Result<String, String> {
+    let token_path = dirs::home_dir()
+        .ok_or_else(|| "could not determine home directory".to_string())?
+        .join(".jackdaw")
+        .join("api-token");
+    std::fs::read_to_string(&token_path)
+        .map(|s| s.trim().to_string())
+        .map_err(|e| format!("failed to read token: {}", e))
+}
+
+#[tauri::command]
 fn force_quit(app: AppHandle) {
     app.exit(0);
 }
@@ -607,6 +619,15 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 server::start_server(handle, state).await;
             });
+
+            {
+                let http_state = app_state.clone();
+                let http_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    http::start_http_server(http_state, http_handle).await;
+                });
+            }
+
             tray::create_tray(app.handle())?;
 
             // Request notification permission if not already granted (required on macOS)
@@ -669,6 +690,7 @@ pub fn run() {
             get_recent_cwds,
             get_busy_session_count,
             force_quit,
+            get_api_token,
             updater::check_for_update,
             updater::install_update,
             updater::set_auto_update,

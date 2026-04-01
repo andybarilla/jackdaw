@@ -23,6 +23,20 @@
   let appVersion = $state<string | null>(null);
   let checking = $state(false);
 
+  interface HttpApiConfig {
+    enabled: boolean;
+    port: number;
+    bind_address: string;
+  }
+
+  let httpApi = $state<HttpApiConfig>({
+    enabled: false,
+    port: 7456,
+    bind_address: '127.0.0.1',
+  });
+  let httpApiToken = $state('');
+  let httpApiChanged = $state(false);
+
   onMount(async () => {
     store = await Store.load('settings.json');
     const saved = await store.get<NotificationPrefs>('notifications');
@@ -41,6 +55,17 @@
       await invoke('set_auto_update', { enabled: false });
     }
     appVersion = await getVersion();
+    const savedHttpApi = await store.get<HttpApiConfig>('http_api');
+    if (savedHttpApi) {
+      httpApi = savedHttpApi;
+    }
+    if (httpApi.enabled) {
+      try {
+        httpApiToken = await invoke<string>('get_api_token');
+      } catch {
+        httpApiToken = '';
+      }
+    }
   });
 
   async function toggle(key: keyof NotificationPrefs) {
@@ -65,6 +90,19 @@
       await store.save();
     }
     await invoke('set_auto_update', { enabled: autoUpdateEnabled });
+  }
+
+  async function saveHttpApi() {
+    if (store) {
+      await store.set('http_api', httpApi);
+      await store.save();
+      httpApiChanged = true;
+    }
+  }
+
+  async function toggleHttpApi() {
+    httpApi.enabled = !httpApi.enabled;
+    await saveHttpApi();
   }
 
   async function checkForUpdates() {
@@ -119,6 +157,59 @@
   </div>
   {#if appVersion}
     <div class="version-info">Current version: v{appVersion}</div>
+  {/if}
+  <h3 class="settings-title">HTTP API</h3>
+  <label class="toggle-row">
+    <input type="checkbox" checked={httpApi.enabled} onchange={toggleHttpApi} />
+    <span>Enable HTTP API</span>
+  </label>
+  {#if httpApi.enabled}
+    <div class="command-row">
+      <label class="command-label" for="http-port">Port</label>
+      <input
+        id="http-port"
+        type="number"
+        class="command-input"
+        bind:value={httpApi.port}
+        onblur={saveHttpApi}
+        min="1024"
+        max="65535"
+      />
+    </div>
+    <div class="command-row">
+      <label class="command-label" for="http-bind">Bind address</label>
+      <input
+        id="http-bind"
+        type="text"
+        class="command-input"
+        bind:value={httpApi.bind_address}
+        onblur={saveHttpApi}
+        placeholder="127.0.0.1"
+      />
+      {#if httpApi.bind_address === '0.0.0.0'}
+        <div class="warning">Accessible from the network. Ensure you trust your network.</div>
+      {/if}
+    </div>
+    <div class="command-row">
+      <label class="command-label" for="api-token">API token</label>
+      {#if httpApiToken}
+        <div class="token-row">
+          <input
+            id="api-token"
+            type="text"
+            class="command-input token-input"
+            value={httpApiToken}
+            readonly
+          />
+          <button class="copy-btn" onclick={() => navigator.clipboard.writeText(httpApiToken)}>Copy</button>
+        </div>
+      {:else}
+        <div class="token-display">Token will be generated on first start</div>
+      {/if}
+    </div>
+  {/if}
+  {#if httpApiChanged}
+    <div class="warning">Restart Jackdaw for changes to take effect.</div>
   {/if}
 </div>
 
@@ -215,5 +306,47 @@
     font-size: 11px;
     color: var(--text-muted);
     padding: 4px 0;
+  }
+
+  .warning {
+    font-size: 11px;
+    color: var(--state-approval);
+    padding: 4px 0;
+  }
+
+  .token-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .token-input {
+    flex: 1;
+    font-size: 11px;
+  }
+
+  .copy-btn {
+    background: var(--card-bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .copy-btn:hover {
+    border-color: var(--text-muted);
+  }
+
+  .token-display {
+    font-size: 12px;
+    font-family: monospace;
+    color: var(--text-secondary);
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
   }
 </style>
