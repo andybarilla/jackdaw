@@ -152,6 +152,7 @@ fn uninstall_hooks(
 #[tauri::command]
 async fn spawn_terminal(
     cwd: String,
+    parent_session_id: Option<String>,
     app: AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
@@ -164,6 +165,7 @@ async fn spawn_terminal(
         let mut sessions = state.sessions.lock().unwrap();
         let mut session = Session::new(sid.clone(), cwd.clone());
         session.source = SessionSource::Spawned;
+        session.parent_session_id = parent_session_id;
         sessions.insert(sid.clone(), session);
     }
 

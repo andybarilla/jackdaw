@@ -18,6 +18,7 @@ function makeSession(id: string, cwd: string, startedAt: string): Session {
     display_name: null,
     metadata: {},
     shell_pty_id: null,
+    parent_session_id: null,
   };
 }
 
@@ -92,5 +93,39 @@ describe('buildRenderList', () => {
     const sessions = [makeSession('s1', '/a', '2026-03-30T01:00:00Z')];
     const result = buildRenderList(sessions);
     expect(result[0].key).toBe('s1');
+  });
+});
+
+describe('parent-child grouping', () => {
+  it('excludes child sessions from top-level rendering', () => {
+    const sessions = [
+      makeSession('parent', '/a', '2026-03-30T01:00:00Z'),
+      { ...makeSession('child', '/a', '2026-03-30T02:00:00Z'), parent_session_id: 'parent' },
+    ];
+    const result = buildRenderList(sessions);
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('session');
+    if (result[0].type === 'session') {
+      expect(result[0].session.session_id).toBe('parent');
+    }
+  });
+
+  it('child with no matching parent renders as top-level (orphaned)', () => {
+    const sessions = [
+      { ...makeSession('child', '/a', '2026-03-30T02:00:00Z'), parent_session_id: 'gone-parent' },
+    ];
+    const result = buildRenderList(sessions);
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('session');
+  });
+
+  it('children do not count toward cwd group threshold', () => {
+    const sessions = [
+      makeSession('s1', '/a', '2026-03-30T01:00:00Z'),
+      { ...makeSession('child', '/a', '2026-03-30T02:00:00Z'), parent_session_id: 's1' },
+    ];
+    const result = buildRenderList(sessions);
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('session');
   });
 });

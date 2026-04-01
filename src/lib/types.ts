@@ -29,6 +29,7 @@ export interface Session {
   display_name: string | null;
   metadata: Record<string, MetadataEntry>;
   shell_pty_id: string | null;
+  parent_session_id: string | null;
 }
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';

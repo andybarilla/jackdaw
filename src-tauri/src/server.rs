@@ -198,6 +198,23 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                 session.hydrate_from_history(&history);
                 session.git_branch = git_branch;
                 sessions.insert(session_id.clone(), session);
+
+                // Try to match this new session to a pending subagent start
+                {
+                    let mut pending = state.pending_subagent_starts.lock().unwrap();
+                    let now = Utc::now();
+                    // Prune entries older than 5 seconds
+                    pending.retain(|(_, _, ts)| (now - *ts).num_seconds() < 5);
+                    // Find a matching pending start (same cwd, within 2 seconds)
+                    if let Some(pos) = pending.iter().position(|(_, pending_cwd, ts)| {
+                        pending_cwd == &cwd && (now - *ts).num_seconds() < 2
+                    }) {
+                        let (parent_id, _, _) = pending.remove(pos);
+                        if let Some(session) = sessions.get_mut(&session_id) {
+                            session.parent_session_id = Some(parent_id);
+                        }
+                    }
+                }
             }
         }
 
@@ -295,6 +312,10 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             "SubagentStart" => {
                 if let Some(session) = sessions.get_mut(&session_id) {
                     session.active_subagents = session.active_subagents.saturating_add(1);
+                    let cwd = session.cwd.clone();
+                    state.pending_subagent_starts.lock().unwrap().push(
+                        (session_id.clone(), cwd, Utc::now())
+                    );
                 }
             }
             "SubagentStop" => {

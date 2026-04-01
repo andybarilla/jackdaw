@@ -6,6 +6,7 @@
   import Terminal from './Terminal.svelte';
   import UpdateBanner from './UpdateBanner.svelte';
   import NotificationPanel from './NotificationPanel.svelte';
+  import AgentTree from './AgentTree.svelte';
   import { sessionStore, initSessionListener } from '$lib/stores/sessions.svelte';
   import { notificationStore, initNotificationListener } from '$lib/stores/notifications.svelte';
   import { initUpdaterListener } from '$lib/stores/updater.svelte';
@@ -17,7 +18,7 @@
   import { matchShortcut } from '$lib/shortcuts';
   import ProjectGroup from './ProjectGroup.svelte';
   import { buildRenderList } from '$lib/grouping';
-  import type { HistorySession, DateFilter } from '$lib/types';
+  import type { Session, HistorySession, DateFilter } from '$lib/types';
 
   let activeTab = $state<'active' | 'history' | 'settings'>('active');
   let selectedSessionId = $state<string | null>(null);
@@ -31,7 +32,7 @@
   let recentCwds = $state<string[]>([]);
   let confirmCloseCount = $state<number | null>(null);
   let notificationPanelOpen = $state(false);
-  let tabState = $state<Record<string, 'detail' | 'terminal'>>({});
+  let tabState = $state<Record<string, 'detail' | 'terminal' | 'tree'>>({});
 
   let selectedSession = $derived(
     sessionStore.sessions.find(s => s.session_id === selectedSessionId) ?? null
@@ -42,6 +43,33 @@
   );
 
   let renderList = $derived(buildRenderList(sessionStore.sessions));
+
+  function getChildrenByParent(): Map<string, Session[]> {
+    const map = new Map<string, Session[]>();
+    const sessionIds = new Set(sessionStore.sessions.map(s => s.session_id));
+    for (const s of sessionStore.sessions) {
+      if (s.parent_session_id && sessionIds.has(s.parent_session_id)) {
+        const list = map.get(s.parent_session_id) || [];
+        list.push(s);
+        map.set(s.parent_session_id, list);
+      }
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime());
+    }
+    return map;
+  }
+
+  let selectedChildSessions = $derived(
+    selectedSession
+      ? sessionStore.sessions.filter(s => s.parent_session_id === selectedSession.session_id)
+          .sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
+      : []
+  );
+
+  let showTreeTab = $derived(
+    selectedSession !== null && (selectedChildSessions.length > 0 || (selectedSession?.active_subagents ?? 0) > 0)
+  );
 
   onMount(() => {
     const cleanupSessions = initSessionListener();
@@ -325,6 +353,20 @@
                 >
                   <SessionCard session={item.session} onDismiss={handleDismiss} onOpenShell={openShell} compact />
                 </div>
+                {#if getChildrenByParent().has(item.session.session_id)}
+                  {#each getChildrenByParent().get(item.session.session_id) ?? [] as child (child.session_id)}
+                    <div
+                      class="sidebar-session child-session"
+                      class:selected={selectedSessionId === child.session_id}
+                      onclick={() => selectSession(child.session_id)}
+                      role="button"
+                      tabindex="0"
+                      onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectSession(child.session_id)}
+                    >
+                      <SessionCard session={child} onDismiss={handleDismiss} onOpenShell={openShell} compact />
+                    </div>
+                  {/each}
+                {/if}
               {/if}
             {/each}
           {/if}
@@ -388,6 +430,7 @@
                   display_name: null,
                   metadata: {},
                   shell_pty_id: null,
+                  parent_session_id: null,
                 }} onDismiss={handleDismiss} historyMode={true} endedAt={session.ended_at} compact />
               </div>
             {/each}
@@ -421,24 +464,41 @@
 
       {#if selectedSession?.source !== 'spawned'}
         {#if selectedSession}
-          {#if selectedSession.shell_pty_id}
+          {#if selectedSession.shell_pty_id || showTreeTab}
             <div class="tab-bar">
               <button
                 class="tab-btn"
-                class:active={tabState[selectedSession.session_id] !== 'terminal'}
+                class:active={!tabState[selectedSession.session_id] || tabState[selectedSession.session_id] === 'detail'}
                 onclick={() => { tabState[selectedSession.session_id] = 'detail'; }}
               >Detail</button>
-              <button
-                class="tab-btn"
-                class:active={tabState[selectedSession.session_id] === 'terminal'}
-                onclick={() => { tabState[selectedSession.session_id] = 'terminal'; }}
-              >Terminal</button>
+              {#if showTreeTab}
+                <button
+                  class="tab-btn"
+                  class:active={tabState[selectedSession.session_id] === 'tree'}
+                  onclick={() => { tabState[selectedSession.session_id] = 'tree'; }}
+                >Tree</button>
+              {/if}
+              {#if selectedSession.shell_pty_id}
+                <button
+                  class="tab-btn"
+                  class:active={tabState[selectedSession.session_id] === 'terminal'}
+                  onclick={() => { tabState[selectedSession.session_id] = 'terminal'; }}
+                >Terminal</button>
+              {/if}
             </div>
           {/if}
-          {#if tabState[selectedSession.session_id] !== 'terminal'}
+          {#if !tabState[selectedSession.session_id] || tabState[selectedSession.session_id] === 'detail'}
             <div class="detail-view">
               <SessionCard session={selectedSession} onDismiss={handleDismiss} onOpenShell={openShell} />
             </div>
+          {:else if tabState[selectedSession.session_id] === 'tree'}
+            <AgentTree
+              parentSession={selectedSession}
+              childSessions={selectedChildSessions}
+              onDismiss={handleDismiss}
+              onSelect={selectSession}
+              onOpenShell={openShell}
+            />
           {/if}
         {:else if activeTab === 'history' && selectedHistorySession}
           <div class="detail-view">
@@ -469,6 +529,7 @@
               display_name: null,
               metadata: {},
               shell_pty_id: null,
+              parent_session_id: null,
             }} onDismiss={handleDismiss} historyMode={true} endedAt={selectedHistorySession.ended_at} />
           </div>
         {:else}
@@ -637,6 +698,12 @@
   .sidebar-session.selected {
     background: var(--card-bg);
     outline: 1px solid var(--border);
+  }
+
+  .child-session {
+    margin-left: 20px;
+    border-left: 1px solid var(--border);
+    padding-left: 8px;
   }
 
   .main-area {
