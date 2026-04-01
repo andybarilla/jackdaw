@@ -97,6 +97,20 @@ pub fn alert_channels(tier: AlertTier) -> AlertChannels {
     }
 }
 
+pub fn migrate_alert_prefs(value: serde_json::Value) -> AlertPrefs {
+    if let Ok(prefs) = serde_json::from_value::<AlertPrefs>(value.clone()) {
+        return prefs;
+    }
+    if let Ok(old) = serde_json::from_value::<NotificationPrefs>(value) {
+        return AlertPrefs {
+            on_approval_needed: if old.on_approval_needed { AlertTier::High } else { AlertTier::Off },
+            on_stop: if old.on_stop { AlertTier::Medium } else { AlertTier::Off },
+            on_session_end: if old.on_session_end { AlertTier::Low } else { AlertTier::Off },
+        };
+    }
+    AlertPrefs::default()
+}
+
 pub fn should_notify(event_name: &str, is_visible: bool, prefs: &NotificationPrefs) -> bool {
     if is_visible {
         return false;
@@ -366,6 +380,54 @@ mod tests {
         assert!(!ch.card_pulse);
         assert!(!ch.dock_bounce);
         assert!(!ch.desktop_notification);
+    }
+
+    #[test]
+    fn migrate_old_bool_prefs_all_enabled() {
+        let old_json = serde_json::json!({
+            "on_approval_needed": true,
+            "on_session_end": true,
+            "on_stop": true
+        });
+        let prefs = migrate_alert_prefs(old_json);
+        assert_eq!(prefs.on_approval_needed, AlertTier::High);
+        assert_eq!(prefs.on_stop, AlertTier::Medium);
+        assert_eq!(prefs.on_session_end, AlertTier::Low);
+    }
+
+    #[test]
+    fn migrate_old_bool_prefs_some_disabled() {
+        let old_json = serde_json::json!({
+            "on_approval_needed": false,
+            "on_session_end": true,
+            "on_stop": false
+        });
+        let prefs = migrate_alert_prefs(old_json);
+        assert_eq!(prefs.on_approval_needed, AlertTier::Off);
+        assert_eq!(prefs.on_stop, AlertTier::Off);
+        assert_eq!(prefs.on_session_end, AlertTier::Low);
+    }
+
+    #[test]
+    fn migrate_new_tier_prefs_passes_through() {
+        let new_json = serde_json::json!({
+            "on_approval_needed": "medium",
+            "on_session_end": "off",
+            "on_stop": "high"
+        });
+        let prefs = migrate_alert_prefs(new_json);
+        assert_eq!(prefs.on_approval_needed, AlertTier::Medium);
+        assert_eq!(prefs.on_stop, AlertTier::High);
+        assert_eq!(prefs.on_session_end, AlertTier::Off);
+    }
+
+    #[test]
+    fn migrate_invalid_json_returns_defaults() {
+        let bad_json = serde_json::json!("garbage");
+        let prefs = migrate_alert_prefs(bad_json);
+        assert_eq!(prefs.on_approval_needed, AlertTier::High);
+        assert_eq!(prefs.on_stop, AlertTier::Medium);
+        assert_eq!(prefs.on_session_end, AlertTier::Low);
     }
 
     #[tokio::test]
