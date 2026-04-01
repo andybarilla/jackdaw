@@ -1,4 +1,13 @@
 use crate::state::AppState;
+use axum::{
+    body::Body,
+    extract::State,
+    http::{Request, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+    routing::get,
+    Json, Router,
+};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
@@ -97,8 +106,73 @@ pub async fn start_http_server(state: Arc<AppState>, app_handle: tauri::AppHandl
     }
 }
 
-fn build_router(_state: Arc<AppState>, _token: String) -> axum::Router {
-    todo!("implemented in Task 4")
+// ── HTTP state ────────────────────────────────────────────────────────────────
+
+#[derive(Clone)]
+pub struct HttpState {
+    pub app_state: Arc<AppState>,
+    pub token: Arc<String>,
+}
+
+// ── Auth middleware ───────────────────────────────────────────────────────────
+
+async fn auth_middleware(
+    State(http_state): State<HttpState>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    let auth_header = req.headers().get("Authorization");
+    let expected = format!("Bearer {}", http_state.token);
+
+    match auth_header.and_then(|v| v.to_str().ok()) {
+        Some(value) if value == expected => next.run(req).await,
+        _ => (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "invalid or missing token"})),
+        )
+            .into_response(),
+    }
+}
+
+// ── Route handlers ────────────────────────────────────────────────────────────
+
+async fn health_handler() -> impl IntoResponse {
+    Json(serde_json::json!({"ok": true}))
+}
+
+async fn sessions_handler(State(http_state): State<HttpState>) -> impl IntoResponse {
+    let sessions = http_state.app_state.sessions.lock().unwrap();
+    let mut list: Vec<_> = sessions.values().cloned().collect();
+    list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    Json(serde_json::to_value(list).unwrap())
+}
+
+async fn not_found_handler() -> impl IntoResponse {
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"error": "not found"})),
+    )
+}
+
+pub fn build_router(state: Arc<AppState>, token: String) -> Router {
+    let http_state = HttpState {
+        app_state: state,
+        token: Arc::new(token),
+    };
+
+    let authed = Router::new()
+        .route("/api/sessions", get(sessions_handler))
+        .route_layer(middleware::from_fn_with_state(
+            http_state.clone(),
+            auth_middleware,
+        ))
+        .with_state(http_state.clone());
+
+    Router::new()
+        .route("/api/health", get(health_handler))
+        .merge(authed)
+        .fallback(not_found_handler)
+        .with_state(http_state)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -106,6 +180,12 @@ fn build_router(_state: Arc<AppState>, _token: String) -> axum::Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use tower::util::ServiceExt;
+
+    fn make_state() -> Arc<AppState> {
+        Arc::new(AppState::new(crate::db::init_memory()))
+    }
 
     // ── Task 2: Token tests ───────────────────────────────────────────────────
 
@@ -173,5 +253,68 @@ mod tests {
             .unwrap_or_default();
         assert!(!cfg.enabled);
         assert_eq!(cfg.port, 7456);
+    }
+
+    // ── Task 4: Router / auth tests ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn health_requires_no_auth() {
+        let app = build_router(make_state(), "secret".to_string());
+        let req = axum::http::Request::builder()
+            .uri("/api/health")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn auth_rejects_missing_token() {
+        let app = build_router(make_state(), "secret".to_string());
+        let req = axum::http::Request::builder()
+            .uri("/api/sessions")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_rejects_wrong_token() {
+        let app = build_router(make_state(), "secret".to_string());
+        let req = axum::http::Request::builder()
+            .uri("/api/sessions")
+            .header("Authorization", "Bearer wrongtoken")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_accepts_valid_token() {
+        let app = build_router(make_state(), "secret".to_string());
+        let req = axum::http::Request::builder()
+            .uri("/api/sessions")
+            .header("Authorization", "Bearer secret")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn unknown_route_returns_404() {
+        let app = build_router(make_state(), "secret".to_string());
+        let req = axum::http::Request::builder()
+            .uri("/api/bogus")
+            .header("Authorization", "Bearer secret")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }
