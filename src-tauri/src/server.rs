@@ -361,9 +361,8 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
         let _ = state.subscriber_tx.send(json);
     }
 
-    // Fire desktop notification if appropriate
-    {
-        use tauri_plugin_notification::NotificationExt;
+    // Resolve alert tier and fire appropriate channels
+    let resolved_tier = {
         use tauri_plugin_store::StoreExt;
 
         let is_visible = app_handle
@@ -375,39 +374,107 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             .store("settings.json")
             .ok()
             .and_then(|store| {
-                store.get("notifications").and_then(|v| {
-                    serde_json::from_value::<crate::notify::NotificationPrefs>(v).ok()
+                store.get("notifications").map(|v| {
+                    crate::notify::migrate_alert_prefs(v)
                 })
             })
             .unwrap_or_default();
 
-        if crate::notify::should_notify(&event_name, is_visible, &prefs) {
+        crate::notify::resolve_alert_tier(&event_name, is_visible, &prefs)
+    };
+
+    // Set alert_tier on the session for the frontend
+    if resolved_tier != crate::notify::AlertTier::Off {
+        let tier_str = match resolved_tier {
+            crate::notify::AlertTier::High => "high",
+            crate::notify::AlertTier::Medium => "medium",
+            crate::notify::AlertTier::Low => "low",
+            crate::notify::AlertTier::Off => unreachable!(),
+        };
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(&session_id) {
+            session.alert_tier = Some(tier_str.to_string());
+        }
+        drop(sessions);
+
+        // Re-emit session list with alert_tier set
+        let sessions = state.sessions.lock().unwrap();
+        let mut session_list: Vec<_> = sessions.values().cloned().collect();
+        session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        drop(sessions);
+        let _ = app_handle.emit("session-update", &session_list);
+
+        if let Ok(json) = serde_json::to_string(&session_list) {
+            let _ = state.subscriber_tx.send(json);
+        }
+
+        let channels = crate::notify::alert_channels(resolved_tier);
+
+        // Desktop notification
+        if channels.desktop_notification {
+            use tauri_plugin_notification::NotificationExt;
             if let Some((title, body)) = crate::notify::notification_content(&event_name, &cwd) {
                 let _ = app_handle.notification().builder()
                     .title(title)
                     .body(&body)
                     .show();
+            }
+        }
 
-                let notification_command = app_handle
-                    .store("settings.json")
-                    .ok()
-                    .and_then(|store| store.get("notification_command"))
-                    .and_then(|v| v.as_str().map(String::from))
-                    .unwrap_or_default();
+        // Dock/taskbar bounce (High only)
+        if channels.dock_bounce {
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let _ = window.request_user_attention(
+                    Some(tauri::UserAttentionType::Critical)
+                );
+            }
+        }
 
-                if !notification_command.is_empty() {
+        // Tray animation
+        if channels.tray_animation {
+            crate::tray::start_tray_animation(app_handle, resolved_tier);
+        }
+
+        // Notification command
+        {
+            use tauri_plugin_store::StoreExt;
+            let notification_command = app_handle
+                .store("settings.json")
+                .ok()
+                .and_then(|store| store.get("notification_command"))
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_default();
+
+            if !notification_command.is_empty() {
+                if let Some((title, body)) = crate::notify::notification_content(&event_name, &cwd) {
                     let cmd = notification_command;
                     let sid = session_id.clone();
                     let evt = event_name.clone();
                     let cwd = cwd.clone();
                     let t = title.to_string();
-                    let b = body.clone();
+                    let b = body;
                     tokio::spawn(async move {
                         crate::notify::run_notification_command(&cmd, &sid, &evt, &cwd, &t, &b).await;
                     });
                 }
             }
         }
+
+        // Clear alert_tier after a short delay so frontend has time to read it
+        let state_clone = state.clone();
+        let sid_clone = session_id.clone();
+        let app_clone = app_handle.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let mut sessions = state_clone.sessions.lock().unwrap();
+            if let Some(session) = sessions.get_mut(&sid_clone) {
+                session.alert_tier = None;
+            }
+            let mut session_list: Vec<_> = sessions.values().cloned().collect();
+            session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+            drop(sessions);
+            let _ = app_clone.emit("session-update", &session_list);
+        });
     }
 
     // Persist notification to DB and emit event

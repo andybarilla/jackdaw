@@ -241,6 +241,13 @@ pub fn compute_tray_state(sessions: &[Session]) -> (TrayState, TrayStateCounts) 
     (state, counts)
 }
 
+/// Stub — full implementation in Task 6
+pub fn start_tray_animation(_app: &AppHandle, _tier: crate::notify::AlertTier) {}
+
+pub fn stop_tray_animation(app: &AppHandle, sessions: &[Session]) {
+    update_tray(app, sessions);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
