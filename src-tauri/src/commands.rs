@@ -103,6 +103,28 @@ pub async fn run_command(cwd: &str, command: &str, timeout_secs: u64) -> Result<
     }
 }
 
+#[tauri::command]
+pub async fn get_custom_commands(cwd: String, app: tauri::AppHandle) -> Result<Vec<CustomCommand>, String> {
+    use tauri_plugin_store::StoreExt;
+
+    let mut commands = read_project_commands(&cwd);
+
+    if let Ok(store) = app.store("settings.json") {
+        if let Some(value) = store.get("commands") {
+            if let Ok(config) = serde_json::from_value::<CommandsConfig>(value) {
+                commands.extend(config.commands);
+            }
+        }
+    }
+
+    Ok(commands)
+}
+
+#[tauri::command]
+pub async fn run_custom_command(cwd: String, command: String, timeout_secs: u64) -> Result<CommandResult, String> {
+    run_command(&cwd, &command, timeout_secs).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
