@@ -6,6 +6,7 @@
   import Terminal from './Terminal.svelte';
   import UpdateBanner from './UpdateBanner.svelte';
   import NotificationPanel from './NotificationPanel.svelte';
+  import AgentTree from './AgentTree.svelte';
   import { sessionStore, initSessionListener } from '$lib/stores/sessions.svelte';
   import { notificationStore, initNotificationListener } from '$lib/stores/notifications.svelte';
   import { initUpdaterListener } from '$lib/stores/updater.svelte';
@@ -31,7 +32,7 @@
   let recentCwds = $state<string[]>([]);
   let confirmCloseCount = $state<number | null>(null);
   let notificationPanelOpen = $state(false);
-  let tabState = $state<Record<string, 'detail' | 'terminal'>>({});
+  let tabState = $state<Record<string, 'detail' | 'terminal' | 'tree'>>({});
 
   let selectedSession = $derived(
     sessionStore.sessions.find(s => s.session_id === selectedSessionId) ?? null
@@ -58,6 +59,17 @@
     }
     return map;
   }
+
+  let selectedChildSessions = $derived(
+    selectedSession
+      ? sessionStore.sessions.filter(s => s.parent_session_id === selectedSession.session_id)
+          .sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
+      : []
+  );
+
+  let showTreeTab = $derived(
+    selectedSession !== null && (selectedChildSessions.length > 0 || (selectedSession?.active_subagents ?? 0) > 0)
+  );
 
   onMount(() => {
     const cleanupSessions = initSessionListener();
@@ -452,24 +464,41 @@
 
       {#if selectedSession?.source !== 'spawned'}
         {#if selectedSession}
-          {#if selectedSession.shell_pty_id}
+          {#if selectedSession.shell_pty_id || showTreeTab}
             <div class="tab-bar">
               <button
                 class="tab-btn"
-                class:active={tabState[selectedSession.session_id] !== 'terminal'}
+                class:active={!tabState[selectedSession.session_id] || tabState[selectedSession.session_id] === 'detail'}
                 onclick={() => { tabState[selectedSession.session_id] = 'detail'; }}
               >Detail</button>
-              <button
-                class="tab-btn"
-                class:active={tabState[selectedSession.session_id] === 'terminal'}
-                onclick={() => { tabState[selectedSession.session_id] = 'terminal'; }}
-              >Terminal</button>
+              {#if showTreeTab}
+                <button
+                  class="tab-btn"
+                  class:active={tabState[selectedSession.session_id] === 'tree'}
+                  onclick={() => { tabState[selectedSession.session_id] = 'tree'; }}
+                >Tree</button>
+              {/if}
+              {#if selectedSession.shell_pty_id}
+                <button
+                  class="tab-btn"
+                  class:active={tabState[selectedSession.session_id] === 'terminal'}
+                  onclick={() => { tabState[selectedSession.session_id] = 'terminal'; }}
+                >Terminal</button>
+              {/if}
             </div>
           {/if}
-          {#if tabState[selectedSession.session_id] !== 'terminal'}
+          {#if !tabState[selectedSession.session_id] || tabState[selectedSession.session_id] === 'detail'}
             <div class="detail-view">
               <SessionCard session={selectedSession} onDismiss={handleDismiss} onOpenShell={openShell} />
             </div>
+          {:else if tabState[selectedSession.session_id] === 'tree'}
+            <AgentTree
+              parentSession={selectedSession}
+              childSessions={selectedChildSessions}
+              onDismiss={handleDismiss}
+              onSelect={selectSession}
+              onOpenShell={openShell}
+            />
           {/if}
         {:else if activeTab === 'history' && selectedHistorySession}
           <div class="detail-view">
