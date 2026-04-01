@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
@@ -15,6 +17,27 @@ const ICON_APPROVAL: &[u8] = include_bytes!("../../static/icons/tray-approval.pn
 const ICON_INPUT: &[u8] = include_bytes!("../../static/icons/tray-input.png");
 const ICON_RUNNING: &[u8] = include_bytes!("../../static/icons/tray-running.png");
 const ICON_IDLE: &[u8] = include_bytes!("../../static/icons/tray-idle.png");
+
+const ICON_RED_1: &[u8] = include_bytes!("../../static/icons/tray-red-1.png");
+const ICON_RED_2: &[u8] = include_bytes!("../../static/icons/tray-red-2.png");
+const ICON_RED_3: &[u8] = include_bytes!("../../static/icons/tray-red-3.png");
+const ICON_RED_4: &[u8] = include_bytes!("../../static/icons/tray-red-4.png");
+
+const ICON_AMBER_1: &[u8] = include_bytes!("../../static/icons/tray-amber-1.png");
+const ICON_AMBER_2: &[u8] = include_bytes!("../../static/icons/tray-amber-2.png");
+const ICON_AMBER_3: &[u8] = include_bytes!("../../static/icons/tray-amber-3.png");
+const ICON_AMBER_4: &[u8] = include_bytes!("../../static/icons/tray-amber-4.png");
+
+/// Monotonic counter used to cancel stale animation loops.
+static ANIMATION_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+pub fn animation_frames(tier: crate::notify::AlertTier) -> Vec<&'static [u8]> {
+    match tier {
+        crate::notify::AlertTier::High => vec![ICON_RED_1, ICON_RED_2, ICON_RED_3, ICON_RED_4],
+        crate::notify::AlertTier::Medium => vec![ICON_AMBER_1, ICON_AMBER_2, ICON_AMBER_3, ICON_AMBER_4],
+        _ => vec![],
+    }
+}
 
 fn show_and_focus(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -153,6 +176,11 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                         let _ = window.hide();
                     } else {
                         show_and_focus(app);
+                        let state = app.state::<std::sync::Arc<crate::state::AppState>>();
+                        let sessions = state.sessions.lock().unwrap();
+                        let session_list: Vec<_> = sessions.values().cloned().collect();
+                        drop(sessions);
+                        stop_tray_animation(app, &session_list);
                     }
                 }
             }
@@ -241,10 +269,36 @@ pub fn compute_tray_state(sessions: &[Session]) -> (TrayState, TrayStateCounts) 
     (state, counts)
 }
 
-/// Stub — full implementation in Task 6
-pub fn start_tray_animation(_app: &AppHandle, _tier: crate::notify::AlertTier) {}
+pub fn start_tray_animation(app: &AppHandle, tier: crate::notify::AlertTier) {
+    let frames = animation_frames(tier);
+    if frames.is_empty() {
+        return;
+    }
+
+    let gen = ANIMATION_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+
+    tokio::spawn(async move {
+        let mut idx = 0;
+        loop {
+            if ANIMATION_GENERATION.load(Ordering::SeqCst) != gen {
+                break;
+            }
+            if let Some(tray) = app.tray_by_id(TRAY_ID) {
+                if let Ok(icon) = Image::from_bytes(frames[idx % frames.len()]) {
+                    let _ = tray.set_icon(Some(icon));
+                }
+            }
+            idx += 1;
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    });
+}
 
 pub fn stop_tray_animation(app: &AppHandle, sessions: &[Session]) {
+    // Bump generation to cancel any running animation loop
+    ANIMATION_GENERATION.fetch_add(1, Ordering::SeqCst);
+    // Restore the correct static icon
     update_tray(app, sessions);
 }
 
@@ -253,6 +307,30 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use crate::state::ToolEvent;
+
+    #[test]
+    fn animation_frames_high_returns_red_frames() {
+        let frames = animation_frames(crate::notify::AlertTier::High);
+        assert_eq!(frames.len(), 4);
+    }
+
+    #[test]
+    fn animation_frames_medium_returns_amber_frames() {
+        let frames = animation_frames(crate::notify::AlertTier::Medium);
+        assert_eq!(frames.len(), 4);
+    }
+
+    #[test]
+    fn animation_frames_low_returns_empty() {
+        let frames = animation_frames(crate::notify::AlertTier::Low);
+        assert!(frames.is_empty());
+    }
+
+    #[test]
+    fn animation_frames_off_returns_empty() {
+        let frames = animation_frames(crate::notify::AlertTier::Off);
+        assert!(frames.is_empty());
+    }
 
     fn idle_session() -> Session {
         Session::new("s1".into(), "/tmp".into())
