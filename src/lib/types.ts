@@ -1,3 +1,5 @@
+export type AlertTier = 'high' | 'medium' | 'low' | 'off';
+
 export interface ToolEvent {
   tool_name: string;
   timestamp: string; // ISO 8601 from Rust chrono
@@ -30,6 +32,7 @@ export interface Session {
   metadata: Record<string, MetadataEntry>;
   shell_pty_id: string | null;
   parent_session_id: string | null;
+  alert_tier: AlertTier | null;
 }
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';

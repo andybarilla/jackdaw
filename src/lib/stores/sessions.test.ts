@@ -26,6 +26,7 @@ describe('SessionStore', () => {
       metadata: {},
       shell_pty_id: null,
       parent_session_id: null,
+      alert_tier: null,
       ...overrides,
     };
   }
