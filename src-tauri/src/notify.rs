@@ -1,5 +1,31 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AlertTier {
+    High,
+    Medium,
+    Low,
+    Off,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlertPrefs {
+    pub on_approval_needed: AlertTier,
+    pub on_session_end: AlertTier,
+    pub on_stop: AlertTier,
+}
+
+impl Default for AlertPrefs {
+    fn default() -> Self {
+        Self {
+            on_approval_needed: AlertTier::High,
+            on_session_end: AlertTier::Low,
+            on_stop: AlertTier::Medium,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationPrefs {
     pub on_approval_needed: bool,
@@ -87,6 +113,28 @@ pub fn notification_content(event_name: &str, cwd: &str) -> Option<(&'static str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alert_tier_serializes_lowercase() {
+        assert_eq!(serde_json::to_value(AlertTier::High).unwrap(), "high");
+        assert_eq!(serde_json::to_value(AlertTier::Medium).unwrap(), "medium");
+        assert_eq!(serde_json::to_value(AlertTier::Low).unwrap(), "low");
+        assert_eq!(serde_json::to_value(AlertTier::Off).unwrap(), "off");
+    }
+
+    #[test]
+    fn alert_tier_deserializes_lowercase() {
+        assert_eq!(serde_json::from_str::<AlertTier>("\"high\"").unwrap(), AlertTier::High);
+        assert_eq!(serde_json::from_str::<AlertTier>("\"off\"").unwrap(), AlertTier::Off);
+    }
+
+    #[test]
+    fn alert_prefs_defaults() {
+        let prefs = AlertPrefs::default();
+        assert_eq!(prefs.on_approval_needed, AlertTier::High);
+        assert_eq!(prefs.on_stop, AlertTier::Medium);
+        assert_eq!(prefs.on_session_end, AlertTier::Low);
+    }
 
     #[test]
     fn not_notified_when_focused() {
