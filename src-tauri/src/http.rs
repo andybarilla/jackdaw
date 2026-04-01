@@ -1,21 +1,26 @@
 use crate::state::AppState;
+use crate::api;
 use axum::{
     body::Body,
-    extract::State,
+    extract::{Path, State},
     http::{Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
+    response::sse::{Event, Sse},
     routing::get,
     Json, Router,
 };
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::{path::Path, sync::Arc};
+use std::{path::Path as FsPath, sync::Arc};
 use tokio::net::TcpListener;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt;
+use tower_http::cors::CorsLayer;
 
 // ── Token ────────────────────────────────────────────────────────────────────
 
-pub fn load_or_generate_token(path: &Path) -> std::io::Result<String> {
+pub fn load_or_generate_token(path: &FsPath) -> std::io::Result<String> {
     if path.exists() {
         let token = std::fs::read_to_string(path)?;
         return Ok(token.trim().to_string());
@@ -140,11 +145,55 @@ async fn health_handler() -> impl IntoResponse {
     Json(serde_json::json!({"ok": true}))
 }
 
-async fn sessions_handler(State(http_state): State<HttpState>) -> impl IntoResponse {
-    let sessions = http_state.app_state.sessions.lock().unwrap();
-    let mut list: Vec<_> = sessions.values().cloned().collect();
-    list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
-    Json(serde_json::to_value(list).unwrap())
+async fn list_sessions_handler(State(state): State<HttpState>) -> impl IntoResponse {
+    match api::handle_query("list_sessions", &None, &state.app_state) {
+        Ok(data) => (StatusCode::OK, Json(data)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+async fn get_session_handler(State(state): State<HttpState>, Path(id): Path<String>) -> impl IntoResponse {
+    let args = Some(serde_json::json!({"session_id": id}));
+    match api::handle_query("get_session", &args, &state.app_state) {
+        Ok(data) => (StatusCode::OK, Json(data)).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+async fn get_status_handler(State(state): State<HttpState>) -> impl IntoResponse {
+    match api::handle_query("get_status", &None, &state.app_state) {
+        Ok(data) => (StatusCode::OK, Json(data)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+async fn dismiss_session_handler(State(state): State<HttpState>, Path(id): Path<String>) -> impl IntoResponse {
+    let args = Some(serde_json::json!({"session_id": id}));
+    match api::handle_action("dismiss_session", &args, &state.app_state) {
+        Ok(data) => (StatusCode::OK, Json(data)).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+async fn mark_read_handler(State(state): State<HttpState>, Path(id): Path<String>) -> impl IntoResponse {
+    let args = Some(serde_json::json!({"session_id": id}));
+    match api::handle_action("mark_session_read", &args, &state.app_state) {
+        Ok(data) => (StatusCode::OK, Json(data)).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e}))).into_response(),
+    }
+}
+
+async fn subscribe_handler(
+    State(state): State<HttpState>,
+) -> Sse<impl tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>>> {
+    let rx = state.app_state.subscriber_tx.subscribe();
+    let stream = BroadcastStream::new(rx).filter_map(|result| {
+        match result {
+            Ok(json) => Some(Ok(Event::default().event("session-update").data(json))),
+            Err(_) => None,
+        }
+    });
+    Sse::new(stream)
 }
 
 async fn not_found_handler() -> impl IntoResponse {
@@ -161,7 +210,12 @@ pub fn build_router(state: Arc<AppState>, token: String) -> Router {
     };
 
     let authed = Router::new()
-        .route("/api/sessions", get(sessions_handler))
+        .route("/api/sessions", get(list_sessions_handler))
+        .route("/api/sessions/{id}", get(get_session_handler))
+        .route("/api/sessions/{id}/dismiss", axum::routing::post(dismiss_session_handler))
+        .route("/api/sessions/{id}/read", axum::routing::post(mark_read_handler))
+        .route("/api/status", get(get_status_handler))
+        .route("/api/subscribe", get(subscribe_handler))
         .route_layer(middleware::from_fn_with_state(
             http_state.clone(),
             auth_middleware,
@@ -173,6 +227,7 @@ pub fn build_router(state: Arc<AppState>, token: String) -> Router {
         .merge(authed)
         .fallback(not_found_handler)
         .with_state(http_state)
+        .layer(CorsLayer::permissive())
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -316,5 +371,169 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    // ── Task 5: REST endpoint tests ───────────────────────────────────────────
+
+    use crate::state::Session;
+
+    fn insert_session(state: &Arc<AppState>, id: &str) {
+        let mut sessions = state.sessions.lock().unwrap();
+        sessions.insert(id.into(), Session::new(id.into(), "/tmp".into()));
+    }
+
+    fn authed_get(path: &str) -> axum::http::Request<Body> {
+        axum::http::Request::builder()
+            .uri(path)
+            .header("Authorization", "Bearer secret")
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    fn authed_post(path: &str) -> axum::http::Request<Body> {
+        axum::http::Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("Authorization", "Bearer secret")
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    async fn body_json(resp: axum::response::Response) -> serde_json::Value {
+        let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn list_sessions_empty() {
+        let state = make_state();
+        let app = build_router(state, "secret".into());
+        let resp = app.oneshot(authed_get("/api/sessions")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        assert_eq!(json.as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn list_sessions_with_data() {
+        let state = make_state();
+        insert_session(&state, "s1");
+        insert_session(&state, "s2");
+        let app = build_router(state, "secret".into());
+        let resp = app.oneshot(authed_get("/api/sessions")).await.unwrap();
+        let json = body_json(resp).await;
+        assert_eq!(json.as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn get_session_found() {
+        let state = make_state();
+        insert_session(&state, "s1");
+        let app = build_router(state, "secret".into());
+        let resp = app.oneshot(authed_get("/api/sessions/s1")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        assert_eq!(json["session_id"], "s1");
+    }
+
+    #[tokio::test]
+    async fn get_session_not_found() {
+        let state = make_state();
+        let app = build_router(state, "secret".into());
+        let resp = app.oneshot(authed_get("/api/sessions/nope")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn get_status_counts() {
+        let state = make_state();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let mut s1 = Session::new("s1".into(), "/tmp".into());
+            s1.processing = true;
+            sessions.insert("s1".into(), s1);
+            sessions.insert("s2".into(), Session::new("s2".into(), "/tmp".into()));
+        }
+        let app = build_router(state, "secret".into());
+        let resp = app.oneshot(authed_get("/api/status")).await.unwrap();
+        let json = body_json(resp).await;
+        assert_eq!(json["total"], 2);
+        assert_eq!(json["running"], 1);
+        assert_eq!(json["input"], 1);
+    }
+
+    #[tokio::test]
+    async fn dismiss_session_ok() {
+        let state = make_state();
+        insert_session(&state, "s1");
+        let app = build_router(state.clone(), "secret".into());
+        let resp = app.oneshot(authed_post("/api/sessions/s1/dismiss")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(state.sessions.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn dismiss_session_not_found() {
+        let state = make_state();
+        let app = build_router(state, "secret".into());
+        let resp = app.oneshot(authed_post("/api/sessions/nope/dismiss")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn mark_read_ok() {
+        let state = make_state();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let mut s = Session::new("s1".into(), "/tmp".into());
+            s.has_unread = true;
+            sessions.insert("s1".into(), s);
+        }
+        let app = build_router(state.clone(), "secret".into());
+        let resp = app.oneshot(authed_post("/api/sessions/s1/read")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(!state.sessions.lock().unwrap().get("s1").unwrap().has_unread);
+    }
+
+    // ── Task 6: SSE subscribe tests ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn subscribe_returns_sse_content_type() {
+        let state = make_state();
+        let app = build_router(state, "secret".into());
+        let resp = app.oneshot(authed_get("/api/subscribe")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
+        assert!(ct.contains("text/event-stream"));
+    }
+
+    #[tokio::test]
+    async fn subscribe_requires_auth() {
+        let state = make_state();
+        let app = build_router(state, "secret".into());
+        let req = axum::http::Request::builder()
+            .uri("/api/subscribe")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    // ── Task 7: CORS tests ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn cors_allows_any_origin() {
+        let state = make_state();
+        let app = build_router(state, "secret".into());
+        let req = axum::http::Request::builder()
+            .uri("/api/health")
+            .header("Origin", "http://example.com")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.headers().get("access-control-allow-origin").unwrap().to_str().unwrap(),
+            "*"
+        );
     }
 }
