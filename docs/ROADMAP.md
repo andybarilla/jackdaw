@@ -4,13 +4,6 @@ Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and J
 
 ## High Priority
 
-### Configurable Sound/Visual Alerts
-Per-event-type sounds, screen flash, menubar icon animation for different urgency levels. Goes beyond the current boolean notification prefs.
-
-**Spec**: None yet
-
-## Lower Priority
-
 ### Cross-Tool Agent Support
 Document a stable wire protocol and build adapters for other agents (Codex, Aider, Gemini CLI, OpenCode). The IPC protocol is already generic enough — this is mostly documentation and community outreach.
 
@@ -28,6 +21,7 @@ Predefined configurations for which projects to watch, notification settings per
 
 ## Completed
 
+- **Configurable Sound/Visual Alerts** — per-event-type sounds, screen flash, icon animation with urgency tiers
 - **HTTP API** — optional HTTP endpoint for remote session monitoring
 - **Multi-Agent Orchestration View** — tree/graph visualization of parent→subagent relationships
 - **Git Branch Metadata** — tracks branch per session
