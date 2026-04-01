@@ -1,4 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::process::Stdio;
+use tokio::io::AsyncReadExt;
+use tokio::process::Command;
+use tokio::time::{timeout, Duration};
 
 fn default_timeout() -> u64 {
     30
@@ -40,6 +44,62 @@ pub fn read_project_commands(cwd: &str) -> Vec<CustomCommand> {
     match std::fs::read_to_string(&path) {
         Ok(contents) => parse_commands(&contents),
         Err(_) => Vec::new(),
+    }
+}
+
+const MAX_OUTPUT_BYTES: usize = 10 * 1024;
+
+fn truncate_output(bytes: Vec<u8>) -> String {
+    let s = String::from_utf8_lossy(&bytes);
+    if s.len() > MAX_OUTPUT_BYTES {
+        s[..MAX_OUTPUT_BYTES].to_string()
+    } else {
+        s.into_owned()
+    }
+}
+
+pub async fn run_command(cwd: &str, command: &str, timeout_secs: u64) -> Result<CommandResult, String> {
+    let mut child = Command::new("sh")
+        .args(["-c", command])
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to spawn: {e}"))?;
+
+    let result = timeout(Duration::from_secs(timeout_secs), async {
+        let mut stdout_buf = Vec::new();
+        let mut stderr_buf = Vec::new();
+
+        if let Some(ref mut stdout) = child.stdout {
+            let _ = stdout.read_to_end(&mut stdout_buf).await;
+        }
+        if let Some(ref mut stderr) = child.stderr {
+            let _ = stderr.read_to_end(&mut stderr_buf).await;
+        }
+
+        let status = child.wait().await.map_err(|e| format!("wait failed: {e}"))?;
+        Ok::<_, String>((stdout_buf, stderr_buf, status))
+    })
+    .await;
+
+    match result {
+        Ok(Ok((stdout_buf, stderr_buf, status))) => Ok(CommandResult {
+            stdout: truncate_output(stdout_buf),
+            stderr: truncate_output(stderr_buf),
+            exit_code: status.code(),
+            timed_out: false,
+        }),
+        Ok(Err(e)) => Err(e),
+        Err(_) => {
+            let _ = child.kill().await;
+            Ok(CommandResult {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: None,
+                timed_out: true,
+            })
+        }
     }
 }
 
@@ -91,5 +151,37 @@ mod tests {
     fn read_project_commands_missing_file() {
         let cmds = read_project_commands("/tmp/nonexistent-dir-12345");
         assert!(cmds.is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_command_captures_stdout() {
+        let result = run_command("/tmp", "echo hello", 5).await.unwrap();
+        assert_eq!(result.stdout.trim(), "hello");
+        assert_eq!(result.exit_code, Some(0));
+        assert!(!result.timed_out);
+    }
+
+    #[tokio::test]
+    async fn run_command_captures_stderr() {
+        let result = run_command("/tmp", "echo err >&2", 5).await.unwrap();
+        assert_eq!(result.stderr.trim(), "err");
+    }
+
+    #[tokio::test]
+    async fn run_command_captures_nonzero_exit() {
+        let result = run_command("/tmp", "exit 42", 5).await.unwrap();
+        assert_eq!(result.exit_code, Some(42));
+    }
+
+    #[tokio::test]
+    async fn run_command_kills_after_timeout() {
+        let result = run_command("/tmp", "sleep 60", 1).await.unwrap();
+        assert!(result.timed_out);
+    }
+
+    #[tokio::test]
+    async fn run_command_truncates_large_output() {
+        let result = run_command("/tmp", "yes | head -5000", 5).await.unwrap();
+        assert!(result.stdout.len() <= MAX_OUTPUT_BYTES);
     }
 }
