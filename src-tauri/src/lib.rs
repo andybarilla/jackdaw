@@ -8,6 +8,7 @@ mod notify;
 pub mod pty;
 pub mod send;
 mod server;
+pub mod http;
 pub mod state;
 mod tray;
 pub mod updater;
