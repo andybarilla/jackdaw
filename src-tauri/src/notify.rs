@@ -43,6 +43,60 @@ impl Default for NotificationPrefs {
     }
 }
 
+pub fn resolve_alert_tier(event_name: &str, is_visible: bool, prefs: &AlertPrefs) -> AlertTier {
+    if is_visible {
+        return AlertTier::Off;
+    }
+    match event_name {
+        "Notification" => prefs.on_approval_needed,
+        "Stop" => prefs.on_stop,
+        "SessionEnd" => prefs.on_session_end,
+        _ => AlertTier::Off,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlertChannels {
+    pub sound: bool,
+    pub tray_animation: bool,
+    pub card_pulse: bool,
+    pub dock_bounce: bool,
+    pub desktop_notification: bool,
+}
+
+pub fn alert_channels(tier: AlertTier) -> AlertChannels {
+    match tier {
+        AlertTier::High => AlertChannels {
+            sound: true,
+            tray_animation: true,
+            card_pulse: true,
+            dock_bounce: true,
+            desktop_notification: true,
+        },
+        AlertTier::Medium => AlertChannels {
+            sound: true,
+            tray_animation: true,
+            card_pulse: true,
+            dock_bounce: false,
+            desktop_notification: true,
+        },
+        AlertTier::Low => AlertChannels {
+            sound: true,
+            tray_animation: false,
+            card_pulse: true,
+            dock_bounce: false,
+            desktop_notification: false,
+        },
+        AlertTier::Off => AlertChannels {
+            sound: false,
+            tray_animation: false,
+            card_pulse: false,
+            dock_bounce: false,
+            desktop_notification: false,
+        },
+    }
+}
+
 pub fn should_notify(event_name: &str, is_visible: bool, prefs: &NotificationPrefs) -> bool {
     if is_visible {
         return false;
@@ -236,6 +290,82 @@ mod tests {
         let start = std::time::Instant::now();
         run_notification_command("sleep 30", "sid", "Stop", "/tmp", "t", "b").await;
         assert!(start.elapsed().as_secs() < 15);
+    }
+
+    #[test]
+    fn resolve_tier_returns_off_when_visible() {
+        let prefs = AlertPrefs::default();
+        assert_eq!(resolve_alert_tier("Notification", true, &prefs), AlertTier::Off);
+        assert_eq!(resolve_alert_tier("Stop", true, &prefs), AlertTier::Off);
+        assert_eq!(resolve_alert_tier("SessionEnd", true, &prefs), AlertTier::Off);
+    }
+
+    #[test]
+    fn resolve_tier_returns_configured_tier_when_not_visible() {
+        let prefs = AlertPrefs::default();
+        assert_eq!(resolve_alert_tier("Notification", false, &prefs), AlertTier::High);
+        assert_eq!(resolve_alert_tier("Stop", false, &prefs), AlertTier::Medium);
+        assert_eq!(resolve_alert_tier("SessionEnd", false, &prefs), AlertTier::Low);
+    }
+
+    #[test]
+    fn resolve_tier_returns_off_for_irrelevant_events() {
+        let prefs = AlertPrefs::default();
+        assert_eq!(resolve_alert_tier("PreToolUse", false, &prefs), AlertTier::Off);
+        assert_eq!(resolve_alert_tier("PostToolUse", false, &prefs), AlertTier::Off);
+        assert_eq!(resolve_alert_tier("SessionStart", false, &prefs), AlertTier::Off);
+    }
+
+    #[test]
+    fn resolve_tier_respects_custom_prefs() {
+        let prefs = AlertPrefs {
+            on_approval_needed: AlertTier::Low,
+            on_session_end: AlertTier::Off,
+            on_stop: AlertTier::High,
+        };
+        assert_eq!(resolve_alert_tier("Notification", false, &prefs), AlertTier::Low);
+        assert_eq!(resolve_alert_tier("SessionEnd", false, &prefs), AlertTier::Off);
+        assert_eq!(resolve_alert_tier("Stop", false, &prefs), AlertTier::High);
+    }
+
+    #[test]
+    fn alert_channels_high() {
+        let ch = alert_channels(AlertTier::High);
+        assert!(ch.sound);
+        assert!(ch.tray_animation);
+        assert!(ch.card_pulse);
+        assert!(ch.dock_bounce);
+        assert!(ch.desktop_notification);
+    }
+
+    #[test]
+    fn alert_channels_medium() {
+        let ch = alert_channels(AlertTier::Medium);
+        assert!(ch.sound);
+        assert!(ch.tray_animation);
+        assert!(ch.card_pulse);
+        assert!(!ch.dock_bounce);
+        assert!(ch.desktop_notification);
+    }
+
+    #[test]
+    fn alert_channels_low() {
+        let ch = alert_channels(AlertTier::Low);
+        assert!(ch.sound);
+        assert!(!ch.tray_animation);
+        assert!(ch.card_pulse);
+        assert!(!ch.dock_bounce);
+        assert!(!ch.desktop_notification);
+    }
+
+    #[test]
+    fn alert_channels_off() {
+        let ch = alert_channels(AlertTier::Off);
+        assert!(!ch.sound);
+        assert!(!ch.tray_animation);
+        assert!(!ch.card_pulse);
+        assert!(!ch.dock_bounce);
+        assert!(!ch.desktop_notification);
     }
 
     #[tokio::test]
