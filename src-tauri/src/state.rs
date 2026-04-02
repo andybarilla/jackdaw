@@ -65,6 +65,7 @@ pub struct Session {
     pub parent_session_id: Option<String>,
     pub alert_tier: Option<String>,
     pub source_tool: Option<String>,
+    pub profile_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -242,6 +243,7 @@ impl Session {
             parent_session_id: None,
             alert_tier: None,
             source_tool: None,
+            profile_name: None,
         }
     }
 

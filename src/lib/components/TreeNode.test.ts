@@ -27,6 +27,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     parent_session_id: null,
     alert_tier: null,
     source_tool: null,
+    profile_name: null,
     ...overrides,
   };
 }

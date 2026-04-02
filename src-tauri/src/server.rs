@@ -217,6 +217,22 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                         }
                     }
                 }
+
+                // Resolve monitoring profile for this session
+                {
+                    use tauri_plugin_store::StoreExt;
+                    let profiles: Vec<crate::notify::MonitoringProfile> = app_handle
+                        .store("settings.json")
+                        .ok()
+                        .and_then(|s| s.get("profiles"))
+                        .and_then(|v| serde_json::from_value(v).ok())
+                        .unwrap_or_default();
+                    if let Some(profile) = crate::notify::find_profile_for_cwd(&profiles, &cwd) {
+                        if let Some(session) = sessions.get_mut(&session_id) {
+                            session.profile_name = Some(profile.name.clone());
+                        }
+                    }
+                }
             }
         }
 
@@ -581,6 +597,13 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
 #[cfg(test)]
 mod tests {
     use crate::db;
+
+    #[test]
+    fn session_has_profile_name_field() {
+        use crate::state::Session;
+        let session = Session::new("s1".into(), "/tmp".into());
+        assert_eq!(session.profile_name, None);
+    }
 
     #[test]
     fn rehydration_populates_new_session_from_db() {

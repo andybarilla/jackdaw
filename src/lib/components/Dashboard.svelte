@@ -459,6 +459,7 @@
                   parent_session_id: null,
                   alert_tier: null,
                   source_tool: null,
+                  profile_name: null,
                 }} onDismiss={handleDismiss} onPreviewUrl={openPreview} onPreviewFile={openPreviewFile} historyMode={true} endedAt={session.ended_at} compact />
               </div>
             {/each}
@@ -562,6 +563,7 @@
               parent_session_id: null,
               alert_tier: null,
               source_tool: null,
+              profile_name: null,
             }} onDismiss={handleDismiss} onPreviewUrl={openPreview} onPreviewFile={openPreviewFile} historyMode={true} endedAt={selectedHistorySession.ended_at} />
           </div>
         {:else}

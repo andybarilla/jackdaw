@@ -36,6 +36,7 @@ export interface Session {
   parent_session_id: string | null;
   alert_tier: AlertTier | null;
   source_tool: string | null;
+  profile_name: string | null;
 }
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';
