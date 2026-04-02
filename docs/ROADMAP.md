@@ -4,11 +4,6 @@ Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and J
 
 ## High Priority
 
-### Embedded Browser Preview
-Lightweight version of cmux's browser panes: clickable links in tool output open a small preview pane via Tauri's webview. Useful for reviewing agent-generated web content without leaving Jackdaw.
-
-**Spec**: None yet
-
 ### Monitoring Profiles
 Predefined configurations for which projects to watch, notification settings per project, and dashboard layout preferences. Equivalent to cmux's workspace layout templates.
 
@@ -16,6 +11,7 @@ Predefined configurations for which projects to watch, notification settings per
 
 ## Completed
 
+- **Embedded Browser Preview** — clickable URLs in tool output open a native webview preview modal with navigation
 - **Cross-Tool Agent Support** — stable wire protocol and adapters for other agents (Codex, Aider, Gemini CLI, OpenCode)
 - **Configurable Sound/Visual Alerts** — per-event-type sounds, screen flash, icon animation with urgency tiers
 - **HTTP API** — optional HTTP endpoint for remote session monitoring
