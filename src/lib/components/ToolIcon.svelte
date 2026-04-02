@@ -18,6 +18,15 @@
   let { tool_name, size = 12 }: Props = $props();
 
   const toolConfig: Record<string, { icon: typeof Terminal; colorClass: string }> = {
+    // Canonical names
+    shell: { icon: Terminal, colorClass: 'tool-green' },
+    file_read: { icon: FileText, colorClass: 'tool-blue' },
+    file_edit: { icon: Pencil, colorClass: 'tool-orange' },
+    file_write: { icon: FilePlus, colorClass: 'tool-orange' },
+    file_search: { icon: FolderSearch, colorClass: 'tool-purple' },
+    content_search: { icon: Search, colorClass: 'tool-purple' },
+    agent: { icon: Bot, colorClass: 'tool-cyan' },
+    // Claude Code names (backwards compat)
     Bash: { icon: Terminal, colorClass: 'tool-green' },
     Read: { icon: FileText, colorClass: 'tool-blue' },
     Edit: { icon: Pencil, colorClass: 'tool-orange' },
