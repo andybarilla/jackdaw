@@ -44,7 +44,7 @@ pub async fn preview_open(
         return Ok(url);
     }
 
-    // Create new webview
+    // add_child is on Window, not WebviewWindow — use get_window
     let window = app
         .get_window("main")
         .ok_or("Main window not found")?;
@@ -53,7 +53,6 @@ pub async fn preview_open(
     let emit_handle = app.clone();
 
     let builder = WebviewBuilder::new("preview", tauri::WebviewUrl::External(parsed_url))
-        .auto_resize()
         .on_navigation(move |nav_url| {
             let url_str = nav_url.to_string();
             let _ = emit_handle.emit("preview-navigation", &url_str);
@@ -71,6 +70,22 @@ pub async fn preview_open(
 
     *webview_lock = Some(webview);
     Ok(url)
+}
+
+#[tauri::command]
+pub fn preview_reposition(
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    state: tauri::State<'_, PreviewState>,
+) -> Result<(), String> {
+    let lock = state.webview.lock().unwrap();
+    if let Some(ref wv) = *lock {
+        let _ = wv.set_position(LogicalPosition::new(x, y));
+        let _ = wv.set_size(LogicalSize::new(width, height));
+    }
+    Ok(())
 }
 
 #[tauri::command]

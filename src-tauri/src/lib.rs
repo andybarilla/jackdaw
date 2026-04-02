@@ -699,6 +699,7 @@ pub fn run() {
             commands::get_custom_commands,
             commands::run_custom_command,
             preview::preview_open,
+            preview::preview_reposition,
             preview::preview_back,
             preview::preview_forward,
             preview::preview_close,

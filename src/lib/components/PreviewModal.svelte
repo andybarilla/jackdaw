@@ -76,8 +76,7 @@
     if (modalBody) {
       const observer = new ResizeObserver(() => {
         const rect = modalBody!.getBoundingClientRect();
-        invoke('preview_open', {
-          url: currentUrl,
+        invoke('preview_reposition', {
           x: rect.left,
           y: rect.top,
           width: rect.width,
