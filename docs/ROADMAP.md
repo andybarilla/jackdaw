@@ -2,15 +2,9 @@
 
 Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and Jackdaw's identity as a lightweight agent monitoring tray app.
 
-## High Priority
-
-### Monitoring Profiles
-Predefined configurations for which projects to watch, notification settings per project, and dashboard layout preferences. Equivalent to cmux's workspace layout templates.
-
-**Spec**: None yet
-
 ## Completed
 
+- **Monitoring Profiles** — per-project alert configuration via named profiles with directory associations
 - **Markdown File Preview** — rendered markdown preview modal for `.md` file paths in tool output
 - **Embedded Browser Preview** — clickable URLs in tool output open a native webview preview modal with navigation
 - **Cross-Tool Agent Support** — stable wire protocol and adapters for other agents (Codex, Aider, Gemini CLI, OpenCode)
