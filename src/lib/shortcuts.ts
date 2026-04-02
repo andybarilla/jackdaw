@@ -56,10 +56,32 @@ interface ShortcutStore {
   save(): Promise<void>;
 }
 
+const VALID_ACTIONS: Set<string> = new Set<string>([
+  'next-session', 'prev-session', 'new-session', 'dismiss-session',
+  'tab-active', 'tab-history', 'tab-settings', 'close-modal',
+]);
+
+function isValidBinding(b: unknown): b is ShortcutBinding {
+  if (!b || typeof b !== 'object') return false;
+  const obj = b as Record<string, unknown>;
+  return (
+    typeof obj.action === 'string' && VALID_ACTIONS.has(obj.action) &&
+    typeof obj.key === 'string' &&
+    typeof obj.ctrl === 'boolean' &&
+    typeof obj.shift === 'boolean' &&
+    typeof obj.alt === 'boolean' &&
+    typeof obj.meta === 'boolean'
+  );
+}
+
 export async function loadBindings(store: ShortcutStore): Promise<void> {
-  const saved = await store.get<ShortcutBinding[]>('shortcuts');
-  if (saved && saved.length > 0) {
-    activeBindings = saved.map((b) => ({ ...b }));
+  try {
+    const saved = await store.get<ShortcutBinding[]>('shortcuts');
+    if (saved && saved.length > 0 && saved.every(isValidBinding)) {
+      activeBindings = saved.map((b) => ({ ...b }));
+    }
+  } catch {
+    // Corrupted store data — keep defaults
   }
 }
 

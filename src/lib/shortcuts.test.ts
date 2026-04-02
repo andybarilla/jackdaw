@@ -223,6 +223,30 @@ describe('loadBindings', () => {
     await loadBindings(mockStore as any);
     expect(getBindings()).toEqual(getDefaultBindings());
   });
+
+  it('keeps defaults when store.get throws', async () => {
+    const mockStore = {
+      get: vi.fn().mockRejectedValue(new Error('corrupted JSON')),
+      set: vi.fn(),
+      save: vi.fn(),
+    };
+    await loadBindings(mockStore as any);
+    expect(getBindings()).toEqual(getDefaultBindings());
+  });
+
+  it('keeps defaults when store returns invalid binding data', async () => {
+    const invalid = [
+      { action: 'not-a-real-action', key: 'X', ctrl: true, shift: false, alt: false, meta: false },
+      { key: 'Y', ctrl: false, shift: false, alt: false, meta: false },
+    ];
+    const mockStore = {
+      get: vi.fn().mockResolvedValue(invalid),
+      set: vi.fn(),
+      save: vi.fn(),
+    };
+    await loadBindings(mockStore as any);
+    expect(getBindings()).toEqual(getDefaultBindings());
+  });
 });
 
 describe('saveBindings', () => {
