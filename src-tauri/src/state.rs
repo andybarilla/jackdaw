@@ -111,6 +111,8 @@ pub fn extract_summary(tool_name: &str, tool_input: &Option<serde_json::Value>) 
         }
         "file_search" | "content_search" | "Glob" | "Grep" => input.get("pattern")?.as_str(),
         "agent" | "Agent" => input.get("description")?.as_str(),
+        "web_fetch" | "WebFetch" => input.get("url")?.as_str(),
+        "web_search" | "WebSearch" => input.get("query")?.as_str(),
         _ => None,
     };
     value.map(|s| s.chars().take(120).collect())
@@ -773,6 +775,18 @@ mod tests {
     fn extract_summary_canonical_agent() {
         let input = serde_json::json!({"description": "search for foo"});
         assert_eq!(extract_summary("agent", &Some(input)), Some("search for foo".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_web_fetch() {
+        let input = serde_json::json!({"url": "https://example.com"});
+        assert_eq!(extract_summary("web_fetch", &Some(input)), Some("https://example.com".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_web_search() {
+        let input = serde_json::json!({"query": "rust async patterns"});
+        assert_eq!(extract_summary("web_search", &Some(input)), Some("rust async patterns".into()));
     }
 
     #[test]

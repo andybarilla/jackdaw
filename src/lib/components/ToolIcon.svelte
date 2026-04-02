@@ -7,6 +7,7 @@
     FolderSearch,
     Search,
     Bot,
+    Globe,
     Wrench,
   } from 'lucide-svelte';
 
@@ -26,6 +27,8 @@
     file_search: { icon: FolderSearch, colorClass: 'tool-purple' },
     content_search: { icon: Search, colorClass: 'tool-purple' },
     agent: { icon: Bot, colorClass: 'tool-cyan' },
+    web_fetch: { icon: Globe, colorClass: 'tool-blue' },
+    web_search: { icon: Globe, colorClass: 'tool-blue' },
     // Claude Code names (backwards compat)
     Bash: { icon: Terminal, colorClass: 'tool-green' },
     Read: { icon: FileText, colorClass: 'tool-blue' },
