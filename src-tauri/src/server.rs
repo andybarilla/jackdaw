@@ -217,6 +217,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                         }
                     }
                 }
+
             }
         }
 
@@ -376,26 +377,46 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
         let _ = state.subscriber_tx.send(json);
     }
 
-    // Resolve alert tier and fire appropriate channels
-    let resolved_tier = {
+    // Load profiles once for both profile_name assignment and alert resolution
+    let (matched_profile, store_for_alerts) = {
         use tauri_plugin_store::StoreExt;
+        let store = app_handle.store("settings.json").ok();
+        let profiles: Vec<crate::notify::MonitoringProfile> = store
+            .as_ref()
+            .and_then(|s| s.get("profiles"))
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
+        let profile = crate::notify::find_profile_for_cwd(&profiles, &cwd).cloned();
+        (profile, store)
+    };
 
+    // Set profile_name on session (for all sessions, not just when alerts fire)
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(&session_id) {
+            session.profile_name = matched_profile.as_ref().map(|p| p.name.clone());
+        }
+    }
+
+    // Resolve alert tier and fire appropriate channels
+    let (resolved_tier, profile_notification_command, profile_volume) = {
         let is_visible = app_handle
             .get_webview_window("main")
             .and_then(|w| w.is_visible().ok())
             .unwrap_or(false);
 
-        let prefs = app_handle
-            .store("settings.json")
-            .ok()
-            .and_then(|store| {
-                store.get("notifications").map(|v| {
-                    crate::notify::migrate_alert_prefs(v)
-                })
-            })
-            .unwrap_or_default();
+        let prefs = match &matched_profile {
+            Some(p) => p.alerts.clone(),
+            None => store_for_alerts
+                .as_ref()
+                .and_then(|s| s.get("notifications").map(crate::notify::migrate_alert_prefs))
+                .unwrap_or_default(),
+        };
 
-        crate::notify::resolve_alert_tier(&event_name, is_visible, &prefs)
+        let profile_cmd = matched_profile.as_ref().map(|p| p.notification_command.clone());
+        let profile_volume = matched_profile.as_ref().map(|p| p.alert_volume);
+
+        (crate::notify::resolve_alert_tier(&event_name, is_visible, &prefs), profile_cmd, profile_volume)
     };
 
     // Set alert_tier on the session for the frontend
@@ -409,6 +430,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(session) = sessions.get_mut(&session_id) {
             session.alert_tier = Some(tier_str.to_string());
+            session.alert_volume = profile_volume;
         }
         drop(sessions);
 
@@ -450,15 +472,19 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             crate::tray::start_tray_animation(app_handle, resolved_tier);
         }
 
-        // Notification command
+        // Notification command (profile override or global)
         {
             use tauri_plugin_store::StoreExt;
-            let notification_command = app_handle
-                .store("settings.json")
-                .ok()
-                .and_then(|store| store.get("notification_command"))
-                .and_then(|v| v.as_str().map(String::from))
-                .unwrap_or_default();
+            let notification_command = profile_notification_command
+                .filter(|c| !c.is_empty())
+                .unwrap_or_else(|| {
+                    app_handle
+                        .store("settings.json")
+                        .ok()
+                        .and_then(|store| store.get("notification_command"))
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_default()
+                });
 
             if !notification_command.is_empty() {
                 if let Some((title, body)) = crate::notify::notification_content(&event_name, &cwd) {
@@ -484,6 +510,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             let mut sessions = state_clone.sessions.lock().unwrap();
             if let Some(session) = sessions.get_mut(&sid_clone) {
                 session.alert_tier = None;
+                session.alert_volume = None;
             }
             let mut session_list: Vec<_> = sessions.values().cloned().collect();
             session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
@@ -567,6 +594,13 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
 #[cfg(test)]
 mod tests {
     use crate::db;
+
+    #[test]
+    fn session_has_profile_name_field() {
+        use crate::state::Session;
+        let session = Session::new("s1".into(), "/tmp".into());
+        assert_eq!(session.profile_name, None);
+    }
 
     #[test]
     fn rehydration_populates_new_session_from_db() {
@@ -819,6 +853,38 @@ mod tests {
         session.pending_approval = false;
 
         assert!(!session.pending_approval);
+    }
+
+    #[test]
+    fn resolve_alert_with_profile_override() {
+        use crate::notify::{AlertPrefs, AlertTier, MonitoringProfile, find_profile_for_cwd, resolve_alert_tier};
+
+        let profiles = vec![MonitoringProfile {
+            id: "p1".to_string(),
+            name: "Silent".to_string(),
+            directories: vec!["/home/user/quiet-project".to_string()],
+            alerts: AlertPrefs {
+                on_approval_needed: AlertTier::Off,
+                on_session_end: AlertTier::Off,
+                on_stop: AlertTier::Off,
+            },
+            alert_volume: 0,
+            notification_command: String::new(),
+        }];
+
+        let global_prefs = AlertPrefs::default();
+
+        // Session in quiet-project should use profile (all off)
+        let profile = find_profile_for_cwd(&profiles, "/home/user/quiet-project");
+        let prefs = profile.map(|p| &p.alerts).unwrap_or(&global_prefs);
+        let tier = resolve_alert_tier("Stop", false, prefs);
+        assert_eq!(tier, AlertTier::Off);
+
+        // Session in other project should use global defaults
+        let profile = find_profile_for_cwd(&profiles, "/home/user/other");
+        let prefs = profile.map(|p| &p.alerts).unwrap_or(&global_prefs);
+        let tier = resolve_alert_tier("Stop", false, prefs);
+        assert_eq!(tier, AlertTier::Medium);
     }
 
     #[test]

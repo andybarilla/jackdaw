@@ -42,7 +42,7 @@ class SessionStore {
   handleAlerts(sessions: Session[]): void {
     for (const session of sessions) {
       if (session.alert_tier && session.alert_tier !== 'off') {
-        playAlertSound(session.alert_tier, this.#alertVolume);
+        playAlertSound(session.alert_tier, session.alert_volume ?? this.#alertVolume);
         break; // Play only the highest-priority alert sound per update
       }
     }

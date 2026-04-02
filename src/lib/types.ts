@@ -1,5 +1,20 @@
 export type AlertTier = 'high' | 'medium' | 'low' | 'off';
 
+export interface AlertPrefs {
+  on_approval_needed: AlertTier;
+  on_session_end: AlertTier;
+  on_stop: AlertTier;
+}
+
+export interface MonitoringProfile {
+  id: string;
+  name: string;
+  directories: string[];
+  alerts: AlertPrefs;
+  alert_volume: number;
+  notification_command: string;
+}
+
 export interface ToolEvent {
   tool_name: string;
   timestamp: string; // ISO 8601 from Rust chrono
@@ -35,7 +50,9 @@ export interface Session {
   shell_pty_id: string | null;
   parent_session_id: string | null;
   alert_tier: AlertTier | null;
+  alert_volume: number | null;
   source_tool: string | null;
+  profile_name: string | null;
 }
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';
