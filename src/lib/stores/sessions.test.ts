@@ -37,6 +37,7 @@ describe('SessionStore', () => {
       shell_pty_id: null,
       parent_session_id: null,
       alert_tier: null,
+      alert_volume: null,
       source_tool: null,
       profile_name: null,
       ...overrides,

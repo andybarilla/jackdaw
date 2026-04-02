@@ -50,6 +50,7 @@ export interface Session {
   shell_pty_id: string | null;
   parent_session_id: string | null;
   alert_tier: AlertTier | null;
+  alert_volume: number | null;
   source_tool: string | null;
   profile_name: string | null;
 }

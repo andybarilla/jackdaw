@@ -64,6 +64,7 @@ pub struct Session {
     pub shell_pty_id: Option<String>,
     pub parent_session_id: Option<String>,
     pub alert_tier: Option<String>,
+    pub alert_volume: Option<u32>,
     pub source_tool: Option<String>,
     pub profile_name: Option<String>,
 }
@@ -242,6 +243,7 @@ impl Session {
             shell_pty_id: None,
             parent_session_id: None,
             alert_tier: None,
+            alert_volume: None,
             source_tool: None,
             profile_name: None,
         }

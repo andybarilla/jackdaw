@@ -393,7 +393,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
     }
 
     // Resolve alert tier and fire appropriate channels
-    let (resolved_tier, profile_notification_command) = {
+    let (resolved_tier, profile_notification_command, profile_volume) = {
         use tauri_plugin_store::StoreExt;
 
         let is_visible = app_handle
@@ -419,9 +419,10 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                 .unwrap_or_default(),
         };
 
-        let profile_cmd = profile.map(|p| p.notification_command.clone());
+        let profile_cmd = profile.as_ref().map(|p| p.notification_command.clone());
+        let profile_volume = profile.as_ref().map(|p| p.alert_volume);
 
-        (crate::notify::resolve_alert_tier(&event_name, is_visible, &prefs), profile_cmd)
+        (crate::notify::resolve_alert_tier(&event_name, is_visible, &prefs), profile_cmd, profile_volume)
     };
 
     // Set alert_tier on the session for the frontend
@@ -435,6 +436,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
         let mut sessions = state.sessions.lock().unwrap();
         if let Some(session) = sessions.get_mut(&session_id) {
             session.alert_tier = Some(tier_str.to_string());
+            session.alert_volume = profile_volume;
         }
         drop(sessions);
 
@@ -514,6 +516,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             let mut sessions = state_clone.sessions.lock().unwrap();
             if let Some(session) = sessions.get_mut(&sid_clone) {
                 session.alert_tier = None;
+                session.alert_volume = None;
             }
             let mut session_list: Vec<_> = sessions.values().cloned().collect();
             session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
