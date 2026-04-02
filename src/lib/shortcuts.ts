@@ -51,7 +51,7 @@ export function setBindings(bindings: ShortcutBinding[]): void {
 }
 
 interface ShortcutStore {
-  get<T>(key: string): Promise<T | null>;
+  get<T>(key: string): Promise<T | null | undefined>;
   set(key: string, value: unknown): void;
   save(): Promise<void>;
 }

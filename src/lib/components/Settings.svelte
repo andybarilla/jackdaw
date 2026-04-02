@@ -6,6 +6,8 @@
   import { updaterStore } from '$lib/stores/updater.svelte';
   import type { AlertPrefs, AlertTier, MonitoringProfile } from '$lib/types';
   import ProfileEditor from './ProfileEditor.svelte';
+  import ShortcutSettings from './ShortcutSettings.svelte';
+  import { loadBindings, saveBindings, type ShortcutBinding } from '$lib/shortcuts';
   import { sessionStore } from '$lib/stores/sessions.svelte';
 
   let alertPrefs = $state<AlertPrefs>({
@@ -82,6 +84,7 @@
       }
     }
     profiles = await invoke<MonitoringProfile[]>('get_profiles');
+    await loadBindings(store);
   });
 
   async function saveAlertPrefs() {
@@ -146,6 +149,12 @@
     await invoke('save_profiles', { profiles });
   }
 
+  async function saveShortcuts(bindings: ShortcutBinding[]) {
+    if (store) {
+      await saveBindings(store, bindings);
+    }
+  }
+
   async function toggleHttpApi() {
     httpApi.enabled = !httpApi.enabled;
     await saveHttpApi();
@@ -170,6 +179,8 @@
     <ProfileEditor {profile} onSave={saveProfile} onDelete={deleteProfile} />
   {/each}
   <button class="add-profile-btn" onclick={addProfile}>+ Add Profile</button>
+  <h3 class="settings-title">Keyboard Shortcuts</h3>
+  <ShortcutSettings onSave={saveShortcuts} />
   <h3 class="settings-title">Alerts</h3>
   <div class="alert-row">
     <span class="alert-label">Approval Needed</span>
