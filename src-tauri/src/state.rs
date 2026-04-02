@@ -72,6 +72,7 @@ pub struct ToolEvent {
     pub tool_name: String,
     pub timestamp: DateTime<Utc>,
     pub summary: Option<String>,
+    pub urls: Vec<String>,
     #[serde(skip_serializing)]
     pub tool_use_id: Option<String>,
 }
@@ -116,6 +117,62 @@ pub fn extract_summary(tool_name: &str, tool_input: &Option<serde_json::Value>) 
         _ => None,
     };
     value.map(|s| s.chars().take(120).collect())
+}
+
+/// Extract URLs from tool_input by walking all string values in the JSON.
+pub fn extract_urls(tool_input: &Option<serde_json::Value>) -> Vec<String> {
+    let Some(input) = tool_input else {
+        return Vec::new();
+    };
+
+    let mut urls = Vec::new();
+    collect_urls_from_value(input, &mut urls);
+
+    // Deduplicate while preserving order
+    let mut seen = std::collections::HashSet::new();
+    urls.retain(|url| seen.insert(url.clone()));
+    urls
+}
+
+fn collect_urls_from_value(value: &serde_json::Value, urls: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(s) => extract_urls_from_str(s, urls),
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                collect_urls_from_value(v, urls);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for v in map.values() {
+                collect_urls_from_value(v, urls);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn extract_urls_from_str(s: &str, urls: &mut Vec<String>) {
+    // Match http://, https://, and file:// URLs
+    let mut remaining = s;
+    while let Some(start) = remaining
+        .find("http://")
+        .or_else(|| remaining.find("https://"))
+        .or_else(|| remaining.find("file://"))
+    {
+        let url_start = &remaining[start..];
+        // URL ends at whitespace, quote, backtick, or end of string
+        let end = url_start
+            .find(|c: char| {
+                c.is_whitespace() || c == '"' || c == '\'' || c == '`' || c == '>' || c == ')' || c == ']'
+            })
+            .unwrap_or(url_start.len());
+        let url = &url_start[..end];
+        // Basic validation: must have at least scheme + something after ://
+        if url.len() > 8 {
+            urls.push(url.to_string());
+        }
+        remaining = &remaining[start + end..];
+    }
 }
 
 pub async fn resolve_git_branch(cwd: &str) -> Option<String> {
@@ -239,6 +296,7 @@ impl Session {
                 tool_name: event.tool_name.clone(),
                 timestamp: ts,
                 summary: event.summary.clone(),
+                urls: Vec::new(),
                 tool_use_id: None,
             });
         }
@@ -344,6 +402,7 @@ mod tests {
             tool_name: name.into(),
             timestamp: Utc::now(),
             summary: None,
+            urls: Vec::new(),
             tool_use_id: id.map(String::from),
         }
     }
@@ -793,6 +852,67 @@ mod tests {
     fn extract_summary_claude_code_names_still_work() {
         let input = serde_json::json!({"command": "echo hi"});
         assert_eq!(extract_summary("Bash", &Some(input)), Some("echo hi".into()));
+    }
+
+    #[test]
+    fn extract_urls_from_web_fetch() {
+        let input = Some(json!({"url": "https://example.com/page"}));
+        assert_eq!(extract_urls(&input), vec!["https://example.com/page"]);
+    }
+
+    #[test]
+    fn extract_urls_from_bash_command() {
+        let input = Some(json!({"command": "curl https://api.example.com/data"}));
+        assert_eq!(extract_urls(&input), vec!["https://api.example.com/data"]);
+    }
+
+    #[test]
+    fn extract_urls_from_nested_json() {
+        let input = Some(json!({
+            "content": "Check http://localhost:3000/dashboard for the result"
+        }));
+        assert_eq!(extract_urls(&input), vec!["http://localhost:3000/dashboard"]);
+    }
+
+    #[test]
+    fn extract_urls_multiple() {
+        let input = Some(json!({
+            "command": "curl https://a.com && curl https://b.com"
+        }));
+        let urls = extract_urls(&input);
+        assert_eq!(urls, vec!["https://a.com", "https://b.com"]);
+    }
+
+    #[test]
+    fn extract_urls_none_input() {
+        assert_eq!(extract_urls(&None), Vec::<String>::new());
+    }
+
+    #[test]
+    fn extract_urls_no_urls() {
+        let input = Some(json!({"command": "ls -la"}));
+        assert_eq!(extract_urls(&input), Vec::<String>::new());
+    }
+
+    #[test]
+    fn extract_urls_deduplicates() {
+        let input = Some(json!({
+            "url": "https://example.com",
+            "command": "fetch https://example.com"
+        }));
+        assert_eq!(extract_urls(&input), vec!["https://example.com"]);
+    }
+
+    #[test]
+    fn extract_urls_localhost_with_port() {
+        let input = Some(json!({"command": "open http://localhost:5173/page"}));
+        assert_eq!(extract_urls(&input), vec!["http://localhost:5173/page"]);
+    }
+
+    #[test]
+    fn extract_urls_filters_disallowed_schemes() {
+        let input = Some(json!({"command": "javascript:alert(1) https://safe.com"}));
+        assert_eq!(extract_urls(&input), vec!["https://safe.com"]);
     }
 
     #[test]

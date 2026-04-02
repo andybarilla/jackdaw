@@ -262,6 +262,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                     tool_name,
                     timestamp: Utc::now(),
                     summary,
+                    urls: Vec::new(),
                     tool_use_id: payload.tool_use_id,
                 };
 
@@ -285,6 +286,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                     tool_name: tool_name.clone(),
                     timestamp: now,
                     summary: summary.clone(),
+                    urls: Vec::new(),
                     tool_use_id: payload.tool_use_id.clone(),
                 };
 

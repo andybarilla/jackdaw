@@ -342,6 +342,7 @@ mod tests {
             tool_name: "Bash".into(),
             timestamp: Utc::now(),
             summary: None,
+            urls: Vec::new(),
             tool_use_id: None,
         });
         s
