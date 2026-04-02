@@ -8,23 +8,14 @@ export type ShortcutAction =
   | 'tab-settings'
   | 'close-modal';
 
-interface ShortcutBinding {
+export interface ShortcutBinding {
+  action: ShortcutAction;
   key: string;
   ctrl: boolean;
   shift: boolean;
-  action: ShortcutAction;
+  alt: boolean;
+  meta: boolean;
 }
-
-const BINDINGS: ShortcutBinding[] = [
-  { key: 'J', ctrl: true, shift: true, action: 'next-session' },
-  { key: 'K', ctrl: true, shift: true, action: 'prev-session' },
-  { key: 'N', ctrl: true, shift: true, action: 'new-session' },
-  { key: 'D', ctrl: true, shift: true, action: 'dismiss-session' },
-  // Shift+1/2/3 produce !/@ /# on US keyboards
-  { key: '!', ctrl: true, shift: true, action: 'tab-active' },
-  { key: '@', ctrl: true, shift: true, action: 'tab-history' },
-  { key: '#', ctrl: true, shift: true, action: 'tab-settings' },
-];
 
 export interface KeyEvent {
   key: string;
@@ -34,20 +25,90 @@ export interface KeyEvent {
   metaKey: boolean;
 }
 
+const DEFAULT_BINDINGS: ShortcutBinding[] = [
+  { action: 'next-session', key: 'J', ctrl: true, shift: true, alt: false, meta: false },
+  { action: 'prev-session', key: 'K', ctrl: true, shift: true, alt: false, meta: false },
+  { action: 'new-session', key: 'N', ctrl: true, shift: true, alt: false, meta: false },
+  { action: 'dismiss-session', key: 'D', ctrl: true, shift: true, alt: false, meta: false },
+  { action: 'tab-active', key: '!', ctrl: true, shift: true, alt: false, meta: false },
+  { action: 'tab-history', key: '@', ctrl: true, shift: true, alt: false, meta: false },
+  { action: 'tab-settings', key: '#', ctrl: true, shift: true, alt: false, meta: false },
+  { action: 'close-modal', key: 'Escape', ctrl: false, shift: false, alt: false, meta: false },
+];
+
+let activeBindings: ShortcutBinding[] = [...DEFAULT_BINDINGS];
+
+export function getDefaultBindings(): ShortcutBinding[] {
+  return DEFAULT_BINDINGS.map((b) => ({ ...b }));
+}
+
+export function getBindings(): ShortcutBinding[] {
+  return activeBindings.map((b) => ({ ...b }));
+}
+
+export function setBindings(bindings: ShortcutBinding[]): void {
+  activeBindings = bindings.map((b) => ({ ...b }));
+}
+
+interface ShortcutStore {
+  get<T>(key: string): Promise<T | null | undefined>;
+  set(key: string, value: unknown): void;
+  save(): Promise<void>;
+}
+
+const VALID_ACTIONS: Set<string> = new Set<string>([
+  'next-session', 'prev-session', 'new-session', 'dismiss-session',
+  'tab-active', 'tab-history', 'tab-settings', 'close-modal',
+]);
+
+function isValidBinding(b: unknown): b is ShortcutBinding {
+  if (!b || typeof b !== 'object') return false;
+  const obj = b as Record<string, unknown>;
+  return (
+    typeof obj.action === 'string' && VALID_ACTIONS.has(obj.action) &&
+    typeof obj.key === 'string' &&
+    typeof obj.ctrl === 'boolean' &&
+    typeof obj.shift === 'boolean' &&
+    typeof obj.alt === 'boolean' &&
+    typeof obj.meta === 'boolean'
+  );
+}
+
+export async function loadBindings(store: ShortcutStore): Promise<void> {
+  try {
+    const saved = await store.get<ShortcutBinding[]>('shortcuts');
+    if (saved && saved.length > 0 && saved.every(isValidBinding)) {
+      activeBindings = saved.map((b) => ({ ...b }));
+    }
+  } catch {
+    // Corrupted store data — keep defaults
+  }
+}
+
+export async function saveBindings(store: ShortcutStore, bindings: ShortcutBinding[]): Promise<void> {
+  activeBindings = bindings.map((b) => ({ ...b }));
+  store.set('shortcuts', bindings);
+  await store.save();
+}
+
+export function formatBinding(binding: ShortcutBinding): string {
+  const parts: string[] = [];
+  if (binding.ctrl) parts.push('Ctrl');
+  if (binding.shift) parts.push('Shift');
+  if (binding.alt) parts.push('Alt');
+  if (binding.meta) parts.push('Meta');
+  parts.push(binding.key);
+  return parts.join('+');
+}
+
 export function matchShortcut(event: KeyEvent): ShortcutAction | null {
-  if (event.key === 'Escape') {
-    return 'close-modal';
-  }
-
-  if (event.altKey || event.metaKey) {
-    return null;
-  }
-
-  for (const binding of BINDINGS) {
+  for (const binding of activeBindings) {
     if (
       event.key === binding.key &&
       event.ctrlKey === binding.ctrl &&
-      event.shiftKey === binding.shift
+      event.shiftKey === binding.shift &&
+      event.altKey === binding.alt &&
+      event.metaKey === binding.meta
     ) {
       return binding.action;
     }

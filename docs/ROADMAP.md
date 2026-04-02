@@ -4,6 +4,7 @@ Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and J
 
 ## Completed
 
+- **Keyboard Shortcuts Settings** — rebindable keyboard shortcuts with recording UI and persistence
 - **Monitoring Profiles** — per-project alert configuration via named profiles with directory associations
 - **Markdown File Preview** — rendered markdown preview modal for `.md` file paths in tool output
 - **Embedded Browser Preview** — clickable URLs in tool output open a native webview preview modal with navigation
