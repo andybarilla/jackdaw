@@ -8,6 +8,7 @@
   import NotificationPanel from './NotificationPanel.svelte';
   import AgentTree from './AgentTree.svelte';
   import PreviewModal from './PreviewModal.svelte';
+  import MarkdownPreview from './MarkdownPreview.svelte';
   import { sessionStore, initSessionListener } from '$lib/stores/sessions.svelte';
   import { notificationStore, initNotificationListener } from '$lib/stores/notifications.svelte';
   import { initUpdaterListener } from '$lib/stores/updater.svelte';
@@ -35,6 +36,7 @@
   let notificationPanelOpen = $state(false);
   let tabState = $state<Record<string, 'detail' | 'terminal' | 'tree'>>({});
   let previewUrl = $state<string | null>(null);
+  let previewFilePath = $state<string | null>(null);
 
   let selectedSession = $derived(
     sessionStore.sessions.find(s => s.session_id === selectedSessionId) ?? null
@@ -97,6 +99,14 @@
 
   function closePreview() {
     previewUrl = null;
+  }
+
+  function openPreviewFile(path: string) {
+    previewFilePath = path;
+  }
+
+  function closePreviewFile() {
+    previewFilePath = null;
   }
 
   function toggleNotificationPanel(): void {
@@ -294,7 +304,8 @@
         switchTab('settings');
         return;
       case 'close-modal':
-        if (previewUrl) closePreview();
+        if (previewFilePath) closePreviewFile();
+        else if (previewUrl) closePreview();
         else if (confirmCloseCount !== null) dismissConfirmClose();
         else if (showNewSessionMenu) closeNewSessionMenu();
         return;
@@ -353,6 +364,7 @@
                   onDismiss={handleDismiss}
                   onOpenShell={openShell}
                   onPreviewUrl={openPreview}
+                  onPreviewFile={openPreviewFile}
                 />
               {:else}
                 <div
@@ -363,7 +375,7 @@
                   tabindex="0"
                   onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectSession(item.session.session_id)}
                 >
-                  <SessionCard session={item.session} onDismiss={handleDismiss} onOpenShell={openShell} onPreviewUrl={openPreview} compact />
+                  <SessionCard session={item.session} onDismiss={handleDismiss} onOpenShell={openShell} onPreviewUrl={openPreview} onPreviewFile={openPreviewFile} compact />
                 </div>
                 {#if getChildrenByParent().has(item.session.session_id)}
                   {#each getChildrenByParent().get(item.session.session_id) ?? [] as child (child.session_id)}
@@ -375,7 +387,7 @@
                       tabindex="0"
                       onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && selectSession(child.session_id)}
                     >
-                      <SessionCard session={child} onDismiss={handleDismiss} onOpenShell={openShell} onPreviewUrl={openPreview} compact />
+                      <SessionCard session={child} onDismiss={handleDismiss} onOpenShell={openShell} onPreviewUrl={openPreview} onPreviewFile={openPreviewFile} compact />
                     </div>
                   {/each}
                 {/if}
@@ -434,6 +446,7 @@
                     summary: t.summary,
                     timestamp: t.timestamp,
                     urls: [],
+                    file_path: null,
                   })),
                   active_subagents: 0,
                   pending_approval: false,
@@ -446,7 +459,7 @@
                   parent_session_id: null,
                   alert_tier: null,
                   source_tool: null,
-                }} onDismiss={handleDismiss} onPreviewUrl={openPreview} historyMode={true} endedAt={session.ended_at} compact />
+                }} onDismiss={handleDismiss} onPreviewUrl={openPreview} onPreviewFile={openPreviewFile} historyMode={true} endedAt={session.ended_at} compact />
               </div>
             {/each}
             {#if historyHasMore}
@@ -504,7 +517,7 @@
           {/if}
           {#if !tabState[selectedSession.session_id] || tabState[selectedSession.session_id] === 'detail'}
             <div class="detail-view">
-              <SessionCard session={selectedSession} onDismiss={handleDismiss} onOpenShell={openShell} onPreviewUrl={openPreview} />
+              <SessionCard session={selectedSession} onDismiss={handleDismiss} onOpenShell={openShell} onPreviewUrl={openPreview} onPreviewFile={openPreviewFile} />
             </div>
           {:else if tabState[selectedSession.session_id] === 'tree'}
             <AgentTree
@@ -536,6 +549,7 @@
                 summary: t.summary,
                 timestamp: t.timestamp,
                 urls: [],
+                file_path: null,
               })),
               active_subagents: 0,
               pending_approval: false,
@@ -548,7 +562,7 @@
               parent_session_id: null,
               alert_tier: null,
               source_tool: null,
-            }} onDismiss={handleDismiss} onPreviewUrl={openPreview} historyMode={true} endedAt={selectedHistorySession.ended_at} />
+            }} onDismiss={handleDismiss} onPreviewUrl={openPreview} onPreviewFile={openPreviewFile} historyMode={true} endedAt={selectedHistorySession.ended_at} />
           </div>
         {:else}
           <div class="no-selection">
@@ -593,6 +607,10 @@
   <!-- Preview Modal -->
   {#if previewUrl}
     <PreviewModal url={previewUrl} onClose={closePreview} />
+  {/if}
+
+  {#if previewFilePath}
+    <MarkdownPreview filePath={previewFilePath} onClose={closePreviewFile} />
   {/if}
 
   <!-- Confirm Close Modal -->

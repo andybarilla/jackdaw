@@ -704,6 +704,7 @@ pub fn run() {
             preview::preview_forward,
             preview::preview_close,
             preview::preview_get_url,
+            preview::preview_read_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

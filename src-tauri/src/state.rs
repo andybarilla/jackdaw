@@ -73,6 +73,7 @@ pub struct ToolEvent {
     pub timestamp: DateTime<Utc>,
     pub summary: Option<String>,
     pub urls: Vec<String>,
+    pub file_path: Option<String>,
     #[serde(skip_serializing)]
     pub tool_use_id: Option<String>,
 }
@@ -172,6 +173,17 @@ fn extract_urls_from_str(s: &str, urls: &mut Vec<String>) {
             urls.push(url.to_string());
         }
         remaining = &remaining[start + end..];
+    }
+}
+
+/// Extract file_path from tool_input for file-based tools.
+pub fn extract_file_path(tool_name: &str, tool_input: &Option<serde_json::Value>) -> Option<String> {
+    let input = tool_input.as_ref()?;
+    match tool_name {
+        "file_edit" | "file_read" | "file_write" | "Edit" | "Read" | "Write" => {
+            input.get("file_path")?.as_str().map(|s| s.to_string())
+        }
+        _ => None,
     }
 }
 
@@ -297,6 +309,7 @@ impl Session {
                 timestamp: ts,
                 summary: event.summary.clone(),
                 urls: Vec::new(),
+                file_path: None,
                 tool_use_id: None,
             });
         }
@@ -386,6 +399,49 @@ mod tests {
     }
 
     #[test]
+    fn extract_file_path_read() {
+        let input = Some(json!({"file_path": "/home/user/docs/plan.md"}));
+        assert_eq!(extract_file_path("Read", &input), Some("/home/user/docs/plan.md".into()));
+    }
+
+    #[test]
+    fn extract_file_path_write() {
+        let input = Some(json!({"file_path": "/src/lib.rs"}));
+        assert_eq!(extract_file_path("Write", &input), Some("/src/lib.rs".into()));
+    }
+
+    #[test]
+    fn extract_file_path_edit() {
+        let input = Some(json!({"file_path": "/src/main.rs"}));
+        assert_eq!(extract_file_path("Edit", &input), Some("/src/main.rs".into()));
+    }
+
+    #[test]
+    fn extract_file_path_canonical_names() {
+        let input = Some(json!({"file_path": "/readme.md"}));
+        assert_eq!(extract_file_path("file_read", &input), Some("/readme.md".into()));
+        assert_eq!(extract_file_path("file_write", &input), Some("/readme.md".into()));
+        assert_eq!(extract_file_path("file_edit", &input), Some("/readme.md".into()));
+    }
+
+    #[test]
+    fn extract_file_path_non_file_tool() {
+        let input = Some(json!({"command": "ls"}));
+        assert_eq!(extract_file_path("Bash", &input), None);
+    }
+
+    #[test]
+    fn extract_file_path_none_input() {
+        assert_eq!(extract_file_path("Read", &None), None);
+    }
+
+    #[test]
+    fn extract_file_path_missing_field() {
+        let input = Some(json!({"other": "value"}));
+        assert_eq!(extract_file_path("Read", &input), None);
+    }
+
+    #[test]
     fn session_new_defaults() {
         let s = Session::new("sess-1".into(), "/home/test".into());
         assert_eq!(s.session_id, "sess-1");
@@ -403,6 +459,7 @@ mod tests {
             timestamp: Utc::now(),
             summary: None,
             urls: Vec::new(),
+            file_path: None,
             tool_use_id: id.map(String::from),
         }
     }

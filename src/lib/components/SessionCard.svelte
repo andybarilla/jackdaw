@@ -7,6 +7,7 @@
   import MetadataDisplay from './MetadataDisplay.svelte';
   import CommandBar from './CommandBar.svelte';
   import { displayToolName } from '$lib/tools';
+  import { isPreviewableFile } from '$lib/files';
 
   interface Props {
     session: Session;
@@ -16,9 +17,10 @@
     compact?: boolean;
     onOpenShell?: (sessionId: string) => void;
     onPreviewUrl?: (url: string) => void;
+    onPreviewFile?: (path: string) => void;
   }
 
-  let { session, onDismiss, historyMode = false, endedAt, compact = false, onOpenShell, onPreviewUrl }: Props = $props();
+  let { session, onDismiss, historyMode = false, endedAt, compact = false, onOpenShell, onPreviewUrl, onPreviewFile }: Props = $props();
 
   let expanded = $state(false);
 
@@ -83,6 +85,11 @@
   function handleUrlClick(event: MouseEvent, url: string): void {
     event.stopPropagation();
     onPreviewUrl?.(url);
+  }
+
+  function handleFileClick(event: MouseEvent, path: string) {
+    event.stopPropagation();
+    onPreviewFile?.(path);
   }
 
   async function toggleExpand(): Promise<void> {
@@ -174,6 +181,13 @@
               title={session.current_tool!.urls[0]}
             >&#x2197;</button>
           {/if}
+          {#if session.current_tool!.file_path && isPreviewableFile(session.current_tool!.file_path) && onPreviewFile}
+            <button
+              class="preview-btn"
+              onclick={(e) => handleFileClick(e, session.current_tool!.file_path!)}
+              title={session.current_tool!.file_path!}
+            >&#x2197;</button>
+          {/if}
         </div>
       {:else if lastTool}
         <div class="tool-display dimmed">
@@ -187,6 +201,13 @@
               class="preview-btn"
               onclick={(e) => handleUrlClick(e, lastTool.urls[0])}
               title={lastTool.urls[0]}
+            >&#x2197;</button>
+          {/if}
+          {#if lastTool.file_path && isPreviewableFile(lastTool.file_path) && onPreviewFile}
+            <button
+              class="preview-btn"
+              onclick={(e) => handleFileClick(e, lastTool.file_path!)}
+              title={lastTool.file_path!}
             >&#x2197;</button>
           {/if}
         </div>
@@ -229,6 +250,13 @@
                   class="preview-btn"
                   onclick={(e) => handleUrlClick(e, tool.urls[0])}
                   title={tool.urls[0]}
+                >&#x2197;</button>
+              {/if}
+              {#if tool.file_path && isPreviewableFile(tool.file_path) && onPreviewFile}
+                <button
+                  class="preview-btn"
+                  onclick={(e) => handleFileClick(e, tool.file_path!)}
+                  title={tool.file_path!}
                 >&#x2197;</button>
               {/if}
             </div>

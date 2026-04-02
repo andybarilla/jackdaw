@@ -125,9 +125,34 @@ pub fn preview_get_url(state: tauri::State<'_, PreviewState>) -> Result<Option<S
     }
 }
 
+#[tauri::command]
+pub fn preview_read_file(path: String) -> Result<String, String> {
+    let path = std::path::Path::new(&path);
+    if !path.is_file() {
+        return Err(format!("Not a file: {}", path.display()));
+    }
+    std::fs::read_to_string(path).map_err(|e| format!("Failed to read {}: {e}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_read_file_missing() {
+        let result = preview_read_file("/nonexistent/file.md".into());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn preview_read_file_reads_existing() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("jackdaw_test_preview.md");
+        std::fs::write(&path, "# Hello\nWorld").unwrap();
+        let result = preview_read_file(path.to_string_lossy().into());
+        assert_eq!(result.unwrap(), "# Hello\nWorld");
+        std::fs::remove_file(&path).unwrap();
+    }
 
     #[test]
     fn is_allowed_url_accepts_http() {

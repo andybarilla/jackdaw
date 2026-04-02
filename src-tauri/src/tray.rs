@@ -343,6 +343,7 @@ mod tests {
             timestamp: Utc::now(),
             summary: None,
             urls: Vec::new(),
+            file_path: None,
             tool_use_id: None,
         });
         s
