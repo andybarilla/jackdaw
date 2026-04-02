@@ -595,7 +595,7 @@ pub fn run() {
         .manage(app_state.clone())
         .manage(pty_manager)
         .manage(updater::UpdateState::new())
-        .manage(preview::PreviewState::new())
+        .manage(preview::PreviewState::default())
         .setup(move |app| {
             // Prune old notifications on startup
             {

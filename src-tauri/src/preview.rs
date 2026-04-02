@@ -6,8 +6,8 @@ pub struct PreviewState {
     webview: Mutex<Option<Webview>>,
 }
 
-impl PreviewState {
-    pub fn new() -> Self {
+impl Default for PreviewState {
+    fn default() -> Self {
         Self {
             webview: Mutex::new(None),
         }
