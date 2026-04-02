@@ -5,6 +5,7 @@ export interface ToolEvent {
   timestamp: string; // ISO 8601 from Rust chrono
   summary: string | null;
   urls: string[];
+  file_path: string | null;
 }
 
 export type MetadataValue =
