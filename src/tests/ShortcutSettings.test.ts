@@ -47,6 +47,33 @@ describe('ShortcutSettings', () => {
     expect(getByText('Ctrl+Shift+J')).toBeTruthy();
   });
 
+  it('captures a new binding via keydown in recording mode', async () => {
+    const onSave = vi.fn();
+    const { getByText } = render(ShortcutSettings, {
+      props: { onSave },
+    });
+    await fireEvent.click(getByText('Ctrl+Shift+J'));
+    await fireEvent.keyDown(window, { key: 'X', ctrlKey: true });
+    expect(getByText('Ctrl+X')).toBeTruthy();
+    expect(onSave).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ action: 'next-session', key: 'X', ctrl: true, shift: false })]),
+    );
+  });
+
+  it('resolves conflicts by unbinding the previous holder', async () => {
+    const onSave = vi.fn();
+    const { getByText } = render(ShortcutSettings, {
+      props: { onSave },
+    });
+    // Assign Escape (close-modal's default) to next-session
+    await fireEvent.click(getByText('Ctrl+Shift+J'));
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    // next-session should now show Escape
+    expect(getByText('Next Session').closest('.shortcut-row')!.textContent).toContain('Escape');
+    // close-modal should be unbound
+    expect(getByText('Unbound')).toBeTruthy();
+  });
+
   it('resets all bindings to defaults', async () => {
     const onSave = vi.fn();
     const custom: ShortcutBinding[] = getDefaultBindings().map((b) =>
