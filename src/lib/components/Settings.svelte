@@ -4,7 +4,8 @@
   import { invoke } from '@tauri-apps/api/core';
   import { getVersion } from '@tauri-apps/api/app';
   import { updaterStore } from '$lib/stores/updater.svelte';
-  import type { AlertTier } from '$lib/types';
+  import type { AlertTier, MonitoringProfile } from '$lib/types';
+  import ProfileEditor from './ProfileEditor.svelte';
   import { sessionStore } from '$lib/stores/sessions.svelte';
 
   interface AlertPrefs {
@@ -40,6 +41,7 @@
   });
   let httpApiToken = $state('');
   let httpApiChanged = $state(false);
+  let profiles = $state<MonitoringProfile[]>([]);
 
   onMount(async () => {
     store = await Store.load('settings.json');
@@ -85,6 +87,7 @@
         httpApiToken = '';
       }
     }
+    profiles = await invoke<MonitoringProfile[]>('get_profiles');
   });
 
   async function saveAlertPrefs() {
@@ -126,6 +129,29 @@
     }
   }
 
+  async function addProfile() {
+    const newProfile: MonitoringProfile = {
+      id: crypto.randomUUID(),
+      name: 'New Profile',
+      directories: [],
+      alerts: { ...alertPrefs },
+      alert_volume: alertVolume,
+      notification_command: notificationCommand,
+    };
+    profiles = [...profiles, newProfile];
+    await invoke('save_profiles', { profiles });
+  }
+
+  async function saveProfile(updated: MonitoringProfile) {
+    profiles = profiles.map((p) => (p.id === updated.id ? updated : p));
+    await invoke('save_profiles', { profiles });
+  }
+
+  async function deleteProfile(id: string) {
+    profiles = profiles.filter((p) => p.id !== id);
+    await invoke('save_profiles', { profiles });
+  }
+
   async function toggleHttpApi() {
     httpApi.enabled = !httpApi.enabled;
     await saveHttpApi();
@@ -144,6 +170,12 @@
 </script>
 
 <div class="settings">
+  <h3 class="settings-title">Monitoring Profiles</h3>
+  <p class="settings-hint">Per-project alert overrides. Unmatched sessions use the global settings below.</p>
+  {#each profiles as profile (profile.id)}
+    <ProfileEditor {profile} onSave={saveProfile} onDelete={deleteProfile} />
+  {/each}
+  <button class="add-profile-btn" onclick={addProfile}>+ Add Profile</button>
   <h3 class="settings-title">Alerts</h3>
   <div class="alert-row">
     <span class="alert-label">Approval Needed</span>
@@ -444,6 +476,28 @@
     color: var(--text-muted);
     min-width: 32px;
     text-align: right;
+  }
+
+  .settings-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin: 0 0 8px 0;
+  }
+
+  .add-profile-btn {
+    background: none;
+    border: 1px dashed var(--border);
+    color: var(--active);
+    border-radius: 4px;
+    padding: 8px;
+    width: 100%;
+    font-size: 12px;
+    cursor: pointer;
+    margin-bottom: 16px;
+  }
+
+  .add-profile-btn:hover {
+    border-color: var(--active);
   }
 
   .token-display {
