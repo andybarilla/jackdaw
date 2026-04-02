@@ -218,21 +218,6 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                     }
                 }
 
-                // Resolve monitoring profile for this session
-                {
-                    use tauri_plugin_store::StoreExt;
-                    let profiles: Vec<crate::notify::MonitoringProfile> = app_handle
-                        .store("settings.json")
-                        .ok()
-                        .and_then(|s| s.get("profiles"))
-                        .and_then(|v| serde_json::from_value(v).ok())
-                        .unwrap_or_default();
-                    if let Some(profile) = crate::notify::find_profile_for_cwd(&profiles, &cwd) {
-                        if let Some(session) = sessions.get_mut(&session_id) {
-                            session.profile_name = Some(profile.name.clone());
-                        }
-                    }
-                }
             }
         }
 
@@ -392,35 +377,44 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
         let _ = state.subscriber_tx.send(json);
     }
 
-    // Resolve alert tier and fire appropriate channels
-    let (resolved_tier, profile_notification_command, profile_volume) = {
+    // Load profiles once for both profile_name assignment and alert resolution
+    let (matched_profile, store_for_alerts) = {
         use tauri_plugin_store::StoreExt;
-
-        let is_visible = app_handle
-            .get_webview_window("main")
-            .and_then(|w| w.is_visible().ok())
-            .unwrap_or(false);
-
         let store = app_handle.store("settings.json").ok();
-
         let profiles: Vec<crate::notify::MonitoringProfile> = store
             .as_ref()
             .and_then(|s| s.get("profiles"))
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
+        let profile = crate::notify::find_profile_for_cwd(&profiles, &cwd).cloned();
+        (profile, store)
+    };
 
-        let profile = crate::notify::find_profile_for_cwd(&profiles, &cwd);
+    // Set profile_name on session (for all sessions, not just when alerts fire)
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        if let Some(session) = sessions.get_mut(&session_id) {
+            session.profile_name = matched_profile.as_ref().map(|p| p.name.clone());
+        }
+    }
 
-        let prefs = match &profile {
+    // Resolve alert tier and fire appropriate channels
+    let (resolved_tier, profile_notification_command, profile_volume) = {
+        let is_visible = app_handle
+            .get_webview_window("main")
+            .and_then(|w| w.is_visible().ok())
+            .unwrap_or(false);
+
+        let prefs = match &matched_profile {
             Some(p) => p.alerts.clone(),
-            None => store
+            None => store_for_alerts
                 .as_ref()
                 .and_then(|s| s.get("notifications").map(|v| crate::notify::migrate_alert_prefs(v)))
                 .unwrap_or_default(),
         };
 
-        let profile_cmd = profile.as_ref().map(|p| p.notification_command.clone());
-        let profile_volume = profile.as_ref().map(|p| p.alert_volume);
+        let profile_cmd = matched_profile.as_ref().map(|p| p.notification_command.clone());
+        let profile_volume = matched_profile.as_ref().map(|p| p.alert_volume);
 
         (crate::notify::resolve_alert_tier(&event_name, is_visible, &prefs), profile_cmd, profile_volume)
     };

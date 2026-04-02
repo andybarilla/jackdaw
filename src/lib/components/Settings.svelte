@@ -4,15 +4,9 @@
   import { invoke } from '@tauri-apps/api/core';
   import { getVersion } from '@tauri-apps/api/app';
   import { updaterStore } from '$lib/stores/updater.svelte';
-  import type { AlertTier, MonitoringProfile } from '$lib/types';
+  import type { AlertPrefs, AlertTier, MonitoringProfile } from '$lib/types';
   import ProfileEditor from './ProfileEditor.svelte';
   import { sessionStore } from '$lib/stores/sessions.svelte';
-
-  interface AlertPrefs {
-    on_approval_needed: AlertTier;
-    on_session_end: AlertTier;
-    on_stop: AlertTier;
-  }
 
   let alertPrefs = $state<AlertPrefs>({
     on_approval_needed: 'high',

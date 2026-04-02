@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { MonitoringProfile } from '$lib/types';
 
   let { profile, onSave, onDelete }: {
@@ -7,11 +8,11 @@
     onDelete: (id: string) => void;
   } = $props();
 
-  let name = $state(profile.name);
-  let directories = $state<string[]>([...profile.directories]);
-  let alerts = $state({ ...profile.alerts });
-  let alertVolume = $state(profile.alert_volume);
-  let notificationCommand = $state(profile.notification_command);
+  let name = $state(untrack(() => profile.name));
+  let directories = $state<string[]>(untrack(() => [...profile.directories]));
+  let alerts = $state(untrack(() => ({ ...profile.alerts })));
+  let alertVolume = $state(untrack(() => profile.alert_volume));
+  let notificationCommand = $state(untrack(() => profile.notification_command));
   let confirmingDelete = $state(false);
 
   function save() {
