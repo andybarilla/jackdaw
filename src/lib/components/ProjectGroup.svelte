@@ -10,9 +10,10 @@
     onSelect: (sessionId: string) => void;
     onDismiss: (sessionId: string) => void;
     onOpenShell?: (sessionId: string) => void;
+    onPreviewUrl?: (url: string) => void;
   }
 
-  let { cwd, sessions, selectedSessionId, onSelect, onDismiss, onOpenShell }: Props = $props();
+  let { cwd, sessions, selectedSessionId, onSelect, onDismiss, onOpenShell, onPreviewUrl }: Props = $props();
 
   let collapsed = $state(false);
 
@@ -58,7 +59,7 @@
           tabindex="0"
           onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(session.session_id)}
         >
-          <SessionCard {session} onDismiss={onDismiss} {onOpenShell} compact />
+          <SessionCard {session} onDismiss={onDismiss} {onOpenShell} {onPreviewUrl} compact />
         </div>
       {/each}
     </div>
