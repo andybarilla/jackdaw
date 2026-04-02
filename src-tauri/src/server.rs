@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::api::{self, Response};
-use crate::state::{extract_summary, AppState, HookPayload, Session, ToolEvent};
+use crate::state::{extract_summary, extract_urls, AppState, HookPayload, Session, ToolEvent};
 use chrono::Utc;
 
 use interprocess::local_socket::{
@@ -258,10 +258,12 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                     }
                 };
                 let summary = extract_summary(&tool_name, &payload.tool_input);
+                let urls = extract_urls(&payload.tool_input);
                 let tool_event = ToolEvent {
                     tool_name,
                     timestamp: Utc::now(),
                     summary,
+                    urls,
                     tool_use_id: payload.tool_use_id,
                 };
 
@@ -280,11 +282,13 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                     }
                 };
                 let summary = extract_summary(&tool_name, &payload.tool_input);
+                let urls = extract_urls(&payload.tool_input);
                 let now = Utc::now();
                 let tool_event = ToolEvent {
                     tool_name: tool_name.clone(),
                     timestamp: now,
                     summary: summary.clone(),
+                    urls,
                     tool_use_id: payload.tool_use_id.clone(),
                 };
 

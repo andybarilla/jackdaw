@@ -59,7 +59,7 @@ describe('SessionStore', () => {
 
   it('globalState is approval when any session has pending_approval', () => {
     sessionStore.sessions = [
-      makeSession({ session_id: 's1', current_tool: { tool_name: 'Bash', timestamp: '', summary: null } }),
+      makeSession({ session_id: 's1', current_tool: { tool_name: 'Bash', timestamp: '', summary: null, urls: [] } }),
       makeSession({ session_id: 's2', pending_approval: true }),
     ];
     expect(sessionStore.globalState).toBe('approval');
@@ -72,7 +72,7 @@ describe('SessionStore', () => {
 
   it('globalState is running when all sessions have tool/subagents/processing', () => {
     sessionStore.sessions = [
-      makeSession({ session_id: 's1', current_tool: { tool_name: 'Bash', timestamp: '', summary: null } }),
+      makeSession({ session_id: 's1', current_tool: { tool_name: 'Bash', timestamp: '', summary: null, urls: [] } }),
       makeSession({ session_id: 's2', active_subagents: 1 }),
     ];
     expect(sessionStore.globalState).toBe('running');
@@ -94,7 +94,7 @@ describe('SessionStore', () => {
   it('globalState input takes priority over running', () => {
     sessionStore.sessions = [
       makeSession({ session_id: 's1' }), // input state (no tool, no subagents, not processing)
-      makeSession({ session_id: 's2', current_tool: { tool_name: 'Bash', timestamp: '', summary: null } }), // running
+      makeSession({ session_id: 's2', current_tool: { tool_name: 'Bash', timestamp: '', summary: null, urls: [] } }), // running
     ];
     expect(sessionStore.globalState).toBe('input');
   });

@@ -5,6 +5,7 @@ mod hooks;
 pub mod notification;
 pub mod ipc;
 mod notify;
+pub mod preview;
 pub mod pty;
 pub mod send;
 mod server;
@@ -594,6 +595,7 @@ pub fn run() {
         .manage(app_state.clone())
         .manage(pty_manager)
         .manage(updater::UpdateState::new())
+        .manage(preview::PreviewState::default())
         .setup(move |app| {
             // Prune old notifications on startup
             {
@@ -696,6 +698,12 @@ pub fn run() {
             updater::set_auto_update,
             commands::get_custom_commands,
             commands::run_custom_command,
+            preview::preview_open,
+            preview::preview_reposition,
+            preview::preview_back,
+            preview::preview_forward,
+            preview::preview_close,
+            preview::preview_get_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

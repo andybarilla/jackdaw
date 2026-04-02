@@ -181,16 +181,16 @@ describe('computeToolVelocity', () => {
   });
 
   it('counts current tool in total', () => {
-    const current: ToolEvent = { tool_name: 'Bash', timestamp: '2026-03-31T11:59:00Z', summary: null };
+    const current: ToolEvent = { tool_name: 'Bash', timestamp: '2026-03-31T11:59:00Z', summary: null, urls: [] };
     expect(computeToolVelocity([], current, '2026-03-31T11:50:00Z').total).toBe(1);
   });
 
   it('calculates rate from tools in last 5 minutes', () => {
     const history: ToolEvent[] = [
-      { tool_name: 'Bash', timestamp: '2026-03-31T11:56:00Z', summary: null },
-      { tool_name: 'Read', timestamp: '2026-03-31T11:57:00Z', summary: null },
-      { tool_name: 'Edit', timestamp: '2026-03-31T11:58:00Z', summary: null },
-      { tool_name: 'Bash', timestamp: '2026-03-31T11:59:00Z', summary: null },
+      { tool_name: 'Bash', timestamp: '2026-03-31T11:56:00Z', summary: null, urls: [] },
+      { tool_name: 'Read', timestamp: '2026-03-31T11:57:00Z', summary: null, urls: [] },
+      { tool_name: 'Edit', timestamp: '2026-03-31T11:58:00Z', summary: null, urls: [] },
+      { tool_name: 'Bash', timestamp: '2026-03-31T11:59:00Z', summary: null, urls: [] },
     ];
     const result = computeToolVelocity(history, null, '2026-03-31T11:50:00Z');
     expect(result.total).toBe(4);
@@ -199,8 +199,8 @@ describe('computeToolVelocity', () => {
 
   it('excludes tools older than 5 minutes from rate', () => {
     const history: ToolEvent[] = [
-      { tool_name: 'Bash', timestamp: '2026-03-31T11:50:00Z', summary: null },
-      { tool_name: 'Read', timestamp: '2026-03-31T11:58:00Z', summary: null },
+      { tool_name: 'Bash', timestamp: '2026-03-31T11:50:00Z', summary: null, urls: [] },
+      { tool_name: 'Read', timestamp: '2026-03-31T11:58:00Z', summary: null, urls: [] },
     ];
     const result = computeToolVelocity(history, null, '2026-03-31T11:50:00Z');
     expect(result.total).toBe(2);
@@ -209,8 +209,8 @@ describe('computeToolVelocity', () => {
 
   it('uses session start time for rate window when session started less than 5 minutes ago', () => {
     const history: ToolEvent[] = [
-      { tool_name: 'Bash', timestamp: '2026-03-31T11:58:00Z', summary: null },
-      { tool_name: 'Read', timestamp: '2026-03-31T11:59:00Z', summary: null },
+      { tool_name: 'Bash', timestamp: '2026-03-31T11:58:00Z', summary: null, urls: [] },
+      { tool_name: 'Read', timestamp: '2026-03-31T11:59:00Z', summary: null, urls: [] },
     ];
     const result = computeToolVelocity(history, null, '2026-03-31T11:58:00Z');
     expect(result.total).toBe(2);

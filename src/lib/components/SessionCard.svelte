@@ -15,9 +15,10 @@
     endedAt?: string;
     compact?: boolean;
     onOpenShell?: (sessionId: string) => void;
+    onPreviewUrl?: (url: string) => void;
   }
 
-  let { session, onDismiss, historyMode = false, endedAt, compact = false, onOpenShell }: Props = $props();
+  let { session, onDismiss, historyMode = false, endedAt, compact = false, onOpenShell, onPreviewUrl }: Props = $props();
 
   let expanded = $state(false);
 
@@ -78,6 +79,11 @@
       );
     }
   });
+
+  function handleUrlClick(event: MouseEvent, url: string): void {
+    event.stopPropagation();
+    onPreviewUrl?.(url);
+  }
 
   async function toggleExpand(): Promise<void> {
     expanded = !expanded;
@@ -161,6 +167,13 @@
           {#if session.current_tool.summary}
             <span class="tool-summary">{session.current_tool.summary}</span>
           {/if}
+          {#if session.current_tool!.urls.length > 0 && onPreviewUrl}
+            <button
+              class="preview-btn"
+              onclick={(e) => handleUrlClick(e, session.current_tool!.urls[0])}
+              title={session.current_tool!.urls[0]}
+            >&#x2197;</button>
+          {/if}
         </div>
       {:else if lastTool}
         <div class="tool-display dimmed">
@@ -168,6 +181,13 @@
           <span class="tool-name">{displayToolName(lastTool.tool_name)}</span>
           {#if lastTool.summary}
             <span class="tool-summary">{lastTool.summary}</span>
+          {/if}
+          {#if lastTool.urls.length > 0 && onPreviewUrl}
+            <button
+              class="preview-btn"
+              onclick={(e) => handleUrlClick(e, lastTool.urls[0])}
+              title={lastTool.urls[0]}
+            >&#x2197;</button>
           {/if}
         </div>
       {:else}
@@ -203,6 +223,13 @@
               <span class="history-tool-name">{displayToolName(tool.tool_name)}</span>
               {#if tool.summary}
                 <span class="history-summary">{tool.summary}</span>
+              {/if}
+              {#if tool.urls.length > 0 && onPreviewUrl}
+                <button
+                  class="preview-btn"
+                  onclick={(e) => handleUrlClick(e, tool.urls[0])}
+                  title={tool.urls[0]}
+                >&#x2197;</button>
               {/if}
             </div>
           {/each}
@@ -430,6 +457,23 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+  }
+
+  .preview-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 0 4px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: inherit;
+    flex-shrink: 0;
+    margin-left: 4px;
+  }
+
+  .preview-btn:hover {
+    color: var(--active);
+    border-color: var(--active);
   }
 
   .state-label {

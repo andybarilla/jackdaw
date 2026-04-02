@@ -57,7 +57,7 @@ describe('TreeNode', () => {
 
   it('renders current tool', () => {
     const session = makeSession({
-      current_tool: { tool_name: 'Bash', timestamp: '2026-04-01T12:00:00Z', summary: 'npm test' },
+      current_tool: { tool_name: 'Bash', timestamp: '2026-04-01T12:00:00Z', summary: 'npm test', urls: [] },
     });
     render(TreeNode, {
       props: { session, onDismiss: noop, onSelect: noop, onOpenShell: noop },
