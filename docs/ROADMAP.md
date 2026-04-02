@@ -4,11 +4,6 @@ Inspired by [cmux](https://cmux.com/docs/getting-started) feature analysis and J
 
 ## High Priority
 
-### Markdown File Preview
-Clickable file paths in tool output (Read, Write, Edit) that point to `.md` files open a rendered markdown preview modal. Builds on the Embedded Browser Preview infrastructure — reuses the modal chrome but renders markdown locally instead of loading a URL in a webview.
-
-**Spec**: None yet
-
 ### Monitoring Profiles
 Predefined configurations for which projects to watch, notification settings per project, and dashboard layout preferences. Equivalent to cmux's workspace layout templates.
 
@@ -16,6 +11,7 @@ Predefined configurations for which projects to watch, notification settings per
 
 ## Completed
 
+- **Markdown File Preview** — rendered markdown preview modal for `.md` file paths in tool output
 - **Embedded Browser Preview** — clickable URLs in tool output open a native webview preview modal with navigation
 - **Cross-Tool Agent Support** — stable wire protocol and adapters for other agents (Codex, Aider, Gemini CLI, OpenCode)
 - **Configurable Sound/Visual Alerts** — per-event-type sounds, screen flash, icon animation with urgency tiers
