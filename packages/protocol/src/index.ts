@@ -1,2 +1,2 @@
-// Placeholder — populated in Task 2
-export {};
+export { normalizeToolName } from './tools';
+export type { HookPayload } from './types';
