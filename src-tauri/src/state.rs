@@ -104,11 +104,13 @@ impl AppState {
 pub fn extract_summary(tool_name: &str, tool_input: &Option<serde_json::Value>) -> Option<String> {
     let input = tool_input.as_ref()?;
     let value = match tool_name {
-        "Bash" => input.get("command")?.as_str(),
-        "Edit" | "Read" | "Write" => input.get("file_path")?.as_str(),
-        "Glob" => input.get("pattern")?.as_str(),
-        "Grep" => input.get("pattern")?.as_str(),
-        "Agent" => input.get("description")?.as_str(),
+        // Canonical names (from @jackdaw/protocol)
+        "shell" | "Bash" => input.get("command")?.as_str(),
+        "file_edit" | "file_read" | "file_write" | "Edit" | "Read" | "Write" => {
+            input.get("file_path")?.as_str()
+        }
+        "file_search" | "content_search" | "Glob" | "Grep" => input.get("pattern")?.as_str(),
+        "agent" | "Agent" => input.get("description")?.as_str(),
         _ => None,
     };
     value.map(|s| s.chars().take(120).collect())
@@ -729,6 +731,54 @@ mod tests {
         session.source_tool = Some("opencode".into());
         let json = serde_json::to_value(&session).unwrap();
         assert_eq!(json["source_tool"], "opencode");
+    }
+
+    #[test]
+    fn extract_summary_canonical_shell() {
+        let input = serde_json::json!({"command": "ls -la"});
+        assert_eq!(extract_summary("shell", &Some(input)), Some("ls -la".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_file_read() {
+        let input = serde_json::json!({"file_path": "/foo/bar.rs"});
+        assert_eq!(extract_summary("file_read", &Some(input)), Some("/foo/bar.rs".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_file_write() {
+        let input = serde_json::json!({"file_path": "/foo/out.txt"});
+        assert_eq!(extract_summary("file_write", &Some(input)), Some("/foo/out.txt".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_file_edit() {
+        let input = serde_json::json!({"file_path": "/foo/bar.rs"});
+        assert_eq!(extract_summary("file_edit", &Some(input)), Some("/foo/bar.rs".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_file_search() {
+        let input = serde_json::json!({"pattern": "**/*.rs"});
+        assert_eq!(extract_summary("file_search", &Some(input)), Some("**/*.rs".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_content_search() {
+        let input = serde_json::json!({"pattern": "fn main"});
+        assert_eq!(extract_summary("content_search", &Some(input)), Some("fn main".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_agent() {
+        let input = serde_json::json!({"description": "search for foo"});
+        assert_eq!(extract_summary("agent", &Some(input)), Some("search for foo".into()));
+    }
+
+    #[test]
+    fn extract_summary_claude_code_names_still_work() {
+        let input = serde_json::json!({"command": "echo hi"});
+        assert_eq!(extract_summary("Bash", &Some(input)), Some("echo hi".into()));
     }
 
     #[test]
