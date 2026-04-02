@@ -455,6 +455,42 @@ mod tests {
         assert!(result.is_none());
     }
 
+    #[test]
+    fn profiles_vec_serializes_to_json_array() {
+        let profiles = vec![
+            MonitoringProfile {
+                id: "p1".to_string(),
+                name: "Work".to_string(),
+                directories: vec!["/work".to_string()],
+                alerts: AlertPrefs::default(),
+                alert_volume: 80,
+                notification_command: String::new(),
+            },
+            MonitoringProfile {
+                id: "p2".to_string(),
+                name: "Personal".to_string(),
+                directories: vec!["/personal".to_string()],
+                alerts: AlertPrefs {
+                    on_approval_needed: AlertTier::Off,
+                    on_session_end: AlertTier::Off,
+                    on_stop: AlertTier::Off,
+                },
+                alert_volume: 0,
+                notification_command: "echo hi".to_string(),
+            },
+        ];
+        let json = serde_json::to_value(&profiles).unwrap();
+        let arr = json.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["name"], "Work");
+        assert_eq!(arr[1]["notification_command"], "echo hi");
+
+        // Roundtrip
+        let deserialized: Vec<MonitoringProfile> = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized.len(), 2);
+        assert_eq!(deserialized[0].id, "p1");
+    }
+
     #[tokio::test]
     async fn tilde_expansion() {
         let home = dirs::home_dir().unwrap();

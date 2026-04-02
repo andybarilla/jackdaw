@@ -571,6 +571,25 @@ fn get_api_token() -> Result<String, String> {
 }
 
 #[tauri::command]
+fn get_profiles(app: AppHandle) -> Vec<notify::MonitoringProfile> {
+    use tauri_plugin_store::StoreExt;
+    app.store("settings.json")
+        .ok()
+        .and_then(|store| store.get("profiles"))
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_profiles(profiles: Vec<notify::MonitoringProfile>, app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_store::StoreExt;
+    let store = app.store("settings.json").map_err(|e| e.to_string())?;
+    let value = serde_json::to_value(&profiles).map_err(|e| e.to_string())?;
+    store.set("profiles", value);
+    store.save().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn force_quit(app: AppHandle) {
     app.exit(0);
 }
@@ -693,6 +712,8 @@ pub fn run() {
             get_busy_session_count,
             force_quit,
             get_api_token,
+            get_profiles,
+            save_profiles,
             updater::check_for_update,
             updater::install_update,
             updater::set_auto_update,
