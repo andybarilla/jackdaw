@@ -43,6 +43,20 @@ impl Default for NotificationPrefs {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitoringProfile {
+    pub id: String,
+    pub name: String,
+    pub directories: Vec<String>,
+    pub alerts: AlertPrefs,
+    pub alert_volume: u32,
+    pub notification_command: String,
+}
+
+pub fn find_profile_for_cwd<'a>(profiles: &'a [MonitoringProfile], cwd: &str) -> Option<&'a MonitoringProfile> {
+    profiles.iter().find(|p| p.directories.iter().any(|d| d == cwd))
+}
+
 pub fn resolve_alert_tier(event_name: &str, is_visible: bool, prefs: &AlertPrefs) -> AlertTier {
     if is_visible {
         return AlertTier::Off;
@@ -367,6 +381,78 @@ mod tests {
         assert_eq!(prefs.on_approval_needed, AlertTier::High);
         assert_eq!(prefs.on_stop, AlertTier::Medium);
         assert_eq!(prefs.on_session_end, AlertTier::Low);
+    }
+
+    #[test]
+    fn monitoring_profile_serializes_roundtrip() {
+        let profile = MonitoringProfile {
+            id: "test-id".to_string(),
+            name: "Work".to_string(),
+            directories: vec!["/home/user/work".to_string()],
+            alerts: AlertPrefs::default(),
+            alert_volume: 80,
+            notification_command: String::new(),
+        };
+        let json = serde_json::to_value(&profile).unwrap();
+        let deserialized: MonitoringProfile = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized.id, "test-id");
+        assert_eq!(deserialized.name, "Work");
+        assert_eq!(deserialized.directories.len(), 1);
+        assert_eq!(deserialized.alert_volume, 80);
+    }
+
+    #[test]
+    fn find_profile_matches_exact_cwd() {
+        let profiles = vec![MonitoringProfile {
+            id: "p1".to_string(),
+            name: "Work".to_string(),
+            directories: vec!["/home/user/work".to_string(), "/home/user/work2".to_string()],
+            alerts: AlertPrefs {
+                on_approval_needed: AlertTier::Off,
+                on_session_end: AlertTier::Off,
+                on_stop: AlertTier::Off,
+            },
+            alert_volume: 50,
+            notification_command: String::new(),
+        }];
+        let result = find_profile_for_cwd(&profiles, "/home/user/work");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().name, "Work");
+    }
+
+    #[test]
+    fn find_profile_returns_none_for_unmatched_cwd() {
+        let profiles = vec![MonitoringProfile {
+            id: "p1".to_string(),
+            name: "Work".to_string(),
+            directories: vec!["/home/user/work".to_string()],
+            alerts: AlertPrefs::default(),
+            alert_volume: 80,
+            notification_command: String::new(),
+        }];
+        let result = find_profile_for_cwd(&profiles, "/home/user/personal");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn find_profile_no_partial_match() {
+        let profiles = vec![MonitoringProfile {
+            id: "p1".to_string(),
+            name: "Work".to_string(),
+            directories: vec!["/home/user/work".to_string()],
+            alerts: AlertPrefs::default(),
+            alert_volume: 80,
+            notification_command: String::new(),
+        }];
+        // Subdirectory should NOT match — exact only
+        let result = find_profile_for_cwd(&profiles, "/home/user/work/subdir");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn find_profile_empty_profiles_returns_none() {
+        let result = find_profile_for_cwd(&[], "/any/path");
+        assert!(result.is_none());
     }
 
     #[tokio::test]
