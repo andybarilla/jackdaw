@@ -155,6 +155,12 @@
     </div>
   {/if}
 
+  {#if session.profile_name}
+    <div class="metadata-row" data-testid="profile-badge">
+      <span class="profile-badge">{session.profile_name}</span>
+    </div>
+  {/if}
+
   {#if explicitProgress !== null}
     <div class="card-progress">
       <div
@@ -368,6 +374,14 @@
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+  }
+
+  .profile-badge {
+    font-size: 10px;
+    color: var(--active);
+    background: color-mix(in srgb, var(--active) 15%, transparent);
+    padding: 1px 6px;
+    border-radius: 3px;
   }
 
   /* Tool row */
