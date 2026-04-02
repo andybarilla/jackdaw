@@ -1,10 +1,12 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   matchShortcut,
   getBindings,
   getDefaultBindings,
   setBindings,
   formatBinding,
+  loadBindings,
+  saveBindings,
   type KeyEvent,
   type ShortcutBinding,
 } from './shortcuts';
@@ -179,5 +181,68 @@ describe('matchShortcut with alt/meta modifiers', () => {
     );
     setBindings(custom);
     expect(matchShortcut(key('N', { alt: true, ctrl: true }))).toBeNull();
+  });
+});
+
+describe('loadBindings', () => {
+  afterEach(() => {
+    setBindings(getDefaultBindings());
+  });
+
+  it('loads bindings from store', async () => {
+    const custom: ShortcutBinding[] = getDefaultBindings().map((b) =>
+      b.action === 'next-session' ? { ...b, key: 'Q', ctrl: true, shift: false, alt: false, meta: false } : b,
+    );
+    const mockStore = {
+      get: vi.fn().mockResolvedValue(custom),
+      set: vi.fn(),
+      save: vi.fn(),
+    };
+    await loadBindings(mockStore as any);
+    expect(mockStore.get).toHaveBeenCalledWith('shortcuts');
+    const found = getBindings().find((b) => b.action === 'next-session');
+    expect(found?.key).toBe('Q');
+  });
+
+  it('keeps defaults when store returns null', async () => {
+    const mockStore = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn(),
+      save: vi.fn(),
+    };
+    await loadBindings(mockStore as any);
+    expect(getBindings()).toEqual(getDefaultBindings());
+  });
+
+  it('keeps defaults when store returns empty array', async () => {
+    const mockStore = {
+      get: vi.fn().mockResolvedValue([]),
+      set: vi.fn(),
+      save: vi.fn(),
+    };
+    await loadBindings(mockStore as any);
+    expect(getBindings()).toEqual(getDefaultBindings());
+  });
+});
+
+describe('saveBindings', () => {
+  afterEach(() => {
+    setBindings(getDefaultBindings());
+  });
+
+  it('writes bindings to store and updates active bindings', async () => {
+    const custom: ShortcutBinding[] = getDefaultBindings().map((b) =>
+      b.action === 'dismiss-session' ? { ...b, key: 'W', ctrl: false, shift: false, alt: true, meta: false } : b,
+    );
+    const mockStore = {
+      get: vi.fn(),
+      set: vi.fn().mockResolvedValue(undefined),
+      save: vi.fn().mockResolvedValue(undefined),
+    };
+    await saveBindings(mockStore as any, custom);
+    expect(mockStore.set).toHaveBeenCalledWith('shortcuts', custom);
+    expect(mockStore.save).toHaveBeenCalled();
+    const found = getBindings().find((b) => b.action === 'dismiss-session');
+    expect(found?.key).toBe('W');
   });
 });

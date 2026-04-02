@@ -50,6 +50,25 @@ export function setBindings(bindings: ShortcutBinding[]): void {
   activeBindings = bindings.map((b) => ({ ...b }));
 }
 
+interface ShortcutStore {
+  get<T>(key: string): Promise<T | null>;
+  set(key: string, value: unknown): void;
+  save(): Promise<void>;
+}
+
+export async function loadBindings(store: ShortcutStore): Promise<void> {
+  const saved = await store.get<ShortcutBinding[]>('shortcuts');
+  if (saved && saved.length > 0) {
+    activeBindings = saved.map((b) => ({ ...b }));
+  }
+}
+
+export async function saveBindings(store: ShortcutStore, bindings: ShortcutBinding[]): Promise<void> {
+  activeBindings = bindings.map((b) => ({ ...b }));
+  store.set('shortcuts', bindings);
+  await store.save();
+}
+
 export function formatBinding(binding: ShortcutBinding): string {
   const parts: string[] = [];
   if (binding.ctrl) parts.push('Ctrl');
