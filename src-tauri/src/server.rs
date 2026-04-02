@@ -409,7 +409,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
             Some(p) => p.alerts.clone(),
             None => store_for_alerts
                 .as_ref()
-                .and_then(|s| s.get("notifications").map(|v| crate::notify::migrate_alert_prefs(v)))
+                .and_then(|s| s.get("notifications").map(crate::notify::migrate_alert_prefs))
                 .unwrap_or_default(),
         };
 
