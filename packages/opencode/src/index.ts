@@ -1,2 +1,2 @@
-// Placeholder — populated in Task 4
-export {};
+export { handleEvent, handleToolBefore, handleToolAfter } from './plugin';
+export { mapEventToPayloads, mapToolEvent } from './plugin';
