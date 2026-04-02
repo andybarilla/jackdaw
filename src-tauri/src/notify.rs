@@ -48,7 +48,7 @@ pub fn resolve_alert_tier(event_name: &str, is_visible: bool, prefs: &AlertPrefs
         return AlertTier::Off;
     }
     match event_name {
-        "Notification" => prefs.on_approval_needed,
+        "Notification" | "PermissionRequest" => prefs.on_approval_needed,
         "Stop" => prefs.on_stop,
         "SessionEnd" => prefs.on_session_end,
         _ => AlertTier::Off,
@@ -158,7 +158,7 @@ pub async fn run_notification_command(
 
 pub fn notification_content(event_name: &str, cwd: &str) -> Option<(&'static str, String)> {
     let (title, body) = match event_name {
-        "Notification" => ("Approval Needed", format!("Session in {} needs approval", cwd)),
+        "Notification" | "PermissionRequest" => ("Approval Needed", format!("Session in {} needs approval", cwd)),
         "Stop" => ("Waiting for Input", format!("Session in {} is waiting", cwd)),
         "SessionEnd" => ("Session Ended", format!("Session in {} has ended", cwd)),
         _ => return None,
