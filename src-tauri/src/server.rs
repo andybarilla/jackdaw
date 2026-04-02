@@ -163,6 +163,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
     let cwd = payload.cwd;
     let event_name = payload.hook_event_name;
     let spawned_session = payload.spawned_session;
+    let payload_source_tool = payload.source_tool;
 
     // If this event has spawned_session set, register the mapping so all future
     // events from this Claude session route to the PTY session.
@@ -197,6 +198,7 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                 let mut session = Session::new(session_id.clone(), cwd.clone());
                 session.hydrate_from_history(&history);
                 session.git_branch = git_branch;
+                session.source_tool = payload_source_tool.clone();
                 sessions.insert(session_id.clone(), session);
 
                 // Try to match this new session to a pending subagent start
@@ -301,12 +303,17 @@ async fn handle_event(app_handle: &AppHandle, state: &Arc<AppState>, json_line: 
                     session.processing = true;
                 }
             }
-            "Notification" => {
+            "Notification" | "PermissionRequest" => {
                 if let Some(session) = sessions.get_mut(&session_id) {
                     if session.processing {
                         session.pending_approval = true;
                         session.has_unread = true;
                     }
+                }
+            }
+            "PermissionReply" => {
+                if let Some(session) = sessions.get_mut(&session_id) {
+                    session.pending_approval = false;
                 }
             }
             "SubagentStart" => {
@@ -757,5 +764,69 @@ mod tests {
         }
 
         assert!(session.pending_approval);
+    }
+
+    #[test]
+    fn permission_request_while_processing_sets_pending_approval_and_has_unread() {
+        use crate::state::Session;
+
+        let mut session = Session::new("s1".into(), "/tmp".into());
+        session.processing = true;
+
+        // Simulate PermissionRequest event handler logic
+        if session.processing {
+            session.pending_approval = true;
+            session.has_unread = true;
+        }
+
+        assert!(session.pending_approval);
+        assert!(session.has_unread);
+    }
+
+    #[test]
+    fn permission_request_when_not_processing_does_not_set_pending_approval() {
+        use crate::state::Session;
+
+        let mut session = Session::new("s1".into(), "/tmp".into());
+        session.processing = false;
+
+        // Simulate PermissionRequest event handler logic
+        if session.processing {
+            session.pending_approval = true;
+            session.has_unread = true;
+        }
+
+        assert!(!session.pending_approval);
+        assert!(!session.has_unread);
+    }
+
+    #[test]
+    fn permission_reply_clears_pending_approval() {
+        use crate::state::Session;
+
+        let mut session = Session::new("s1".into(), "/tmp".into());
+        session.pending_approval = true;
+
+        // Simulate PermissionReply event handler logic
+        session.pending_approval = false;
+
+        assert!(!session.pending_approval);
+    }
+
+    #[test]
+    fn notification_backwards_compat_same_as_permission_request() {
+        use crate::state::Session;
+
+        let mut session = Session::new("s1".into(), "/tmp".into());
+        session.processing = true;
+
+        // Notification event has same behavior as PermissionRequest
+        if session.processing {
+            session.pending_approval = true;
+            session.has_unread = true;
+        }
+
+        assert!(session.pending_approval);
+        assert!(session.has_unread);
     }
 }

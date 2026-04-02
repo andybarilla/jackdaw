@@ -6,6 +6,7 @@
   import ToolIcon from './ToolIcon.svelte';
   import MetadataDisplay from './MetadataDisplay.svelte';
   import CommandBar from './CommandBar.svelte';
+  import { displayToolName } from '$lib/tools';
 
   interface Props {
     session: Session;
@@ -135,6 +136,12 @@
     </div>
   {/if}
 
+  {#if session.source_tool && session.source_tool !== 'claude-code'}
+    <div class="metadata-row">
+      <span class="source-label">{session.source_tool}</span>
+    </div>
+  {/if}
+
   {#if explicitProgress !== null}
     <div class="card-progress">
       <div
@@ -150,7 +157,7 @@
       {#if session.current_tool}
         <div class="tool-display" class:active={isActive && !isPending} class:attention={isPending}>
           <ToolIcon tool_name={session.current_tool.tool_name} size={12} />
-          <span class="tool-name">{session.current_tool.tool_name}</span>
+          <span class="tool-name">{displayToolName(session.current_tool.tool_name)}</span>
           {#if session.current_tool.summary}
             <span class="tool-summary">{session.current_tool.summary}</span>
           {/if}
@@ -158,7 +165,7 @@
       {:else if lastTool}
         <div class="tool-display dimmed">
           <ToolIcon tool_name={lastTool.tool_name} size={12} />
-          <span class="tool-name">{lastTool.tool_name}</span>
+          <span class="tool-name">{displayToolName(lastTool.tool_name)}</span>
           {#if lastTool.summary}
             <span class="tool-summary">{lastTool.summary}</span>
           {/if}
@@ -193,7 +200,7 @@
           {#each recentHistory as tool}
             <div class="history-item">
               <ToolIcon tool_name={tool.tool_name} size={11} />
-              <span class="history-tool-name">{tool.tool_name}</span>
+              <span class="history-tool-name">{displayToolName(tool.tool_name)}</span>
               {#if tool.summary}
                 <span class="history-summary">{tool.summary}</span>
               {/if}
@@ -299,6 +306,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .source-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 
   /* Tool row */

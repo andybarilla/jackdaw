@@ -20,6 +20,8 @@ pub struct HookPayload {
     pub tool_use_id: Option<String>,
     #[serde(default)]
     pub spawned_session: Option<String>,
+    #[serde(default)]
+    pub source_tool: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -62,6 +64,7 @@ pub struct Session {
     pub shell_pty_id: Option<String>,
     pub parent_session_id: Option<String>,
     pub alert_tier: Option<String>,
+    pub source_tool: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -101,11 +104,15 @@ impl AppState {
 pub fn extract_summary(tool_name: &str, tool_input: &Option<serde_json::Value>) -> Option<String> {
     let input = tool_input.as_ref()?;
     let value = match tool_name {
-        "Bash" => input.get("command")?.as_str(),
-        "Edit" | "Read" | "Write" => input.get("file_path")?.as_str(),
-        "Glob" => input.get("pattern")?.as_str(),
-        "Grep" => input.get("pattern")?.as_str(),
-        "Agent" => input.get("description")?.as_str(),
+        // Canonical names (from @jackdaw/protocol)
+        "shell" | "Bash" => input.get("command")?.as_str(),
+        "file_edit" | "file_read" | "file_write" | "Edit" | "Read" | "Write" => {
+            input.get("file_path")?.as_str()
+        }
+        "file_search" | "content_search" | "Glob" | "Grep" => input.get("pattern")?.as_str(),
+        "agent" | "Agent" => input.get("description")?.as_str(),
+        "web_fetch" | "WebFetch" => input.get("url")?.as_str(),
+        "web_search" | "WebSearch" => input.get("query")?.as_str(),
         _ => None,
     };
     value.map(|s| s.chars().take(120).collect())
@@ -165,6 +172,7 @@ impl Session {
             shell_pty_id: None,
             parent_session_id: None,
             alert_tier: None,
+            source_tool: None,
         }
     }
 
@@ -703,6 +711,88 @@ mod tests {
         let s = Session::new("s1".into(), "/tmp".into());
         let json = serde_json::to_value(&s).unwrap();
         assert!(json["alert_tier"].is_null());
+    }
+
+    #[test]
+    fn hook_payload_deserializes_source_tool() {
+        let json = r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart","source_tool":"opencode"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.source_tool.as_deref(), Some("opencode"));
+    }
+
+    #[test]
+    fn hook_payload_source_tool_defaults_to_none() {
+        let json = r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert!(payload.source_tool.is_none());
+    }
+
+    #[test]
+    fn session_serializes_source_tool() {
+        let mut session = Session::new("s1".into(), "/tmp".into());
+        session.source_tool = Some("opencode".into());
+        let json = serde_json::to_value(&session).unwrap();
+        assert_eq!(json["source_tool"], "opencode");
+    }
+
+    #[test]
+    fn extract_summary_canonical_shell() {
+        let input = serde_json::json!({"command": "ls -la"});
+        assert_eq!(extract_summary("shell", &Some(input)), Some("ls -la".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_file_read() {
+        let input = serde_json::json!({"file_path": "/foo/bar.rs"});
+        assert_eq!(extract_summary("file_read", &Some(input)), Some("/foo/bar.rs".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_file_write() {
+        let input = serde_json::json!({"file_path": "/foo/out.txt"});
+        assert_eq!(extract_summary("file_write", &Some(input)), Some("/foo/out.txt".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_file_edit() {
+        let input = serde_json::json!({"file_path": "/foo/bar.rs"});
+        assert_eq!(extract_summary("file_edit", &Some(input)), Some("/foo/bar.rs".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_file_search() {
+        let input = serde_json::json!({"pattern": "**/*.rs"});
+        assert_eq!(extract_summary("file_search", &Some(input)), Some("**/*.rs".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_content_search() {
+        let input = serde_json::json!({"pattern": "fn main"});
+        assert_eq!(extract_summary("content_search", &Some(input)), Some("fn main".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_agent() {
+        let input = serde_json::json!({"description": "search for foo"});
+        assert_eq!(extract_summary("agent", &Some(input)), Some("search for foo".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_web_fetch() {
+        let input = serde_json::json!({"url": "https://example.com"});
+        assert_eq!(extract_summary("web_fetch", &Some(input)), Some("https://example.com".into()));
+    }
+
+    #[test]
+    fn extract_summary_canonical_web_search() {
+        let input = serde_json::json!({"query": "rust async patterns"});
+        assert_eq!(extract_summary("web_search", &Some(input)), Some("rust async patterns".into()));
+    }
+
+    #[test]
+    fn extract_summary_claude_code_names_still_work() {
+        let input = serde_json::json!({"command": "echo hi"});
+        assert_eq!(extract_summary("Bash", &Some(input)), Some("echo hi".into()));
     }
 
     #[test]

@@ -33,6 +33,7 @@ export interface Session {
   shell_pty_id: string | null;
   parent_session_id: string | null;
   alert_tier: AlertTier | null;
+  source_tool: string | null;
 }
 
 export type HookStatus = 'not_installed' | 'installed' | 'outdated';
