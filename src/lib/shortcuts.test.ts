@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { matchShortcut, type KeyEvent } from './shortcuts';
+import { describe, it, expect, afterEach } from 'vitest';
+import {
+  matchShortcut,
+  getBindings,
+  getDefaultBindings,
+  setBindings,
+  formatBinding,
+  type KeyEvent,
+  type ShortcutBinding,
+} from './shortcuts';
 
 function key(
   k: string,
@@ -55,5 +63,121 @@ describe('matchShortcut', () => {
 
   it('returns null when Alt is also pressed', () => {
     expect(matchShortcut(key('J', { ctrl: true, shift: true, alt: true }))).toBeNull();
+  });
+});
+
+describe('getDefaultBindings', () => {
+  it('returns 8 default bindings', () => {
+    const defaults = getDefaultBindings();
+    expect(defaults).toHaveLength(8);
+  });
+
+  it('includes all actions', () => {
+    const actions = getDefaultBindings().map((b) => b.action);
+    expect(actions).toContain('next-session');
+    expect(actions).toContain('prev-session');
+    expect(actions).toContain('new-session');
+    expect(actions).toContain('dismiss-session');
+    expect(actions).toContain('tab-active');
+    expect(actions).toContain('tab-history');
+    expect(actions).toContain('tab-settings');
+    expect(actions).toContain('close-modal');
+  });
+
+  it('close-modal defaults to Escape with no modifiers', () => {
+    const escape = getDefaultBindings().find((b) => b.action === 'close-modal');
+    expect(escape).toEqual({
+      action: 'close-modal',
+      key: 'Escape',
+      ctrl: false,
+      shift: false,
+      alt: false,
+      meta: false,
+    });
+  });
+});
+
+describe('getBindings', () => {
+  it('returns defaults before any setBindings call', () => {
+    const bindings = getBindings();
+    expect(bindings).toEqual(getDefaultBindings());
+  });
+});
+
+describe('setBindings', () => {
+  afterEach(() => {
+    setBindings(getDefaultBindings());
+  });
+
+  it('updates active bindings used by matchShortcut', () => {
+    const custom: ShortcutBinding[] = getDefaultBindings().map((b) =>
+      b.action === 'next-session' ? { ...b, key: 'L', ctrl: false, shift: false, alt: true, meta: false } : b,
+    );
+    setBindings(custom);
+    expect(matchShortcut(key('L', { alt: true }))).toBe('next-session');
+    expect(matchShortcut(key('J', { ctrl: true, shift: true }))).toBeNull();
+  });
+
+  it('getBindings reflects the change', () => {
+    const custom: ShortcutBinding[] = getDefaultBindings().map((b) =>
+      b.action === 'dismiss-session' ? { ...b, key: 'X', ctrl: true, shift: false, alt: false, meta: false } : b,
+    );
+    setBindings(custom);
+    const found = getBindings().find((b) => b.action === 'dismiss-session');
+    expect(found?.key).toBe('X');
+  });
+});
+
+describe('formatBinding', () => {
+  it('formats Ctrl+Shift+J', () => {
+    expect(formatBinding({ action: 'next-session', key: 'J', ctrl: true, shift: true, alt: false, meta: false })).toBe(
+      'Ctrl+Shift+J',
+    );
+  });
+
+  it('formats Escape with no modifiers', () => {
+    expect(
+      formatBinding({ action: 'close-modal', key: 'Escape', ctrl: false, shift: false, alt: false, meta: false }),
+    ).toBe('Escape');
+  });
+
+  it('formats Alt+K', () => {
+    expect(
+      formatBinding({ action: 'next-session', key: 'K', ctrl: false, shift: false, alt: true, meta: false }),
+    ).toBe('Alt+K');
+  });
+
+  it('formats Meta+Ctrl+A', () => {
+    expect(
+      formatBinding({ action: 'next-session', key: 'A', ctrl: true, shift: false, alt: false, meta: true }),
+    ).toBe('Ctrl+Meta+A');
+  });
+
+  it('formats all modifiers', () => {
+    expect(formatBinding({ action: 'next-session', key: 'Z', ctrl: true, shift: true, alt: true, meta: true })).toBe(
+      'Ctrl+Shift+Alt+Meta+Z',
+    );
+  });
+});
+
+describe('matchShortcut with alt/meta modifiers', () => {
+  afterEach(() => {
+    setBindings(getDefaultBindings());
+  });
+
+  it('matches Alt binding', () => {
+    const custom: ShortcutBinding[] = getDefaultBindings().map((b) =>
+      b.action === 'next-session' ? { ...b, key: 'N', ctrl: false, shift: false, alt: true, meta: false } : b,
+    );
+    setBindings(custom);
+    expect(matchShortcut(key('N', { alt: true }))).toBe('next-session');
+  });
+
+  it('does not match when extra modifier pressed', () => {
+    const custom: ShortcutBinding[] = getDefaultBindings().map((b) =>
+      b.action === 'next-session' ? { ...b, key: 'N', ctrl: false, shift: false, alt: true, meta: false } : b,
+    );
+    setBindings(custom);
+    expect(matchShortcut(key('N', { alt: true, ctrl: true }))).toBeNull();
   });
 });
