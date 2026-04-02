@@ -20,6 +20,8 @@ pub struct HookPayload {
     pub tool_use_id: Option<String>,
     #[serde(default)]
     pub spawned_session: Option<String>,
+    #[serde(default)]
+    pub source_tool: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -62,6 +64,7 @@ pub struct Session {
     pub shell_pty_id: Option<String>,
     pub parent_session_id: Option<String>,
     pub alert_tier: Option<String>,
+    pub source_tool: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -165,6 +168,7 @@ impl Session {
             shell_pty_id: None,
             parent_session_id: None,
             alert_tier: None,
+            source_tool: None,
         }
     }
 
@@ -703,6 +707,28 @@ mod tests {
         let s = Session::new("s1".into(), "/tmp".into());
         let json = serde_json::to_value(&s).unwrap();
         assert!(json["alert_tier"].is_null());
+    }
+
+    #[test]
+    fn hook_payload_deserializes_source_tool() {
+        let json = r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart","source_tool":"opencode"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.source_tool.as_deref(), Some("opencode"));
+    }
+
+    #[test]
+    fn hook_payload_source_tool_defaults_to_none() {
+        let json = r#"{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart"}"#;
+        let payload: HookPayload = serde_json::from_str(json).unwrap();
+        assert!(payload.source_tool.is_none());
+    }
+
+    #[test]
+    fn session_serializes_source_tool() {
+        let mut session = Session::new("s1".into(), "/tmp".into());
+        session.source_tool = Some("opencode".into());
+        let json = serde_json::to_value(&session).unwrap();
+        assert_eq!(json["source_tool"], "opencode");
     }
 
     #[test]
