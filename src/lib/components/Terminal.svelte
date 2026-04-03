@@ -57,6 +57,11 @@
       unlistenExit = fn;
     });
 
+    // Signal the backend to start reading PTY output now that our listener
+    // is registered. This eliminates the race where output arrives before
+    // the listener is ready.
+    invoke('attach_terminal', { sessionId: ptyId });
+
     // Use ResizeObserver for both initial sizing and subsequent resizes.
     // The first callback fires once the container has resolved dimensions.
     const resizeObserver = new ResizeObserver((entries) => {
