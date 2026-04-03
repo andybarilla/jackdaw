@@ -54,5 +54,6 @@ git -C "$ROOT" commit -m "chore: bump version to $VERSION"
 git -C "$ROOT" tag "$TAG"
 
 echo ""
-echo "Created commit and tag $TAG"
-echo "Run 'git push && git push --tags' to publish"
+echo "Commit and tag $TAG"
+git push && git push --tags
+
