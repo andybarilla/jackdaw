@@ -4,6 +4,36 @@ set -e
 REPO="andybarilla/jackdaw"
 INSTALL_DIR="${JACKDAW_INSTALL_DIR:-$HOME/.local/bin}"
 
+install_from_deb() {
+    deb_url="$1"
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' EXIT
+
+    deb_file="$tmpdir/jackdaw.deb"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$deb_url" -o "$deb_file"
+    else
+        wget -qO "$deb_file" "$deb_url"
+    fi
+
+    # Extract binary from deb without installing system-wide
+    cd "$tmpdir"
+    ar x "$deb_file"
+    tar xf data.tar.* ./usr/bin/jackdaw 2>/dev/null || tar xf data.tar.* usr/bin/jackdaw
+
+    src="$tmpdir/usr/bin/jackdaw"
+    if [ ! -f "$src" ]; then
+        echo "Error: could not extract jackdaw binary from deb"
+        exit 1
+    fi
+
+    chmod +x "$src"
+    rm -f "$INSTALL_DIR/jackdaw"
+    mv "$src" "$INSTALL_DIR/jackdaw"
+    trap - EXIT
+    rm -rf "$tmpdir"
+}
+
 main() {
     os=$(uname -s | tr '[:upper:]' '[:lower:]')
     arch=$(uname -m)
@@ -37,7 +67,7 @@ main() {
     fi
 
     case "$os" in
-        linux)  artifact=$(echo "$assets" | grep -i '\.appimage$' | head -1) ;;
+        linux)  artifact=$(echo "$assets" | grep -i '\.deb$' | head -1) ;;
         darwin) artifact=$(echo "$assets" | grep -i '\.dmg$' | head -1) ;;
         *)      echo "Unsupported OS: $os"; exit 1 ;;
     esac
@@ -52,21 +82,28 @@ main() {
     echo "Installing Jackdaw $tag for $os/$arch..."
     mkdir -p "$INSTALL_DIR"
 
-    # Download to temp file and move into place to avoid ETXTBSY when
-    # overwriting a running binary
-    tmpfile=$(mktemp "$INSTALL_DIR/jackdaw.XXXXXX")
-    trap 'rm -f "$tmpfile"' EXIT
+    case "$os" in
+        linux)
+            install_from_deb "$url"
+            ;;
+        *)
+            # Download to temp file and move into place to avoid ETXTBSY when
+            # overwriting a running binary
+            tmpfile=$(mktemp "$INSTALL_DIR/jackdaw.XXXXXX")
+            trap 'rm -f "$tmpfile"' EXIT
 
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$url" -o "$tmpfile"
-    else
-        wget -qO "$tmpfile" "$url"
-    fi
+            if command -v curl >/dev/null 2>&1; then
+                curl -fsSL "$url" -o "$tmpfile"
+            else
+                wget -qO "$tmpfile" "$url"
+            fi
 
-    chmod +x "$tmpfile"
-    rm -f "$INSTALL_DIR/jackdaw"
-    mv "$tmpfile" "$INSTALL_DIR/jackdaw"
-    trap - EXIT
+            chmod +x "$tmpfile"
+            rm -f "$INSTALL_DIR/jackdaw"
+            mv "$tmpfile" "$INSTALL_DIR/jackdaw"
+            trap - EXIT
+            ;;
+    esac
 
     # Desktop entry (Linux only)
     if [ "$os" = "linux" ]; then
