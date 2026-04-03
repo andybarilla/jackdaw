@@ -60,6 +60,7 @@
     computeToolVelocity(session.tool_history, session.current_tool, session.started_at)
   );
 
+  // svelte-ignore state_referenced_locally
   let prevProcessing = $state(session.processing);
   let showCompletion = $state(false);
 

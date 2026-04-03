@@ -11,6 +11,7 @@
 
   let { url, onClose }: Props = $props();
 
+  // svelte-ignore state_referenced_locally
   let currentUrl = $state(url);
   let modalBody: HTMLDivElement | undefined = $state();
   let loading = $state(true);

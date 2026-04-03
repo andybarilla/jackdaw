@@ -586,6 +586,8 @@
   <!-- New Session Modal -->
   {#if showNewSessionMenu}
     <div class="modal-backdrop" onclick={closeNewSessionMenu} role="presentation">
+      <!-- svelte-ignore a11y_interactive_supports_focus -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
         <div class="modal-header">
           <span class="modal-title">New Session</span>
@@ -620,6 +622,8 @@
   <!-- Confirm Close Modal -->
   {#if confirmCloseCount !== null}
     <div class="modal-backdrop" onclick={dismissConfirmClose} role="presentation">
+      <!-- svelte-ignore a11y_interactive_supports_focus -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
         <div class="modal-header">
           <span class="modal-title">Active Sessions</span>
