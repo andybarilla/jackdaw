@@ -17,8 +17,20 @@ pub mod updater;
 use base64::Engine;
 use chrono::Utc;
 use state::{AppState, Session, SessionSource};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
+
+/// Stores PTY readers that haven't been attached to a frontend Terminal yet.
+/// The reader thread is deferred until the frontend calls `attach_terminal`,
+/// which ensures the event listener is registered before output starts flowing.
+struct PendingReader {
+    reader: Box<dyn std::io::Read + Send>,
+    /// If set, clear `shell_pty_id` on this session when the reader thread ends.
+    shell_parent_session_id: Option<String>,
+}
+
+struct PendingReaders(Mutex<HashMap<String, PendingReader>>);
 
 #[tauri::command]
 fn dismiss_session(
@@ -158,6 +170,7 @@ async fn spawn_terminal(
     app: AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+    pending: tauri::State<'_, PendingReaders>,
 ) -> Result<String, String> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let sid = session_id.clone();
@@ -199,44 +212,12 @@ async fn spawn_terminal(
     .await
     .map_err(|e| format!("spawn task failed: {}", e))??;
 
-    // Spawn background thread to read PTY output and emit events
-    let app_clone = app.clone();
-    let sid_for_reader = session_id.clone();
-    let pty_mgr_for_exit = pty_mgr.inner().clone();
-
-    std::thread::spawn(move || {
-        use std::io::Read;
-        let mut reader = reader;
-        let mut buf = [0u8; 4096];
-        let engine = base64::engine::general_purpose::STANDARD;
-
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let encoded = engine.encode(&buf[..n]);
-                    let _ = app_clone.emit(
-                        "terminal-output",
-                        serde_json::json!({
-                            "session_id": sid_for_reader,
-                            "data": encoded,
-                        }),
-                    );
-                }
-                Err(_) => break,
-            }
-        }
-
-        let exit_code = pty_mgr_for_exit.try_wait(&sid_for_reader).ok().flatten();
-
-        let _ = app_clone.emit(
-            "terminal-exited",
-            serde_json::json!({
-                "session_id": sid_for_reader,
-                "exit_code": exit_code,
-            }),
-        );
-    });
+    // Store reader for deferred attach — the frontend Terminal component
+    // calls attach_terminal after mounting its event listener.
+    pending.0.lock().unwrap().insert(
+        session_id.clone(),
+        PendingReader { reader, shell_parent_session_id: None },
+    );
 
     Ok(session_id)
 }
@@ -254,6 +235,7 @@ async fn resume_session(
     app: AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+    pending: tauri::State<'_, PendingReaders>,
 ) -> Result<ResumeResult, String> {
     let pty_id = uuid::Uuid::new_v4().to_string();
 
@@ -320,44 +302,11 @@ async fn resume_session(
         }
     };
 
-    // Spawn background reader thread (same pattern as spawn_terminal)
-    let app_clone = app.clone();
-    let pty_id_for_reader = pty_id.clone();
-    let pty_mgr_for_exit = pty_mgr.inner().clone();
-
-    std::thread::spawn(move || {
-        use std::io::Read;
-        let mut reader = reader;
-        let mut buf = [0u8; 4096];
-        let engine = base64::engine::general_purpose::STANDARD;
-
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let encoded = engine.encode(&buf[..n]);
-                    let _ = app_clone.emit(
-                        "terminal-output",
-                        serde_json::json!({
-                            "session_id": pty_id_for_reader,
-                            "data": encoded,
-                        }),
-                    );
-                }
-                Err(_) => break,
-            }
-        }
-
-        let exit_code = pty_mgr_for_exit.try_wait(&pty_id_for_reader).ok().flatten();
-
-        let _ = app_clone.emit(
-            "terminal-exited",
-            serde_json::json!({
-                "session_id": pty_id_for_reader,
-                "exit_code": exit_code,
-            }),
-        );
-    });
+    // Store reader for deferred attach
+    pending.0.lock().unwrap().insert(
+        pty_id.clone(),
+        PendingReader { reader, shell_parent_session_id: None },
+    );
 
     Ok(ResumeResult {
         pty_id,
@@ -408,12 +357,96 @@ fn close_terminal(
     Ok(())
 }
 
+/// Start reading PTY output and emitting `terminal-output` events.
+/// Called by the frontend Terminal component after it mounts and registers its
+/// event listener, eliminating the race where output arrives before the listener.
+#[tauri::command]
+fn attach_terminal(
+    session_id: String,
+    app: AppHandle,
+    pending: tauri::State<'_, PendingReaders>,
+    state: tauri::State<'_, Arc<AppState>>,
+    pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+) -> Result<(), String> {
+    let pending_reader = pending.0.lock().unwrap().remove(&session_id);
+    let Some(pending_reader) = pending_reader else {
+        return Ok(());
+    };
+
+    start_reader_thread(
+        pending_reader.reader,
+        session_id,
+        pending_reader.shell_parent_session_id,
+        app,
+        pty_mgr.inner().clone(),
+        state.inner().clone(),
+    );
+
+    Ok(())
+}
+
+/// Spawn a background thread that reads PTY output and emits Tauri events.
+fn start_reader_thread(
+    reader: Box<dyn std::io::Read + Send>,
+    session_id: String,
+    shell_parent_session_id: Option<String>,
+    app: AppHandle,
+    pty_mgr: Arc<pty::PtyManager>,
+    state: Arc<AppState>,
+) {
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut reader = reader;
+        let mut buf = [0u8; 4096];
+        let engine = base64::engine::general_purpose::STANDARD;
+
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let encoded = engine.encode(&buf[..n]);
+                    let _ = app.emit(
+                        "terminal-output",
+                        serde_json::json!({
+                            "session_id": session_id,
+                            "data": encoded,
+                        }),
+                    );
+                }
+                Err(_) => break,
+            }
+        }
+
+        let exit_code = pty_mgr.try_wait(&session_id).ok().flatten();
+
+        let _ = app.emit(
+            "terminal-exited",
+            serde_json::json!({
+                "session_id": session_id,
+                "exit_code": exit_code,
+            }),
+        );
+
+        if let Some(parent_id) = shell_parent_session_id {
+            let mut sessions = state.sessions.lock().unwrap();
+            if let Some(session) = sessions.get_mut(&parent_id) {
+                session.shell_pty_id = None;
+            }
+            let mut session_list: Vec<_> = sessions.values().cloned().collect();
+            session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+            let _ = app.emit("session-update", &session_list);
+            crate::tray::update_tray(&app, &session_list);
+        }
+    });
+}
+
 #[tauri::command]
 async fn open_session_shell(
     session_id: String,
     app: AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
     pty_mgr: tauri::State<'_, Arc<pty::PtyManager>>,
+    pending: tauri::State<'_, PendingReaders>,
 ) -> Result<String, String> {
     let cwd = {
         let sessions = state.sessions.lock().unwrap();
@@ -463,58 +496,14 @@ async fn open_session_shell(
         crate::tray::update_tray(&app, &session_list);
     }
 
-    // Spawn background thread to read PTY output and emit events
-    let app_clone = app.clone();
-    let pty_id_for_reader = pty_id.clone();
-    let session_id_for_cleanup = session_id.clone();
-    let state_for_cleanup = state.inner().clone();
-    let pty_mgr_for_exit = pty_mgr.inner().clone();
-
-    std::thread::spawn(move || {
-        use std::io::Read;
-        let mut reader = reader;
-        let mut buf = [0u8; 4096];
-        let engine = base64::engine::general_purpose::STANDARD;
-
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let encoded = engine.encode(&buf[..n]);
-                    let _ = app_clone.emit(
-                        "terminal-output",
-                        serde_json::json!({
-                            "session_id": pty_id_for_reader,
-                            "data": encoded,
-                        }),
-                    );
-                }
-                Err(_) => break,
-            }
-        }
-
-        let exit_code = pty_mgr_for_exit.try_wait(&pty_id_for_reader).ok().flatten();
-
-        let _ = app_clone.emit(
-            "terminal-exited",
-            serde_json::json!({
-                "session_id": pty_id_for_reader,
-                "exit_code": exit_code,
-            }),
-        );
-
-        // Clear shell_pty_id on the parent session
-        {
-            let mut sessions = state_for_cleanup.sessions.lock().unwrap();
-            if let Some(session) = sessions.get_mut(&session_id_for_cleanup) {
-                session.shell_pty_id = None;
-            }
-            let mut session_list: Vec<_> = sessions.values().cloned().collect();
-            session_list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
-            let _ = app_clone.emit("session-update", &session_list);
-            crate::tray::update_tray(&app_clone, &session_list);
-        }
-    });
+    // Store reader for deferred attach
+    pending.0.lock().unwrap().insert(
+        pty_id.clone(),
+        PendingReader {
+            reader,
+            shell_parent_session_id: Some(session_id.clone()),
+        },
+    );
 
     Ok(pty_id)
 }
@@ -613,6 +602,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(app_state.clone())
         .manage(pty_manager)
+        .manage(PendingReaders(Mutex::new(HashMap::new())))
         .manage(updater::UpdateState::new())
         .manage(preview::PreviewState::default())
         .setup(move |app| {
@@ -706,6 +696,7 @@ pub fn run() {
             write_terminal,
             resize_terminal,
             close_terminal,
+            attach_terminal,
             open_session_shell,
             close_session_shell,
             get_recent_cwds,
