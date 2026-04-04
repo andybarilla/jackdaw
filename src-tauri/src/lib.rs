@@ -579,6 +579,16 @@ fn save_profiles(profiles: Vec<notify::MonitoringProfile>, app: AppHandle) -> Re
 }
 
 #[tauri::command]
+async fn check_opencode_installed() -> Result<bool, String> {
+    let output = tokio::process::Command::new("npm")
+        .args(["ls", "-g", "--depth=0", "@jackdaw/opencode"])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run npm: {}", e))?;
+    Ok(output.status.success())
+}
+
+#[tauri::command]
 fn force_quit(app: AppHandle) {
     app.exit(0);
 }
@@ -659,6 +669,7 @@ pub fn run() {
         })
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -701,6 +712,7 @@ pub fn run() {
             close_session_shell,
             get_recent_cwds,
             get_busy_session_count,
+            check_opencode_installed,
             force_quit,
             get_api_token,
             get_profiles,

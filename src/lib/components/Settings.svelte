@@ -38,6 +38,8 @@
   let httpApiToken = $state('');
   let httpApiChanged = $state(false);
   let profiles = $state<MonitoringProfile[]>([]);
+  let opencodeInstalled = $state<boolean | null>(null);
+  let opencodeChecking = $state(false);
 
   onMount(async () => {
     store = await Store.load('settings.json');
@@ -85,6 +87,7 @@
     }
     profiles = await invoke<MonitoringProfile[]>('get_profiles');
     await loadBindings(store);
+    checkOpenCode();
   });
 
   async function saveAlertPrefs() {
@@ -158,6 +161,17 @@
   async function toggleHttpApi() {
     httpApi.enabled = !httpApi.enabled;
     await saveHttpApi();
+  }
+
+  async function checkOpenCode() {
+    opencodeChecking = true;
+    try {
+      opencodeInstalled = await invoke<boolean>('check_opencode_installed');
+    } catch {
+      opencodeInstalled = null;
+    } finally {
+      opencodeChecking = false;
+    }
   }
 
   async function checkForUpdates() {
@@ -309,6 +323,51 @@
   {#if httpApiChanged}
     <div class="warning">Restart Jackdaw for changes to take effect.</div>
   {/if}
+  <h3 class="settings-title">Integrations</h3>
+  <div class="integration-card">
+    <div class="integration-header">
+      <span class="integration-name">OpenCode</span>
+      {#if opencodeChecking}
+        <span class="integration-status status-checking">checking...</span>
+      {:else if opencodeInstalled}
+        <span class="integration-status status-installed">installed</span>
+      {:else}
+        <span class="integration-status status-not-installed">not installed</span>
+      {/if}
+    </div>
+    <p class="integration-desc">Monitor OpenCode sessions in Jackdaw.</p>
+    <div class="setup-steps">
+      <div class="setup-step">
+        <span class="step-number">1</span>
+        <div class="step-content">
+          <span class="step-label">Install the plugin globally:</span>
+          <div class="code-block">
+            <code>npm install -g @jackdaw/opencode</code>
+            <button class="copy-btn" onclick={() => navigator.clipboard.writeText('npm install -g @jackdaw/opencode')}>Copy</button>
+          </div>
+        </div>
+      </div>
+      <div class="setup-step">
+        <span class="step-number">2</span>
+        <div class="step-content">
+          <span class="step-label">Add to your OpenCode config (<code>opencode.json</code>):</span>
+          <div class="code-block">
+            <code>{`"plugins": ["@jackdaw/opencode"]`}</code>
+            <button class="copy-btn" onclick={() => navigator.clipboard.writeText('"plugins": ["@jackdaw/opencode"]')}>Copy</button>
+          </div>
+        </div>
+      </div>
+      <div class="setup-step">
+        <span class="step-number">3</span>
+        <div class="step-content">
+          <span class="step-label">Start an OpenCode session — it will appear in Jackdaw automatically.</span>
+        </div>
+      </div>
+    </div>
+    <button class="check-btn" onclick={checkOpenCode} disabled={opencodeChecking}>
+      {opencodeChecking ? 'Checking...' : 'Re-check'}
+    </button>
+  </div>
 </div>
 
 <style>
@@ -513,5 +572,111 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 6px 8px;
+  }
+
+  .integration-card {
+    border: 1px solid var(--border);
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+
+  .integration-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .integration-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .integration-status {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 2px;
+  }
+
+  .status-installed {
+    color: var(--state-running);
+    border: 1px solid var(--state-running);
+  }
+
+  .status-not-installed {
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+
+  .status-checking {
+    color: var(--text-muted);
+  }
+
+  .integration-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 0 0 12px 0;
+  }
+
+  .setup-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .setup-step {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .step-number {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .step-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .step-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .step-label code {
+    color: var(--text-primary);
+  }
+
+  .code-block {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--tool-bg);
+    border: 1px solid var(--border);
+    padding: 6px 8px;
+  }
+
+  .code-block code {
+    flex: 1;
+    font-size: 11px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>
