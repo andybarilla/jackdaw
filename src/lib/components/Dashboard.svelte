@@ -17,6 +17,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { shortenPath, getProjectName } from '$lib/utils';
+  import { open } from '@tauri-apps/plugin-dialog';
   import { matchShortcut } from '$lib/shortcuts';
   import ProjectGroup from './ProjectGroup.svelte';
   import { buildRenderList } from '$lib/grouping';
@@ -241,6 +242,13 @@
 
   function closeNewSessionMenu() {
     showNewSessionMenu = false;
+  }
+
+  async function browseDirectory() {
+    const selected = await open({ directory: true, multiple: false, title: 'Select project directory' });
+    if (selected) {
+      spawnSession(selected as string);
+    }
   }
 
   async function handleHistoryOpenTerminal(cwd: string) {
@@ -594,6 +602,9 @@
           <button class="modal-close" onclick={closeNewSessionMenu}>x</button>
         </div>
         <div class="modal-body">
+          <button class="browse-btn" onclick={browseDirectory}>
+            Browse...
+          </button>
           {#if recentCwds.length > 0}
             <div class="recent-label">Recent directories</div>
             {#each recentCwds as cwd}
@@ -873,6 +884,25 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     padding: 4px 8px;
+  }
+
+  .browse-btn {
+    width: 100%;
+    padding: 10px 12px;
+    background: none;
+    border: 1px dashed var(--border);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    text-align: center;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+    margin-bottom: 8px;
+  }
+
+  .browse-btn:hover {
+    background: var(--tool-bg);
+    color: var(--text-primary);
+    border-color: var(--text-muted);
   }
 
   .cwd-option {
