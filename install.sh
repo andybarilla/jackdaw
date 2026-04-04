@@ -16,22 +16,76 @@ install_from_deb() {
         wget -qO "$deb_file" "$deb_url"
     fi
 
-    # Extract binary from deb without installing system-wide
-    cd "$tmpdir"
-    ar x "$deb_file"
-    tar xf data.tar.* ./usr/bin/jackdaw 2>/dev/null || tar xf data.tar.* usr/bin/jackdaw
-
-    src="$tmpdir/usr/bin/jackdaw"
-    if [ ! -f "$src" ]; then
-        echo "Error: could not extract jackdaw binary from deb"
-        exit 1
-    fi
-
-    chmod +x "$src"
-    rm -f "$INSTALL_DIR/jackdaw"
-    mv "$src" "$INSTALL_DIR/jackdaw"
+    sudo dpkg -i "$deb_file"
     trap - EXIT
     rm -rf "$tmpdir"
+}
+
+install_from_rpm() {
+    rpm_url="$1"
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' EXIT
+
+    rpm_file="$tmpdir/jackdaw.rpm"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$rpm_url" -o "$rpm_file"
+    else
+        wget -qO "$rpm_file" "$rpm_url"
+    fi
+
+    sudo rpm -U "$rpm_file"
+    trap - EXIT
+    rm -rf "$tmpdir"
+}
+
+install_from_appimage() {
+    appimage_url="$1"
+    mkdir -p "$INSTALL_DIR"
+
+    tmpfile=$(mktemp "$INSTALL_DIR/jackdaw.XXXXXX")
+    trap 'rm -f "$tmpfile"' EXIT
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$appimage_url" -o "$tmpfile"
+    else
+        wget -qO "$tmpfile" "$appimage_url"
+    fi
+
+    chmod +x "$tmpfile"
+    rm -f "$INSTALL_DIR/jackdaw"
+    mv "$tmpfile" "$INSTALL_DIR/jackdaw"
+    trap - EXIT
+}
+
+install_desktop_entry() {
+    desktop_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    icon_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/128x128/apps"
+    mkdir -p "$desktop_dir" "$icon_dir"
+
+    icon_url="https://raw.githubusercontent.com/$REPO/$tag/src-tauri/icons/128x128.png"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$icon_url" -o "$icon_dir/jackdaw.png"
+    else
+        wget -qO "$icon_dir/jackdaw.png" "$icon_url"
+    fi
+
+    cat > "$desktop_dir/jackdaw.desktop" << DESKTOP
+[Desktop Entry]
+Name=Jackdaw
+Comment=Monitor Claude Code sessions
+Exec=$INSTALL_DIR/jackdaw
+Icon=jackdaw
+Type=Application
+Categories=Development;Utility;
+StartupNotify=true
+DESKTOP
+}
+
+cleanup_old_install() {
+    if [ -f "$HOME/.local/bin/jackdaw" ]; then
+        echo "Removing old install at ~/.local/bin/jackdaw"
+        rm -f "$HOME/.local/bin/jackdaw"
+    fi
 }
 
 main() {
@@ -59,36 +113,46 @@ main() {
         exit 1
     fi
 
-    # Determine artifact name from release assets
+    # Determine artifact names from release assets
     if command -v curl >/dev/null 2>&1; then
         assets=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"name"' | cut -d'"' -f4)
     else
         assets=$(wget -qO- "https://api.github.com/repos/$REPO/releases/latest" | grep '"name"' | cut -d'"' -f4)
     fi
 
-    case "$os" in
-        linux)  artifact=$(echo "$assets" | grep -i '\.deb$' | head -1) ;;
-        darwin) artifact=$(echo "$assets" | grep -i '\.dmg$' | head -1) ;;
-        *)      echo "Unsupported OS: $os"; exit 1 ;;
-    esac
-
-    if [ -z "$artifact" ]; then
-        echo "Error: no artifact found for $os/$arch"
-        exit 1
-    fi
-
-    url="https://github.com/$REPO/releases/download/$tag/$artifact"
-
     echo "Installing Jackdaw $tag for $os/$arch..."
-    mkdir -p "$INSTALL_DIR"
 
     case "$os" in
         linux)
-            install_from_deb "$url"
+            if command -v dpkg >/dev/null 2>&1; then
+                artifact=$(echo "$assets" | grep -i '\.deb$' | head -1)
+                url="https://github.com/$REPO/releases/download/$tag/$artifact"
+                install_from_deb "$url"
+                cleanup_old_install
+                echo "Installed Jackdaw $tag via deb package"
+            elif command -v rpm >/dev/null 2>&1; then
+                artifact=$(echo "$assets" | grep -i '\.rpm$' | head -1)
+                url="https://github.com/$REPO/releases/download/$tag/$artifact"
+                install_from_rpm "$url"
+                cleanup_old_install
+                echo "Installed Jackdaw $tag via rpm package"
+            else
+                artifact=$(echo "$assets" | grep -i '\.AppImage$' | head -1)
+                url="https://github.com/$REPO/releases/download/$tag/$artifact"
+                install_from_appimage "$url"
+                install_desktop_entry
+                echo "Installed Jackdaw $tag to $INSTALL_DIR/jackdaw"
+                case ":$PATH:" in
+                    *":$INSTALL_DIR:"*) ;;
+                    *) echo "Warning: $INSTALL_DIR is not in your PATH. Add it with:"
+                       echo "  export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
+                esac
+            fi
             ;;
-        *)
-            # Download to temp file and move into place to avoid ETXTBSY when
-            # overwriting a running binary
+        darwin)
+            artifact=$(echo "$assets" | grep -i '\.dmg$' | head -1)
+            url="https://github.com/$REPO/releases/download/$tag/$artifact"
+            mkdir -p "$INSTALL_DIR"
             tmpfile=$(mktemp "$INSTALL_DIR/jackdaw.XXXXXX")
             trap 'rm -f "$tmpfile"' EXIT
 
@@ -102,47 +166,19 @@ main() {
             rm -f "$INSTALL_DIR/jackdaw"
             mv "$tmpfile" "$INSTALL_DIR/jackdaw"
             trap - EXIT
+
+            echo "Installed Jackdaw $tag to $INSTALL_DIR/jackdaw"
+            case ":$PATH:" in
+                *":$INSTALL_DIR:"*) ;;
+                *) echo "Warning: $INSTALL_DIR is not in your PATH. Add it with:"
+                   echo "  export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
+            esac
+            ;;
+        *)
+            echo "Unsupported OS: $os"
+            exit 1
             ;;
     esac
-
-    # Desktop entry (Linux only)
-    if [ "$os" = "linux" ]; then
-        install_desktop_entry
-    fi
-
-    echo "Installed jackdaw to $INSTALL_DIR/jackdaw"
-
-    # Check PATH
-    case ":$PATH:" in
-        *":$INSTALL_DIR:"*) ;;
-        *) echo "Warning: $INSTALL_DIR is not in your PATH. Add it with:"
-           echo "  export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
-    esac
-}
-
-install_desktop_entry() {
-    desktop_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-    icon_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/128x128/apps"
-    mkdir -p "$desktop_dir" "$icon_dir"
-
-    icon_url="https://raw.githubusercontent.com/$REPO/$tag/src-tauri/icons/128x128.png"
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$icon_url" -o "$icon_dir/jackdaw.png"
-    else
-        wget -qO "$icon_dir/jackdaw.png" "$icon_url"
-    fi
-
-    cat > "$desktop_dir/jackdaw.desktop" << DESKTOP
-[Desktop Entry]
-Name=Jackdaw
-Comment=Monitor Claude Code sessions
-Exec=$INSTALL_DIR/jackdaw
-Icon=jackdaw
-Type=Application
-Categories=Development;Utility;
-StartupNotify=true
-DESKTOP
-    echo "Installed desktop entry to $desktop_dir/jackdaw.desktop"
 }
 
 main
