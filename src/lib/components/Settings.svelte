@@ -265,6 +265,8 @@
     </button>
     {#if updaterStore.isUpdateAvailable}
       <span class="update-available">v{updaterStore.availableVersion} available</span>
+    {:else if updaterStore.isUpToDate}
+      <span class="up-to-date">Up to date</span>
     {/if}
   </div>
   {#if appVersion}
@@ -457,6 +459,11 @@
   .update-available {
     font-size: 12px;
     color: var(--active);
+  }
+
+  .up-to-date {
+    font-size: 12px;
+    color: var(--state-running);
   }
 
   .version-info {
