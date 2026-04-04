@@ -120,9 +120,12 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
             }
             "settings" => {
-                // TODO: open settings window (v2)
+                show_and_focus(app);
+                let _ = app.emit("navigate-settings", ());
             }
             "check_updates" => {
+                show_and_focus(app);
+                let _ = app.emit("navigate-settings", ());
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
                     let updater = match handle.updater() {
@@ -145,6 +148,12 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                             *state.pending.lock().await = Some(update);
                         }
                         Ok(None) => {
+                            let info = crate::updater::UpdateInfo {
+                                available: false,
+                                version: None,
+                                body: None,
+                            };
+                            let _ = handle.emit("update-available", &info);
                             if let Some(tray) = handle.tray_by_id(TRAY_ID) {
                                 let _ = tray.set_tooltip(Some("Jackdaw — up to date"));
                             }

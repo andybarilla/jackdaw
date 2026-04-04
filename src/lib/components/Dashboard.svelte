@@ -81,16 +81,23 @@
     const cleanupUpdater = initUpdaterListener();
     const cleanupNotifications = initNotificationListener();
     let cleanupConfirmClose: (() => void) | undefined;
+    let cleanupNavigateSettings: (() => void) | undefined;
     listen<number>('confirm-close', (event) => {
       confirmCloseCount = event.payload;
     }).then((fn) => {
       cleanupConfirmClose = fn;
+    });
+    listen('navigate-settings', () => {
+      switchTab('settings');
+    }).then((fn) => {
+      cleanupNavigateSettings = fn;
     });
     return () => {
       cleanupSessions();
       cleanupUpdater();
       cleanupNotifications();
       cleanupConfirmClose?.();
+      cleanupNavigateSettings?.();
     };
   });
 

@@ -12,11 +12,13 @@ class UpdaterStore {
   isDownloading = $state(false);
   downloadedBytes = $state(0);
   totalBytes = $state<number | null>(null);
+  isUpToDate = $state(false);
 
   setUpdateAvailable(info: UpdateInfo): void {
     this.isUpdateAvailable = info.available;
     this.availableVersion = info.version;
     this.releaseNotes = info.body;
+    this.isUpToDate = !info.available;
   }
 
   startDownload(): void {
@@ -39,6 +41,7 @@ class UpdaterStore {
     this.isDownloading = false;
     this.downloadedBytes = 0;
     this.totalBytes = null;
+    this.isUpToDate = false;
   }
 }
 
