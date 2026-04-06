@@ -1,0 +1,24 @@
+{
+  "name": "jackdaw-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5",
+    "@xterm/addon-fit": "^0.10",
+    "@xterm/addon-web-links": "^0.11",
+    "@xterm/addon-webgl": "^0.18",
+    "@xterm/xterm": "^5",
+    "svelte": "^5",
+    "svelte-check": "^4",
+    "typescript": "^5",
+    "vite": "^6",
+    "vitest": "^3"
+  }
+}
