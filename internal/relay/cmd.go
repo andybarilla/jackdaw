@@ -16,6 +16,8 @@ func RunMain(args []string) {
 	command := fs.String("command", "", "Command to run")
 	cmdArgs := fs.String("args", "", "JSON-encoded command arguments")
 	bufSize := fs.Int("buffer", 1024*1024, "Scrollback buffer size in bytes")
+	historyPath := fs.String("history", "", "History file path")
+	historyMax := fs.Int64("history-max", 1048576, "Maximum history file size in bytes")
 
 	fs.Parse(args)
 
@@ -36,7 +38,7 @@ func RunMain(args []string) {
 		}
 	}
 
-	srv, err := NewServer(*sockPath, *workDir, *command, parsedArgs, *bufSize, "", 0)
+	srv, err := NewServer(*sockPath, *workDir, *command, parsedArgs, *bufSize, *historyPath, *historyMax)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "relay: %v\n", err)
 		os.Exit(1)
