@@ -64,6 +64,7 @@
     showNewDialog = false;
     const info = await CreateSession(workDir);
     activeSessionId = info.id;
+    requestAnimationFrame(() => terminalApis[info.id]?.focus());
   }
 
   async function handleKill(id: string) {
@@ -104,7 +105,10 @@
     <Sidebar
       {sessions}
       {activeSessionId}
-      onSelect={(id) => (activeSessionId = id)}
+      onSelect={(id) => {
+        activeSessionId = id;
+        requestAnimationFrame(() => terminalApis[id]?.focus());
+      }}
       onNew={() => (showNewDialog = true)}
       onKill={handleKill}
       onRename={handleRename}
