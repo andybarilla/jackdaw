@@ -10,7 +10,7 @@ import (
 
 func TestClientConnect(t *testing.T) {
 	sockPath := filepath.Join(t.TempDir(), "test.sock")
-	srv, err := NewServer(sockPath, "/tmp", "echo", []string{"client test"}, 4096)
+	srv, err := NewServer(sockPath, "/tmp", "echo", []string{"client test"}, 4096, "", 0)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestClientConnect(t *testing.T) {
 
 func TestClientWrite(t *testing.T) {
 	sockPath := filepath.Join(t.TempDir(), "test.sock")
-	srv, err := NewServer(sockPath, "/tmp", "cat", nil, 4096)
+	srv, err := NewServer(sockPath, "/tmp", "cat", nil, 4096, "", 0)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestClientWrite(t *testing.T) {
 
 func TestClientResize(t *testing.T) {
 	sockPath := filepath.Join(t.TempDir(), "test.sock")
-	srv, err := NewServer(sockPath, "/tmp", "cat", nil, 4096)
+	srv, err := NewServer(sockPath, "/tmp", "cat", nil, 4096, "", 0)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestClientConnectFailure(t *testing.T) {
 
 func TestClientReconnect(t *testing.T) {
 	sockPath := filepath.Join(t.TempDir(), "test.sock")
-	srv, err := NewServer(sockPath, "/tmp", "cat", nil, 4096)
+	srv, err := NewServer(sockPath, "/tmp", "cat", nil, 4096, "", 0)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

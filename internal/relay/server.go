@@ -1,26 +1,34 @@
 package relay
 
 import (
+	"bufio"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/creack/pty"
 )
 
 type Server struct {
-	sockPath string
-	cmd      *exec.Cmd
-	ptmx     *os.File
-	listener net.Listener
-	buffer   *RingBuffer
-	clients  map[net.Conn]struct{}
-	mu       sync.Mutex
-	done     chan struct{}
+	sockPath      string
+	cmd           *exec.Cmd
+	ptmx          *os.File
+	listener      net.Listener
+	buffer        *RingBuffer
+	clients       map[net.Conn]struct{}
+	mu            sync.Mutex
+	done          chan struct{}
+	historyFile   *os.File
+	historyWriter *bufio.Writer
+	historyBytes  int64
+	historyMax    int64
+	historyPath   string
 }
 
-func NewServer(sockPath string, workDir string, command string, args []string, bufferSize int) (*Server, error) {
+func NewServer(sockPath string, workDir string, command string, args []string, bufferSize int, historyPath string, historyMax int64) (*Server, error) {
 	cmd := exec.Command(command, args...)
 	cmd.Dir = workDir
 	cmd.Env = append(os.Environ(),
@@ -42,15 +50,33 @@ func NewServer(sockPath string, workDir string, command string, args []string, b
 		return nil, err
 	}
 
-	return &Server{
-		sockPath: sockPath,
-		cmd:      cmd,
-		ptmx:     ptmx,
-		listener: listener,
-		buffer:   NewRingBuffer(bufferSize),
-		clients:  make(map[net.Conn]struct{}),
-		done:     make(chan struct{}),
-	}, nil
+	s := &Server{
+		sockPath:    sockPath,
+		cmd:         cmd,
+		ptmx:        ptmx,
+		listener:    listener,
+		buffer:      NewRingBuffer(bufferSize),
+		clients:     make(map[net.Conn]struct{}),
+		done:        make(chan struct{}),
+		historyMax:  historyMax,
+		historyPath: historyPath,
+	}
+
+	if historyPath != "" {
+		f, err := os.OpenFile(historyPath, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0600)
+		if err != nil {
+			listener.Close()
+			ptmx.Close()
+			cmd.Process.Kill()
+			return nil, fmt.Errorf("open history file: %w", err)
+		}
+		info, _ := f.Stat()
+		s.historyFile = f
+		s.historyWriter = bufio.NewWriterSize(f, 32768)
+		s.historyBytes = info.Size()
+	}
+
+	return s, nil
 }
 
 func (s *Server) PID() int {
@@ -63,6 +89,7 @@ func (s *Server) PID() int {
 func (s *Server) Serve() {
 	go s.readPTY()
 	go s.waitProcess()
+	s.startHistoryFlusher()
 
 	for {
 		conn, err := s.listener.Accept()
@@ -91,11 +118,40 @@ func (s *Server) readPTY() {
 				WriteFrame(conn, FrameData, data)
 			}
 			s.mu.Unlock()
+			s.writeHistory(data)
 		}
 		if err != nil {
 			return
 		}
 	}
+}
+
+func (s *Server) writeHistory(data []byte) {
+	if s.historyWriter == nil {
+		return
+	}
+	s.historyWriter.Write(data)
+	s.historyBytes += int64(len(data))
+}
+
+func (s *Server) startHistoryFlusher() {
+	if s.historyWriter == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.mu.Lock()
+				s.historyWriter.Flush()
+				s.mu.Unlock()
+			case <-s.done:
+				return
+			}
+		}
+	}()
 }
 
 func (s *Server) waitProcess() {
@@ -157,6 +213,12 @@ func (s *Server) Close() error {
 	s.mu.Lock()
 	for conn := range s.clients {
 		conn.Close()
+	}
+	if s.historyWriter != nil {
+		s.historyWriter.Flush()
+	}
+	if s.historyFile != nil {
+		s.historyFile.Close()
 	}
 	s.mu.Unlock()
 	os.Remove(s.sockPath)

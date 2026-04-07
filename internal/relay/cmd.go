@@ -36,7 +36,7 @@ func RunMain(args []string) {
 		}
 	}
 
-	srv, err := NewServer(*sockPath, *workDir, *command, parsedArgs, *bufSize)
+	srv, err := NewServer(*sockPath, *workDir, *command, parsedArgs, *bufSize, "", 0)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "relay: %v\n", err)
 		os.Exit(1)
