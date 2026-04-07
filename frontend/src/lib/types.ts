@@ -5,6 +5,12 @@ export interface TerminalApi {
   focus: () => void;
 }
 
+export interface TerminalInfo {
+  id: string;
+  work_dir: string;
+  pid: number;
+}
+
 export interface SessionInfo {
   id: string;
   name: string;

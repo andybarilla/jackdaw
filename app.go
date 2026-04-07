@@ -8,13 +8,15 @@ import (
 
 	"github.com/andybarilla/jackdaw/internal/config"
 	"github.com/andybarilla/jackdaw/internal/session"
+	"github.com/andybarilla/jackdaw/internal/terminal"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type App struct {
-	ctx        context.Context
-	manager    *session.Manager
-	configPath string
+	ctx         context.Context
+	manager     *session.Manager
+	termManager *terminal.Manager
+	configPath  string
 }
 
 func NewApp() *App {
@@ -26,8 +28,9 @@ func NewApp() *App {
 	os.MkdirAll(socketDir, 0700)
 
 	return &App{
-		manager:    session.NewManager(manifestDir, socketDir),
-		configPath: filepath.Join(jackdawDir, "config.json"),
+		manager:     session.NewManager(manifestDir, socketDir),
+		termManager: terminal.NewManager(),
+		configPath:  filepath.Join(jackdawDir, "config.json"),
 	}
 }
 
@@ -53,25 +56,48 @@ func (a *App) Startup(ctx context.Context) {
 		if len(data) < 2 {
 			return
 		}
-		sessionID, _ := data[0].(string)
+		id, _ := data[0].(string)
 		input, _ := data[1].(string)
-		a.manager.WriteToSession(sessionID, []byte(input))
+		if err := a.manager.WriteToSession(id, []byte(input)); err != nil {
+			a.termManager.Write(id, []byte(input))
+		}
 	})
 
 	runtime.EventsOn(ctx, "terminal-resize", func(data ...interface{}) {
 		if len(data) < 3 {
 			return
 		}
-		sessionID, _ := data[0].(string)
+		id, _ := data[0].(string)
 		cols, _ := data[1].(float64)
 		rows, _ := data[2].(float64)
-		a.manager.ResizeSession(sessionID, uint16(cols), uint16(rows))
+		if err := a.manager.ResizeSession(id, uint16(cols), uint16(rows)); err != nil {
+			a.termManager.Resize(id, uint16(cols), uint16(rows))
+		}
 	})
 }
 
 func (a *App) Shutdown(ctx context.Context) {
 	// Sessions survive app shutdown — don't kill them.
 	// Manifests remain on disk for re-adoption on next launch.
+	a.termManager.CloseAll()
+}
+
+func (a *App) CreateTerminal(workDir string) (*terminal.TerminalInfo, error) {
+	workDir = expandHome(workDir)
+	info, err := a.termManager.Create(workDir)
+	if err != nil {
+		return nil, err
+	}
+
+	a.termManager.StartReadLoop(info.ID, func(data []byte) {
+		runtime.EventsEmit(a.ctx, "terminal-output-"+info.ID, string(data))
+	})
+
+	return info, nil
+}
+
+func (a *App) KillTerminal(id string) error {
+	return a.termManager.Kill(id)
 }
 
 func expandHome(path string) string {
