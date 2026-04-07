@@ -348,18 +348,12 @@
       return;
     }
 
-    // If focused pane is empty, assign session there
-    const content = getFocusedContent();
-    if (content === null) {
-      layoutTree = setLeafContent(layoutTree, asPath(focusedPath), {
-        type: "session",
-        sessionId: id,
-      });
-      requestAnimationFrame(() => terminalApis[id]?.focus());
-      return;
-    }
-
-    // Otherwise do nothing
+    // Assign session to the focused pane (replacing any existing content)
+    layoutTree = setLeafContent(layoutTree, asPath(focusedPath), {
+      type: "session",
+      sessionId: id,
+    });
+    requestAnimationFrame(() => terminalApis[id]?.focus());
   }
 
   async function handleQuickPick(
