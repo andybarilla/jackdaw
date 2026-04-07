@@ -21,6 +21,7 @@ export namespace session {
 	
 	export class SessionInfo {
 	    id: string;
+	    name: string;
 	    work_dir: string;
 	    command: string;
 	    status: string;
@@ -36,6 +37,7 @@ export namespace session {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
+	        this.name = source["name"];
 	        this.work_dir = source["work_dir"];
 	        this.command = source["command"];
 	        this.status = source["status"];

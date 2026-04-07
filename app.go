@@ -116,6 +116,10 @@ func (a *App) KillSession(id string) error {
 	return a.manager.Kill(id)
 }
 
+func (a *App) RenameSession(id string, name string) error {
+	return a.manager.Rename(id, name)
+}
+
 func (a *App) GetConfig() (*config.Config, error) {
 	return config.Load(a.configPath)
 }
