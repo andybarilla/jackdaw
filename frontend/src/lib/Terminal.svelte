@@ -26,12 +26,8 @@
   let cleanups: Array<() => void> = [];
 
   let opened = false;
-  let currentlyVisible = $state(false);
+  let currentlyVisible = false;
   let rafId: number | undefined;
-
-  $effect(() => {
-    currentlyVisible = visible;
-  });
 
   function fitAndRefresh(): void {
     fitAddon.fit();
@@ -39,6 +35,8 @@
   }
 
   $effect(() => {
+    currentlyVisible = visible;
+
     if (!visible || !terminal) {
       if (rafId !== undefined) {
         cancelAnimationFrame(rafId);
@@ -103,6 +101,9 @@
         rafId = requestAnimationFrame(() => {
           rafId = undefined;
           fitAndRefresh();
+          if (terminal.cols > 0 && terminal.rows > 0) {
+            EventsEmit("terminal-resize", sessionId, terminal.cols, terminal.rows);
+          }
         });
       });
     }
