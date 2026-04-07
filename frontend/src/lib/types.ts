@@ -1,5 +1,6 @@
 export interface SessionInfo {
   id: string;
+  name: string;
   work_dir: string;
   command: string;
   status: "running" | "stopped" | "exited";

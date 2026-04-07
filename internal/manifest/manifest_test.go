@@ -93,6 +93,49 @@ func TestRemoveManifest(t *testing.T) {
 	}
 }
 
+func TestWriteAndReadWithName(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manifest{
+		SessionID: "test-name",
+		PID:       12345,
+		Command:   "claude",
+		WorkDir:   "/home/user/project",
+		Name:      "my-project",
+		StartedAt: time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC),
+	}
+
+	path := filepath.Join(dir, "test-name.json")
+	if err := Write(path, m); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.Name != "my-project" {
+		t.Errorf("Name = %q, want %q", got.Name, "my-project")
+	}
+}
+
+func TestReadLegacyManifestWithoutName(t *testing.T) {
+	dir := t.TempDir()
+	// Simulate a legacy manifest JSON without a "name" field
+	legacy := `{"session_id":"old-1","pid":100,"command":"claude","work_dir":"/tmp/foo","started_at":"2026-04-06T12:00:00Z"}`
+	path := filepath.Join(dir, "old-1.json")
+	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.Name != "" {
+		t.Errorf("Name = %q, want empty for legacy manifest", got.Name)
+	}
+}
+
 func TestWriteAndReadWithSocketPath(t *testing.T) {
 	dir := t.TempDir()
 	m := &Manifest{

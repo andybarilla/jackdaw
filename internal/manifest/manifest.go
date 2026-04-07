@@ -11,13 +11,14 @@ import (
 )
 
 type Manifest struct {
-	SessionID string    `json:"session_id"`
-	PID       int       `json:"pid"`
-	Command   string    `json:"command"`
-	Args      []string  `json:"args"`
+	SessionID  string    `json:"session_id"`
+	PID        int       `json:"pid"`
+	Command    string    `json:"command"`
+	Args       []string  `json:"args"`
 	WorkDir    string    `json:"work_dir"`
 	SocketPath string    `json:"socket_path"`
 	StartedAt  time.Time `json:"started_at"`
+	Name       string    `json:"name,omitempty"`
 }
 
 func Write(path string, m *Manifest) error {

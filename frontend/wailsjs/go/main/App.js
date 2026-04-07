@@ -26,6 +26,10 @@ export function PickDirectory() {
   return window['go']['main']['App']['PickDirectory']();
 }
 
+export function RenameSession(arg1, arg2) {
+  return window['go']['main']['App']['RenameSession'](arg1, arg2);
+}
+
 export function SetConfig(arg1) {
   return window['go']['main']['App']['SetConfig'](arg1);
 }
