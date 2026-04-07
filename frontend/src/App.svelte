@@ -167,6 +167,20 @@
     }
   }
 
+  function collapsePane(path: number[]): void {
+    const paths = collectLeafPaths(layoutTree);
+    if (paths.length <= 1) {
+      layoutTree = emptyLeaf();
+      focusedPath = [];
+      return;
+    }
+
+    layoutTree = closeLeaf(layoutTree, asPath(path));
+    const newPaths = collectLeafPaths(layoutTree);
+    focusedPath = newPaths[0] ?? [];
+    focusTerminalAtPath(focusedPath);
+  }
+
   async function handleClosePane(): Promise<void> {
     const content = getFocusedContent();
     if (content) {
@@ -183,18 +197,7 @@
       delete terminalApis[id];
     }
 
-    const paths = collectLeafPaths(layoutTree);
-    if (paths.length <= 1) {
-      // Last pane — just clear its content
-      layoutTree = emptyLeaf();
-      focusedPath = [];
-      return;
-    }
-
-    layoutTree = closeLeaf(layoutTree, asPath(focusedPath));
-    const newPaths = collectLeafPaths(layoutTree);
-    focusedPath = newPaths[0] ?? [];
-    focusTerminalAtPath(focusedPath);
+    collapsePane(focusedPath);
   }
 
   // Reset search when focus changes
@@ -268,13 +271,13 @@
       const newSessions = (updated || []) as SessionInfo[];
       sessions = newSessions;
 
-      // Clear panes for exited sessions
+      // Collapse panes for exited sessions
       for (const s of newSessions) {
         if (s.status === "exited") {
           const path = findLeafBySessionId(layoutTree, s.id);
           if (path) {
             delete terminalApis[s.id];
-            layoutTree = setLeafContent(layoutTree, path, null);
+            collapsePane(path);
           }
         }
       }
@@ -286,7 +289,7 @@
       const path = findLeafByTerminalId(layoutTree, id);
       if (path) {
         delete terminalApis[id];
-        layoutTree = setLeafContent(layoutTree, path, null);
+        collapsePane(path);
       }
     });
     cleanups.push(cancelTermExit);
