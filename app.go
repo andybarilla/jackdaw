@@ -26,6 +26,9 @@ func NewApp() *App {
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// Recover sessions that survived a previous shutdown
+	a.manager.Recover()
+
 	a.manager.SetOnUpdate(func(sessions []session.SessionInfo) {
 		runtime.EventsEmit(ctx, "sessions-updated", sessions)
 	})

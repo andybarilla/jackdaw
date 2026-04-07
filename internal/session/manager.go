@@ -162,6 +162,40 @@ func (m *Manager) ListManifests() ([]*manifest.Manifest, error) {
 	return manifest.List(m.manifestDir)
 }
 
+func (m *Manager) Recover() []SessionInfo {
+	manifests, err := manifest.List(m.manifestDir)
+	if err != nil {
+		return nil
+	}
+
+	var recovered []SessionInfo
+	for _, mf := range manifests {
+		path := filepath.Join(m.manifestDir, mf.SessionID+".json")
+
+		if !manifest.IsProcessAlive(mf.PID) {
+			manifest.Remove(path)
+			continue
+		}
+
+		info := &SessionInfo{
+			ID:        mf.SessionID,
+			WorkDir:   mf.WorkDir,
+			Command:   mf.Command,
+			Status:    StatusRunning,
+			PID:       mf.PID,
+			StartedAt: mf.StartedAt,
+		}
+
+		m.mu.Lock()
+		m.sessionInfo[mf.SessionID] = info
+		m.mu.Unlock()
+
+		recovered = append(recovered, *info)
+	}
+
+	return recovered
+}
+
 func (m *Manager) notifyUpdate() {
 	m.mu.RLock()
 	fn := m.onUpdate
