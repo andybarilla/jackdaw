@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { SearchAddon } from "@xterm/addon-search";
+  import type { SearchAddon, ISearchDecorationOptions } from "@xterm/addon-search";
+  import { getTheme } from "./config.svelte";
 
   interface Props {
     searchAddon: SearchAddon;
@@ -25,10 +26,25 @@
     return () => cleanup?.dispose();
   });
 
+  function searchOptions(): { caseSensitive: boolean; regex: boolean; wholeWord: boolean; decorations: ISearchDecorationOptions } {
+    const theme = getTheme();
+    return {
+      caseSensitive,
+      regex,
+      wholeWord,
+      decorations: {
+        matchBackground: theme.colors.searchMatch,
+        activeMatchBackground: theme.colors.searchMatchActive,
+        activeMatchColorOverviewRuler: theme.colors.searchMatchActive,
+        matchOverviewRuler: theme.colors.searchMatch,
+      },
+    };
+  }
+
   $effect(() => {
     // Re-run search when options change
     if (query) {
-      searchAddon.findNext(query, { caseSensitive, regex, wholeWord, incremental: true });
+      searchAddon.findNext(query, { ...searchOptions(), incremental: true });
     }
   });
 
@@ -40,9 +56,9 @@
     } else if (event.key === "Enter") {
       event.preventDefault();
       if (event.shiftKey) {
-        searchAddon.findPrevious(query, { caseSensitive, regex, wholeWord });
+        searchAddon.findPrevious(query, searchOptions());
       } else {
-        searchAddon.findNext(query, { caseSensitive, regex, wholeWord });
+        searchAddon.findNext(query, searchOptions());
       }
     }
   }
@@ -93,8 +109,8 @@
     onclick={() => (regex = !regex)}
     title="Regex"
   >.*</button>
-  <button class="nav-btn" onclick={() => searchAddon.findPrevious(query, { caseSensitive, regex, wholeWord })} title="Previous (Shift+Enter)">&#x25B2;</button>
-  <button class="nav-btn" onclick={() => searchAddon.findNext(query, { caseSensitive, regex, wholeWord })} title="Next (Enter)">&#x25BC;</button>
+  <button class="nav-btn" onclick={() => searchAddon.findPrevious(query, searchOptions())} title="Previous (Shift+Enter)">&#x25B2;</button>
+  <button class="nav-btn" onclick={() => searchAddon.findNext(query, searchOptions())} title="Next (Enter)">&#x25BC;</button>
   <button class="close-btn" onclick={close} title="Close (Esc)">&times;</button>
 </div>
 
