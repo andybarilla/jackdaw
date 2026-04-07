@@ -13,6 +13,8 @@ export interface ThemeColors {
   error: string;
   border: string;
   selectionBackground: string;
+  searchMatch: string;
+  searchMatchActive: string;
 }
 
 export interface Theme {
@@ -37,6 +39,8 @@ const whattheflock: Theme = {
     error: "#f87171",
     border: "#222222",
     selectionBackground: "#ff2d7840",
+    searchMatch: "#ff2d7840",
+    searchMatchActive: "#ff2d78",
   },
 };
 
@@ -56,6 +60,8 @@ const dark: Theme = {
     error: "#f7768e",
     border: "#3b4261",
     selectionBackground: "#33467c",
+    searchMatch: "#7aa2f740",
+    searchMatchActive: "#7aa2f7",
   },
 };
 
@@ -75,6 +81,8 @@ const light: Theme = {
     error: "#dc2626",
     border: "#d4d4d4",
     selectionBackground: "#d923621a",
+    searchMatch: "#d9236240",
+    searchMatchActive: "#d92362",
   },
 };
 

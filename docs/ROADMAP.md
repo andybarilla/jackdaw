@@ -4,11 +4,9 @@
 
 - **Session re-attachment** — Relay subprocess per session holds the PTY and listens on a Unix socket; app reconnects on restart with scrollback replay
 - **Theming & keybindings** — Dark/light themes, customizable keyboard shortcuts, config persistence
+- **Session naming** — Inline rename in sidebar, persisted in manifests
 
 ## Up Next
-
-### Session Naming
-Let users rename sessions in the sidebar. Currently sessions display the directory basename, which is ambiguous when multiple sessions share the same working directory.
 
 ### Terminal Search
 Integrate xterm.js `SearchAddon` for find-in-terminal (Ctrl+Shift+F or configurable keybinding).
