@@ -4,7 +4,14 @@ export type Action =
   | "session.next"
   | "session.prev"
   | "app.toggleSidebar"
-  | "terminal.search";
+  | "terminal.search"
+  | "pane.splitVertical"
+  | "pane.splitHorizontal"
+  | "pane.close"
+  | "pane.focusUp"
+  | "pane.focusDown"
+  | "pane.focusLeft"
+  | "pane.focusRight";
 
 export interface ParsedBinding {
   key: string;
@@ -17,11 +24,18 @@ export type Keymap = Record<string, string>;
 
 export const DEFAULT_KEYMAP: Keymap = {
   "session.new": "Ctrl+Shift+N",
-  "session.kill": "Ctrl+Shift+W",
+  "session.kill": "Ctrl+Shift+K",
   "session.next": "Ctrl+Shift+]",
   "session.prev": "Ctrl+Shift+[",
   "app.toggleSidebar": "Ctrl+Shift+B",
   "terminal.search": "Ctrl+f",
+  "pane.splitVertical": "Ctrl+Shift+|",
+  "pane.splitHorizontal": "Ctrl+Shift+_",
+  "pane.close": "Ctrl+Shift+W",
+  "pane.focusUp": "Ctrl+Shift+ArrowUp",
+  "pane.focusDown": "Ctrl+Shift+ArrowDown",
+  "pane.focusLeft": "Ctrl+Shift+ArrowLeft",
+  "pane.focusRight": "Ctrl+Shift+ArrowRight",
 };
 
 export function parseBinding(binding: string): ParsedBinding {
