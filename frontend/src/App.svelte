@@ -2,10 +2,11 @@
   import { onMount, onDestroy } from "svelte";
   import { EventsOn } from "../wailsjs/runtime/runtime";
   import { CreateSession, ListSessions, KillSession, RenameSession } from "../wailsjs/go/main/App";
-  import type { SessionInfo } from "./lib/types";
+  import type { SessionInfo, TerminalApi } from "./lib/types";
   import Sidebar from "./lib/Sidebar.svelte";
   import Terminal from "./lib/Terminal.svelte";
   import NewSessionDialog from "./lib/NewSessionDialog.svelte";
+  import SearchBar from "./lib/SearchBar.svelte";
   import { getKeymap } from "./lib/config.svelte";
   import { matchKeybinding } from "./lib/keybindings";
 
@@ -13,6 +14,8 @@
   let activeSessionId = $state<string | null>(null);
   let showNewDialog = $state(false);
   let sidebarVisible = $state(true);
+  let searchVisible = $state(false);
+  let terminalApis = $state<Record<string, TerminalApi>>({});
   let cleanups: Array<() => void> = [];
 
   const actions: Record<string, () => void> = {
@@ -23,6 +26,9 @@
     "session.next": () => selectAdjacentSession(1),
     "session.prev": () => selectAdjacentSession(-1),
     "app.toggleSidebar": () => (sidebarVisible = !sidebarVisible),
+    "terminal.search": () => {
+      if (activeSessionId) searchVisible = !searchVisible;
+    },
   };
 
   function selectAdjacentSession(delta: number): void {
@@ -74,6 +80,21 @@
   let activeSession = $derived(
     sessions.find((s) => s.id === activeSessionId),
   );
+
+  $effect(() => {
+    if (searchVisible && activeSessionId) {
+      requestAnimationFrame(() => {
+        const input = document.querySelector<HTMLInputElement>(".search-bar input");
+        input?.focus();
+        input?.select();
+      });
+    }
+  });
+
+  $effect(() => {
+    void activeSessionId;
+    searchVisible = false;
+  });
 </script>
 
 <svelte:window onkeydown={handleGlobalKeydown} />
@@ -93,7 +114,20 @@
   <div class="content">
     {#each sessions as session (session.id)}
       <div class="terminal-wrapper" class:active={session.id === activeSessionId}>
-        <Terminal sessionId={session.id} visible={session.id === activeSessionId} />
+        <Terminal
+          sessionId={session.id}
+          visible={session.id === activeSessionId}
+          onReady={(api) => (terminalApis[session.id] = api)}
+        />
+        {#if searchVisible && session.id === activeSessionId && terminalApis[session.id]}
+          <SearchBar
+            searchAddon={terminalApis[session.id].searchAddon}
+            onClose={() => {
+              searchVisible = false;
+              terminalApis[session.id]?.focus();
+            }}
+          />
+        {/if}
       </div>
     {/each}
     {#if !activeSession}

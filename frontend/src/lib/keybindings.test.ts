@@ -13,6 +13,7 @@ describe("DEFAULT_KEYMAP", () => {
     expect(actions).toContain("session.kill");
     expect(actions).toContain("session.next");
     expect(actions).toContain("session.prev");
+    expect(actions).toContain("terminal.search");
   });
 });
 
@@ -82,6 +83,14 @@ describe("matchKeybinding", () => {
     const overrides = { "session.new": "Ctrl+Shift+T" };
     const keymap = { ...DEFAULT_KEYMAP, ...overrides };
     expect(matchKeybinding(event, keymap)).toBe("session.new");
+  });
+
+  it("matches Ctrl+F to terminal.search", () => {
+    const event = new KeyboardEvent("keydown", {
+      key: "f",
+      ctrlKey: true,
+    });
+    expect(matchKeybinding(event, DEFAULT_KEYMAP)).toBe("terminal.search");
   });
 
   it("does not match when modifier is missing", () => {

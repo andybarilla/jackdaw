@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
+  import { SearchAddon } from "@xterm/addon-search";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import { WebglAddon } from "@xterm/addon-webgl";
   import { EventsOn, EventsEmit } from "../../wailsjs/runtime/runtime";
@@ -9,16 +10,19 @@
   import "@xterm/xterm/css/xterm.css";
   import { getTheme } from "./config.svelte";
   import { getXtermTheme } from "./themes";
+  import type { TerminalApi } from "./types";
 
   interface Props {
     sessionId: string;
     visible?: boolean;
+    onReady?: (api: TerminalApi) => void;
   }
 
-  let { sessionId, visible = true }: Props = $props();
+  let { sessionId, visible = true, onReady }: Props = $props();
   let terminalEl: HTMLDivElement;
   let terminal: Terminal;
   let fitAddon: FitAddon;
+  let searchAddon: SearchAddon;
   let cleanups: Array<() => void> = [];
 
   $effect(() => {
@@ -39,6 +43,8 @@
     fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(new WebLinksAddon());
+    searchAddon = new SearchAddon();
+    terminal.loadAddon(searchAddon);
 
     terminal.open(terminalEl);
 
@@ -73,6 +79,8 @@
 
     // Start the read loop on the backend — ensures replay arrives after we're subscribed
     AttachSession(sessionId);
+
+    onReady?.({ searchAddon, focus: () => terminal.focus() });
   });
 
   onDestroy(() => {

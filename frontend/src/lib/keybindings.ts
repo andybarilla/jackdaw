@@ -3,7 +3,8 @@ export type Action =
   | "session.kill"
   | "session.next"
   | "session.prev"
-  | "app.toggleSidebar";
+  | "app.toggleSidebar"
+  | "terminal.search";
 
 export interface ParsedBinding {
   key: string;
@@ -20,6 +21,7 @@ export const DEFAULT_KEYMAP: Keymap = {
   "session.next": "Ctrl+Shift+]",
   "session.prev": "Ctrl+Shift+[",
   "app.toggleSidebar": "Ctrl+Shift+B",
+  "terminal.search": "Ctrl+f",
 };
 
 export function parseBinding(binding: string): ParsedBinding {
