@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -30,20 +31,25 @@ type SessionInfo struct {
 }
 
 type Manager struct {
-	sessions    map[string]*Session
-	sessionInfo map[string]*SessionInfo
-	mu          sync.RWMutex
-	manifestDir string
-	socketDir   string
-	onUpdate    func([]SessionInfo)
+	sessions        map[string]*Session
+	sessionInfo     map[string]*SessionInfo
+	mu              sync.RWMutex
+	manifestDir     string
+	socketDir       string
+	historyDir      string
+	historyMaxBytes int64
+	onUpdate        func([]SessionInfo)
 }
 
-func NewManager(manifestDir string, socketDir string) *Manager {
+func NewManager(manifestDir string, socketDir string, historyDir string, historyMaxBytes int64) *Manager {
+	os.MkdirAll(historyDir, 0700)
 	return &Manager{
-		sessions:    make(map[string]*Session),
-		sessionInfo: make(map[string]*SessionInfo),
-		manifestDir: manifestDir,
-		socketDir:   socketDir,
+		sessions:        make(map[string]*Session),
+		sessionInfo:     make(map[string]*SessionInfo),
+		manifestDir:     manifestDir,
+		socketDir:       socketDir,
+		historyDir:      historyDir,
+		historyMaxBytes: historyMaxBytes,
 	}
 }
 
@@ -89,8 +95,9 @@ func (m *Manager) generateName(workDir string) string {
 
 func (m *Manager) Create(workDir string, command string, args []string, onOutput func([]byte)) (*SessionInfo, error) {
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
+	historyPath := filepath.Join(m.historyDir, id+".log")
 
-	s, err := New(id, workDir, command, args, m.socketDir)
+	s, err := New(id, workDir, command, args, m.socketDir, historyPath, m.historyMaxBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -123,14 +130,15 @@ func (m *Manager) Create(workDir string, command string, args []string, onOutput
 	m.mu.Unlock()
 
 	mf := &manifest.Manifest{
-		SessionID:  id,
-		PID:        s.PID(),
-		Command:    command,
-		Args:       args,
-		WorkDir:    workDir,
-		SocketPath: s.SocketPath,
-		StartedAt:  s.StartedAt,
-		Name:       name,
+		SessionID:   id,
+		PID:         s.PID(),
+		Command:     command,
+		Args:        args,
+		WorkDir:     workDir,
+		SocketPath:  s.SocketPath,
+		StartedAt:   s.StartedAt,
+		Name:        name,
+		HistoryPath: historyPath,
 	}
 	manifest.Write(filepath.Join(m.manifestDir, id+".json"), mf)
 
@@ -168,7 +176,12 @@ func (m *Manager) Kill(id string) error {
 	}
 	m.mu.Unlock()
 
-	manifest.Remove(filepath.Join(m.manifestDir, id+".json"))
+	manifestPath := filepath.Join(m.manifestDir, id+".json")
+	mf, _ := manifest.Read(manifestPath)
+	if mf != nil && mf.HistoryPath != "" {
+		os.Remove(mf.HistoryPath)
+	}
+	manifest.Remove(manifestPath)
 	m.notifyUpdate()
 
 	return err
@@ -241,12 +254,18 @@ func (m *Manager) Recover() []SessionInfo {
 		path := filepath.Join(m.manifestDir, mf.SessionID+".json")
 
 		if !manifest.IsProcessAlive(mf.PID) {
+			if mf.HistoryPath != "" {
+				os.Remove(mf.HistoryPath)
+			}
 			manifest.Remove(path)
 			continue
 		}
 
 		s, err := Reconnect(mf.SessionID, mf.SocketPath, mf.WorkDir, mf.Command, mf.PID, mf.StartedAt)
 		if err != nil {
+			if mf.HistoryPath != "" {
+				os.Remove(mf.HistoryPath)
+			}
 			manifest.Remove(path)
 			continue
 		}
