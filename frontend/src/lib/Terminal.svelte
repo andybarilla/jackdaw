@@ -26,6 +26,12 @@
   let cleanups: Array<() => void> = [];
 
   let opened = false;
+  let currentlyVisible = $state(false);
+  let rafId: number | undefined;
+
+  $effect(() => {
+    currentlyVisible = visible;
+  });
 
   function fitAndRefresh(): void {
     fitAddon.fit();
@@ -33,7 +39,13 @@
   }
 
   $effect(() => {
-    if (!visible || !terminal) return;
+    if (!visible || !terminal) {
+      if (rafId !== undefined) {
+        cancelAnimationFrame(rafId);
+        rafId = undefined;
+      }
+      return;
+    }
 
     if (!opened) {
       opened = true;
@@ -51,9 +63,10 @@
 
       fitAndRefresh();
 
-      terminal.onData((data: string) => {
+      const inputDisposable = terminal.onData((data: string) => {
         EventsEmit("terminal-input", sessionId, data);
       });
+      cleanups.push(() => inputDisposable.dispose());
 
       const cancelOutput = EventsOn(
         `terminal-output-${sessionId}`,
@@ -67,7 +80,7 @@
       const resizeObserver = new ResizeObserver(() => {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => {
-          if (!visible) return;
+          if (!currentlyVisible) return;
           fitAndRefresh();
           if (terminal.cols > 0 && terminal.rows > 0) {
             EventsEmit("terminal-resize", sessionId, terminal.cols, terminal.rows);
@@ -86,12 +99,20 @@
       onReady?.({ searchAddon, focus: () => terminal.focus() });
     } else {
       // Already opened, just becoming visible again — double-rAF for layout settle
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+      rafId = requestAnimationFrame(() => {
+        rafId = requestAnimationFrame(() => {
+          rafId = undefined;
           fitAndRefresh();
         });
       });
     }
+
+    return () => {
+      if (rafId !== undefined) {
+        cancelAnimationFrame(rafId);
+        rafId = undefined;
+      }
+    };
   });
 
   onMount(() => {
