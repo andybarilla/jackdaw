@@ -75,3 +75,37 @@ func TestManagerRecover(t *testing.T) {
 		t.Error("stale manifest should have been removed")
 	}
 }
+
+func TestManagerGenerateName(t *testing.T) {
+	m := NewManager(t.TempDir(), t.TempDir())
+
+	// Simulate existing sessions by inserting into sessionInfo directly
+	m.sessionInfo["1"] = &SessionInfo{ID: "1", WorkDir: "/home/user/myapp", Name: "myapp"}
+	m.sessionInfo["2"] = &SessionInfo{ID: "2", WorkDir: "/home/user/myapp", Name: "myapp (2)"}
+
+	got := m.generateName("/home/user/myapp")
+	if got != "myapp (3)" {
+		t.Errorf("generateName = %q, want %q", got, "myapp (3)")
+	}
+
+	got2 := m.generateName("/home/user/other")
+	if got2 != "other" {
+		t.Errorf("generateName = %q, want %q", got2, "other")
+	}
+}
+
+func TestManagerGenerateNameFirst(t *testing.T) {
+	m := NewManager(t.TempDir(), t.TempDir())
+	got := m.generateName("/home/user/project")
+	if got != "project" {
+		t.Errorf("generateName = %q, want %q", got, "project")
+	}
+}
+
+func TestManagerGenerateNameRoot(t *testing.T) {
+	m := NewManager(t.TempDir(), t.TempDir())
+	got := m.generateName("/")
+	if got != "/" {
+		t.Errorf("generateName = %q, want %q", got, "/")
+	}
+}

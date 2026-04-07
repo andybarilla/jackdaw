@@ -19,6 +19,7 @@ const (
 
 type SessionInfo struct {
 	ID        string    `json:"id"`
+	Name      string    `json:"name"`
 	WorkDir   string    `json:"work_dir"`
 	Command   string    `json:"command"`
 	Status    Status    `json:"status"`
@@ -60,6 +61,31 @@ func (m *Manager) SetOnOutput(sessionID string, fn func(data []byte)) {
 	}
 }
 
+// generateName returns a unique display name for a session based on its working directory.
+// Must be called while m.mu is NOT held (it acquires a read lock internally).
+func (m *Manager) generateName(workDir string) string {
+	base := filepath.Base(workDir)
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	taken := make(map[string]bool)
+	for _, info := range m.sessionInfo {
+		taken[info.Name] = true
+	}
+
+	if !taken[base] {
+		return base
+	}
+
+	for n := 2; ; n++ {
+		candidate := fmt.Sprintf("%s (%d)", base, n)
+		if !taken[candidate] {
+			return candidate
+		}
+	}
+}
+
 func (m *Manager) Create(workDir string, command string, args []string, onOutput func([]byte)) (*SessionInfo, error) {
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
 
@@ -68,8 +94,11 @@ func (m *Manager) Create(workDir string, command string, args []string, onOutput
 		return nil, err
 	}
 
+	name := m.generateName(workDir)
+
 	info := &SessionInfo{
 		ID:        id,
+		Name:      name,
 		WorkDir:   workDir,
 		Command:   command,
 		Status:    StatusRunning,
@@ -100,6 +129,7 @@ func (m *Manager) Create(workDir string, command string, args []string, onOutput
 		WorkDir:    workDir,
 		SocketPath: s.SocketPath,
 		StartedAt:  s.StartedAt,
+		Name:       name,
 	}
 	manifest.Write(filepath.Join(m.manifestDir, id+".json"), mf)
 
