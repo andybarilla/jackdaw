@@ -20,10 +20,12 @@ func NewApp() *App {
 	home := mustUserHome()
 	jackdawDir := filepath.Join(home, ".jackdaw")
 	manifestDir := filepath.Join(jackdawDir, "manifests")
+	socketDir := filepath.Join(jackdawDir, "sockets")
 	os.MkdirAll(manifestDir, 0700)
+	os.MkdirAll(socketDir, 0700)
 
 	return &App{
-		manager:    session.NewManager(manifestDir),
+		manager:    session.NewManager(manifestDir, socketDir),
 		configPath: filepath.Join(jackdawDir, "config.json"),
 	}
 }

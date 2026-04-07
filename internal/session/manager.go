@@ -32,14 +32,16 @@ type Manager struct {
 	sessionInfo map[string]*SessionInfo
 	mu          sync.RWMutex
 	manifestDir string
+	socketDir   string
 	onUpdate    func([]SessionInfo)
 }
 
-func NewManager(manifestDir string) *Manager {
+func NewManager(manifestDir string, socketDir string) *Manager {
 	return &Manager{
 		sessions:    make(map[string]*Session),
 		sessionInfo: make(map[string]*SessionInfo),
 		manifestDir: manifestDir,
+		socketDir:   socketDir,
 	}
 }
 
@@ -61,7 +63,7 @@ func (m *Manager) SetOnOutput(sessionID string, fn func(data []byte)) {
 func (m *Manager) Create(workDir string, command string, args []string) (*SessionInfo, error) {
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
 
-	s, err := New(id, workDir, command, args)
+	s, err := New(id, workDir, command, args, m.socketDir)
 	if err != nil {
 		return nil, err
 	}
@@ -91,12 +93,13 @@ func (m *Manager) Create(workDir string, command string, args []string) (*Sessio
 	m.mu.Unlock()
 
 	mf := &manifest.Manifest{
-		SessionID: id,
-		PID:       s.PID(),
-		Command:   command,
-		Args:      args,
-		WorkDir:   workDir,
-		StartedAt: s.StartedAt,
+		SessionID:  id,
+		PID:        s.PID(),
+		Command:    command,
+		Args:       args,
+		WorkDir:    workDir,
+		SocketPath: s.SocketPath,
+		StartedAt:  s.StartedAt,
 	}
 	manifest.Write(filepath.Join(m.manifestDir, id+".json"), mf)
 
@@ -177,6 +180,12 @@ func (m *Manager) Recover() []SessionInfo {
 			continue
 		}
 
+		s, err := Reconnect(mf.SessionID, mf.SocketPath, mf.WorkDir, mf.Command, mf.PID, mf.StartedAt)
+		if err != nil {
+			manifest.Remove(path)
+			continue
+		}
+
 		info := &SessionInfo{
 			ID:        mf.SessionID,
 			WorkDir:   mf.WorkDir,
@@ -187,6 +196,7 @@ func (m *Manager) Recover() []SessionInfo {
 		}
 
 		m.mu.Lock()
+		m.sessions[mf.SessionID] = s
 		m.sessionInfo[mf.SessionID] = info
 		m.mu.Unlock()
 
