@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/andybarilla/jackdaw/internal/config"
 	"github.com/andybarilla/jackdaw/internal/session"
@@ -74,7 +75,22 @@ func (a *App) Shutdown(ctx context.Context) {
 	// Manifests remain on disk for re-adoption on next launch.
 }
 
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~/") || path == "~" {
+		home := mustUserHome()
+		return filepath.Join(home, path[1:])
+	}
+	return path
+}
+
+func (a *App) PickDirectory() (string, error) {
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Working Directory",
+	})
+}
+
 func (a *App) CreateSession(workDir string) (*session.SessionInfo, error) {
+	workDir = expandHome(workDir)
 	id := ""
 	info, err := a.manager.Create(workDir, "claude", nil, func(data []byte) {
 		runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))

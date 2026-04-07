@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { PickDirectory } from "../../wailsjs/go/main/App";
+
   interface Props {
     onSubmit: (workDir: string) => void;
     onCancel: () => void;
@@ -15,6 +17,13 @@
     }
   }
 
+  async function handleBrowse() {
+    const dir = await PickDirectory();
+    if (dir) {
+      workDir = dir;
+    }
+  }
+
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -28,13 +37,16 @@
     <h3>New Claude Code Session</h3>
     <label>
       Working Directory
-      <!-- svelte-ignore a11y_autofocus -->
-      <input
-        type="text"
-        bind:value={workDir}
-        placeholder="/path/to/project"
-        autofocus
-      />
+      <div class="input-row">
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          type="text"
+          bind:value={workDir}
+          placeholder="/path/to/project"
+          autofocus
+        />
+        <button type="button" class="browse" onclick={handleBrowse}>Browse</button>
+      </div>
     </label>
     <div class="actions">
       <button type="button" class="cancel" onclick={onCancel}>Cancel</button>
@@ -76,10 +88,14 @@
     margin-bottom: 16px;
   }
 
-  input {
-    display: block;
-    width: 100%;
+  .input-row {
+    display: flex;
+    gap: 8px;
     margin-top: 6px;
+  }
+
+  input {
+    flex: 1;
     padding: 8px 10px;
     background: var(--bg-primary);
     border: 1px solid var(--border);
@@ -87,6 +103,12 @@
     color: var(--text-primary);
     font-size: 14px;
     font-family: "JetBrains Mono", "Fira Code", monospace;
+  }
+
+  .browse {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    white-space: nowrap;
   }
 
   input:focus {
