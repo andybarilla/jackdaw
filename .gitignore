@@ -1,0 +1,13 @@
+# Go
+/jackdaw
+/build/bin/
+
+# Wails
+/frontend/dist/
+/frontend/wailsjs/
+
+# Node
+/frontend/node_modules/
+
+# OS
+.DS_Store
