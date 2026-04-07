@@ -20,7 +20,9 @@
     setLeafContent,
     getLeafContent,
     findLeafBySessionId,
+    findLeafByTerminalId,
     collectSessionIds,
+    collectTerminalIds,
   } from "./lib/layout";
   import type { SessionInfo, TerminalApi } from "./lib/types";
   import Sidebar from "./lib/Sidebar.svelte";
@@ -240,6 +242,15 @@
             if (path) {
               cleaned = setLeafContent(cleaned, path, null);
             }
+          }
+        }
+
+        // Terminals don't survive restart — clear all terminal panes
+        const termIds = collectTerminalIds(cleaned);
+        for (const tid of termIds) {
+          const tpath = findLeafByTerminalId(cleaned, tid);
+          if (tpath) {
+            cleaned = setLeafContent(cleaned, tpath, null);
           }
         }
 
