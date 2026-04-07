@@ -12,10 +12,10 @@ Desktop app that orchestrates Claude Code sessions. Spawns, manages, and display
 
 ```bash
 # Dev mode (opens window with hot reload)
-wails dev
+GOPROXY=https://proxy.golang.org,direct wails dev -tags webkit2_41
 
 # Build production binary
-wails build
+GOPROXY=https://proxy.golang.org,direct wails build -tags webkit2_41
 
 # Go tests
 go test ./internal/...
