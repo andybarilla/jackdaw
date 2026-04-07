@@ -91,6 +91,8 @@ func (a *App) CreateTerminal(workDir string) (*terminal.TerminalInfo, error) {
 
 	a.termManager.StartReadLoop(info.ID, func(data []byte) {
 		runtime.EventsEmit(a.ctx, "terminal-output-"+info.ID, string(data))
+	}, func() {
+		runtime.EventsEmit(a.ctx, "terminal-exited", info.ID)
 	})
 
 	return info, nil

@@ -115,7 +115,7 @@ func (m *Manager) Resize(id string, cols, rows uint16) error {
 	return pty.Setsize(t.ptmx, &pty.Winsize{Rows: rows, Cols: cols})
 }
 
-func (m *Manager) StartReadLoop(id string, onOutput func([]byte)) {
+func (m *Manager) StartReadLoop(id string, onOutput func([]byte), onExit func()) {
 	m.mu.RLock()
 	t, ok := m.terminals[id]
 	m.mu.RUnlock()
@@ -133,6 +133,9 @@ func (m *Manager) StartReadLoop(id string, onOutput func([]byte)) {
 				onOutput(data)
 			}
 			if err != nil {
+				if onExit != nil {
+					onExit()
+				}
 				return
 			}
 		}

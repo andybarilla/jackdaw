@@ -264,10 +264,32 @@
     const paths = collectLeafPaths(layoutTree);
     if (paths.length > 0) focusedPath = paths[0];
 
-    const cancel = EventsOn("sessions-updated", (updated: unknown) => {
-      sessions = (updated || []) as SessionInfo[];
+    const cancelSessions = EventsOn("sessions-updated", (updated: unknown) => {
+      const newSessions = (updated || []) as SessionInfo[];
+      sessions = newSessions;
+
+      // Clear panes for exited sessions
+      for (const s of newSessions) {
+        if (s.status === "exited") {
+          const path = findLeafBySessionId(layoutTree, s.id);
+          if (path) {
+            delete terminalApis[s.id];
+            layoutTree = setLeafContent(layoutTree, path, null);
+          }
+        }
+      }
     });
-    cleanups.push(cancel);
+    cleanups.push(cancelSessions);
+
+    const cancelTermExit = EventsOn("terminal-exited", (id: unknown) => {
+      if (typeof id !== "string") return;
+      const path = findLeafByTerminalId(layoutTree, id);
+      if (path) {
+        delete terminalApis[id];
+        layoutTree = setLeafContent(layoutTree, path, null);
+      }
+    });
+    cleanups.push(cancelTermExit);
   });
 
   onDestroy(() => {
