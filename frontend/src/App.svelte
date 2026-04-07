@@ -6,17 +6,46 @@
   import Sidebar from "./lib/Sidebar.svelte";
   import Terminal from "./lib/Terminal.svelte";
   import NewSessionDialog from "./lib/NewSessionDialog.svelte";
+  import { getKeymap } from "./lib/config.svelte";
+  import { matchKeybinding } from "./lib/keybindings";
 
   let sessions = $state<SessionInfo[]>([]);
   let activeSessionId = $state<string | null>(null);
   let showNewDialog = $state(false);
+  let sidebarVisible = $state(true);
   let cleanups: Array<() => void> = [];
 
-  onMount(async () => {
-    sessions = (await ListSessions()) || [];
+  const actions: Record<string, () => void> = {
+    "session.new": () => (showNewDialog = true),
+    "session.kill": () => {
+      if (activeSessionId) handleKill(activeSessionId);
+    },
+    "session.next": () => selectAdjacentSession(1),
+    "session.prev": () => selectAdjacentSession(-1),
+    "app.toggleSidebar": () => (sidebarVisible = !sidebarVisible),
+  };
 
-    const cancel = EventsOn("sessions-updated", (updated: SessionInfo[]) => {
-      sessions = updated || [];
+  function selectAdjacentSession(delta: number): void {
+    if (sessions.length === 0) return;
+    const currentIndex = sessions.findIndex((s) => s.id === activeSessionId);
+    const nextIndex =
+      (currentIndex + delta + sessions.length) % sessions.length;
+    activeSessionId = sessions[nextIndex].id;
+  }
+
+  function handleGlobalKeydown(event: KeyboardEvent): void {
+    const action = matchKeybinding(event, getKeymap());
+    if (action && actions[action]) {
+      event.preventDefault();
+      actions[action]();
+    }
+  }
+
+  onMount(async () => {
+    sessions = ((await ListSessions()) || []) as SessionInfo[];
+
+    const cancel = EventsOn("sessions-updated", (updated: unknown) => {
+      sessions = (updated || []) as SessionInfo[];
     });
     cleanups.push(cancel);
   });
@@ -43,14 +72,18 @@
   );
 </script>
 
+<svelte:window onkeydown={handleGlobalKeydown} />
+
 <main>
-  <Sidebar
-    {sessions}
-    {activeSessionId}
-    onSelect={(id) => (activeSessionId = id)}
-    onNew={() => (showNewDialog = true)}
-    onKill={handleKill}
-  />
+  {#if sidebarVisible}
+    <Sidebar
+      {sessions}
+      {activeSessionId}
+      onSelect={(id) => (activeSessionId = id)}
+      onNew={() => (showNewDialog = true)}
+      onKill={handleKill}
+    />
+  {/if}
 
   <div class="content">
     {#if activeSession}

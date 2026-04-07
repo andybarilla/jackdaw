@@ -5,21 +5,26 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/andybarilla/jackdaw/internal/config"
 	"github.com/andybarilla/jackdaw/internal/session"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type App struct {
-	ctx     context.Context
-	manager *session.Manager
+	ctx        context.Context
+	manager    *session.Manager
+	configPath string
 }
 
 func NewApp() *App {
-	manifestDir := filepath.Join(mustUserHome(), ".jackdaw", "manifests")
+	home := mustUserHome()
+	jackdawDir := filepath.Join(home, ".jackdaw")
+	manifestDir := filepath.Join(jackdawDir, "manifests")
 	os.MkdirAll(manifestDir, 0700)
 
 	return &App{
-		manager: session.NewManager(manifestDir),
+		manager:    session.NewManager(manifestDir),
+		configPath: filepath.Join(jackdawDir, "config.json"),
 	}
 }
 
@@ -77,6 +82,14 @@ func (a *App) ListSessions() []session.SessionInfo {
 
 func (a *App) KillSession(id string) error {
 	return a.manager.Kill(id)
+}
+
+func (a *App) GetConfig() (*config.Config, error) {
+	return config.Load(a.configPath)
+}
+
+func (a *App) SetConfig(cfg *config.Config) error {
+	return config.Save(a.configPath, cfg)
 }
 
 func mustUserHome() string {

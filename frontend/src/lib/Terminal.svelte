@@ -6,6 +6,8 @@
   import { WebglAddon } from "@xterm/addon-webgl";
   import { EventsOn, EventsEmit } from "../../wailsjs/runtime/runtime";
   import "@xterm/xterm/css/xterm.css";
+  import { getTheme } from "./config.svelte";
+  import { getXtermTheme } from "./themes";
 
   interface Props {
     sessionId: string;
@@ -22,12 +24,7 @@
       cursorBlink: true,
       fontSize: 14,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      theme: {
-        background: "#1a1b26",
-        foreground: "#c0caf5",
-        cursor: "#c0caf5",
-        selectionBackground: "#33467c",
-      },
+      theme: getXtermTheme(getTheme()),
     });
 
     fitAddon = new FitAddon();
