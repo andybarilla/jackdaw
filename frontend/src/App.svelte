@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { EventsOn } from "../wailsjs/runtime/runtime";
-  import { CreateSession, ListSessions, KillSession } from "../wailsjs/go/main/App";
+  import { CreateSession, ListSessions, KillSession, RenameSession } from "../wailsjs/go/main/App";
   import type { SessionInfo } from "./lib/types";
   import Sidebar from "./lib/Sidebar.svelte";
   import Terminal from "./lib/Terminal.svelte";
@@ -67,6 +67,10 @@
     }
   }
 
+  async function handleRename(id: string, name: string) {
+    await RenameSession(id, name);
+  }
+
   let activeSession = $derived(
     sessions.find((s) => s.id === activeSessionId),
   );
@@ -82,6 +86,7 @@
       onSelect={(id) => (activeSessionId = id)}
       onNew={() => (showNewDialog = true)}
       onKill={handleKill}
+      onRename={handleRename}
     />
   {/if}
 

@@ -7,10 +7,14 @@
     onSelect: (id: string) => void;
     onNew: () => void;
     onKill: (id: string) => void;
+    onRename: (id: string, name: string) => void;
   }
 
-  let { sessions, activeSessionId, onSelect, onNew, onKill }: Props =
+  let { sessions, activeSessionId, onSelect, onNew, onKill, onRename }: Props =
     $props();
+
+  let editingId = $state<string | null>(null);
+  let editValue = $state("");
 
   function statusColor(status: SessionInfo["status"]): string {
     switch (status) {
@@ -23,8 +27,25 @@
     }
   }
 
-  function dirName(workDir: string): string {
-    return workDir.split("/").pop() || workDir;
+  function startEditing(session: SessionInfo, event: Event): void {
+    event.stopPropagation();
+    editingId = session.id;
+    editValue = session.name;
+  }
+
+  function commitRename(): void {
+    if (editingId && editValue.trim()) {
+      onRename(editingId, editValue.trim());
+    }
+    editingId = null;
+  }
+
+  function handleEditKeydown(event: KeyboardEvent): void {
+    if (event.key === "Enter") {
+      commitRename();
+    } else if (event.key === "Escape") {
+      editingId = null;
+    }
   }
 </script>
 
@@ -42,7 +63,26 @@
         tabindex="0"
       >
         <span class="status-dot" style="background: {statusColor(session.status)}"></span>
-        <span class="session-name">{dirName(session.work_dir)}</span>
+        {#if editingId === session.id}
+          <input
+            class="rename-input"
+            bind:value={editValue}
+            onblur={commitRename}
+            onkeydown={handleEditKeydown}
+            onclick={(e: MouseEvent) => e.stopPropagation()}
+            autofocus
+          />
+        {:else}
+          <span
+            class="session-name"
+            ondblclick={(e: MouseEvent) => startEditing(session, e)}
+          >{session.name}</span>
+          <button
+            class="edit-btn"
+            onclick={(e: MouseEvent) => startEditing(session, e)}
+            title="Rename session"
+          >&#9998;</button>
+        {/if}
         {#if session.status === "running"}
           <button
             class="kill-btn"
@@ -122,6 +162,39 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .edit-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0 4px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .session-item:hover .edit-btn {
+    opacity: 1;
+  }
+
+  .edit-btn:hover {
+    color: var(--text-primary);
+  }
+
+  .rename-input {
+    flex: 1;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 2px 4px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    min-width: 0;
   }
 
   .kill-btn {
