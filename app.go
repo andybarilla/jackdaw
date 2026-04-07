@@ -34,11 +34,20 @@ func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
 	// Recover sessions that survived a previous shutdown
-	a.manager.Recover()
+	recovered := a.manager.Recover()
 
 	a.manager.SetOnUpdate(func(sessions []session.SessionInfo) {
 		runtime.EventsEmit(ctx, "sessions-updated", sessions)
 	})
+
+	// Wire output for recovered sessions and start their read loops
+	for _, info := range recovered {
+		id := info.ID
+		a.manager.SetOnOutput(id, func(data []byte) {
+			runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
+		})
+	}
+	a.manager.StartRecoveredReadLoops()
 
 	runtime.EventsOn(ctx, "terminal-input", func(data ...interface{}) {
 		if len(data) < 2 {

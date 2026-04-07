@@ -206,6 +206,14 @@ func (m *Manager) Recover() []SessionInfo {
 	return recovered
 }
 
+func (m *Manager) StartRecoveredReadLoops() {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, s := range m.sessions {
+		s.StartReadLoop()
+	}
+}
+
 func (m *Manager) notifyUpdate() {
 	m.mu.RLock()
 	fn := m.onUpdate
