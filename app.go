@@ -75,14 +75,16 @@ func (a *App) Shutdown(ctx context.Context) {
 }
 
 func (a *App) CreateSession(workDir string) (*session.SessionInfo, error) {
-	info, err := a.manager.Create(workDir, "claude", nil)
+	id := ""
+	info, err := a.manager.Create(workDir, "claude", nil, func(data []byte) {
+		runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
+	})
 	if err != nil {
 		return nil, err
 	}
+	id = info.ID
 
-	a.manager.SetOnOutput(info.ID, func(data []byte) {
-		runtime.EventsEmit(a.ctx, "terminal-output-"+info.ID, string(data))
-	})
+	a.manager.StartSessionReadLoop(info.ID)
 
 	return info, nil
 }

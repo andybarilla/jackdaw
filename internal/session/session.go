@@ -1,11 +1,11 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -23,10 +23,11 @@ type Session struct {
 	OnOutput   func(data []byte)
 	OnExit     func(exitCode int)
 
-	relayCmd *exec.Cmd
-	client   *relay.Client
-	pid      int
-	mu       sync.Mutex
+	relayCmd  *exec.Cmd
+	client    *relay.Client
+	pid       int
+	mu        sync.Mutex
+	exitDone  chan struct{}
 }
 
 func New(id string, workDir string, command string, args []string, socketDir string) (*Session, error) {
@@ -43,7 +44,11 @@ func New(id string, workDir string, command string, args []string, socketDir str
 		"-command", command,
 	}
 	if len(args) > 0 {
-		relayArgs = append(relayArgs, "-args", strings.Join(args, ","))
+		argsJSON, err := json.Marshal(args)
+		if err != nil {
+			return nil, fmt.Errorf("encode args: %w", err)
+		}
+		relayArgs = append(relayArgs, "-args", string(argsJSON))
 	}
 
 	relayCmd := exec.Command(exe, relayArgs...)
@@ -76,6 +81,7 @@ func New(id string, workDir string, command string, args []string, socketDir str
 		relayCmd:   relayCmd,
 		client:     client,
 		pid:        relayCmd.Process.Pid,
+		exitDone:   make(chan struct{}),
 	}, nil
 }
 
@@ -111,14 +117,15 @@ func (s *Session) StartReadLoop() {
 
 	if s.relayCmd != nil {
 		go func() {
-			state, _ := s.relayCmd.Process.Wait()
+			s.relayCmd.Wait()
 			exitCode := -1
-			if state != nil {
-				exitCode = state.ExitCode()
+			if s.relayCmd.ProcessState != nil {
+				exitCode = s.relayCmd.ProcessState.ExitCode()
 			}
 			if s.OnExit != nil {
 				s.OnExit(exitCode)
 			}
+			close(s.exitDone)
 		}()
 	}
 }
@@ -142,8 +149,8 @@ func (s *Session) Resize(cols, rows uint16) error {
 }
 
 func (s *Session) Wait() {
-	if s.relayCmd != nil {
-		s.relayCmd.Wait()
+	if s.exitDone != nil {
+		<-s.exitDone
 	}
 }
 

@@ -60,7 +60,7 @@ func (m *Manager) SetOnOutput(sessionID string, fn func(data []byte)) {
 	}
 }
 
-func (m *Manager) Create(workDir string, command string, args []string) (*SessionInfo, error) {
+func (m *Manager) Create(workDir string, command string, args []string, onOutput func([]byte)) (*SessionInfo, error) {
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
 
 	s, err := New(id, workDir, command, args, m.socketDir)
@@ -103,7 +103,9 @@ func (m *Manager) Create(workDir string, command string, args []string) (*Sessio
 	}
 	manifest.Write(filepath.Join(m.manifestDir, id+".json"), mf)
 
-	s.StartReadLoop()
+	if onOutput != nil {
+		s.OnOutput = onOutput
+	}
 	m.notifyUpdate()
 
 	return info, nil
@@ -204,6 +206,15 @@ func (m *Manager) Recover() []SessionInfo {
 	}
 
 	return recovered
+}
+
+func (m *Manager) StartSessionReadLoop(id string) {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+	if ok {
+		s.StartReadLoop()
+	}
 }
 
 func (m *Manager) StartRecoveredReadLoops() {

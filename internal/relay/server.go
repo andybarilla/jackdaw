@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -94,8 +93,6 @@ func (s *Server) readPTY() {
 			s.mu.Unlock()
 		}
 		if err != nil {
-			if err != io.EOF {
-			}
 			return
 		}
 	}
@@ -103,18 +100,23 @@ func (s *Server) readPTY() {
 
 func (s *Server) waitProcess() {
 	s.cmd.Wait()
+	// Server stays alive after process exit so clients can still
+	// connect and replay buffered output. Cleanup happens when
+	// the manager calls Close() via Kill.
 }
 
 func (s *Server) handleClient(conn net.Conn) {
+	// Register client before replay so no output is lost between replay and live-stream.
+	// The lock ensures readPTY won't broadcast while we're replaying.
+	s.mu.Lock()
 	buffered := s.buffer.Bytes()
+	s.clients[conn] = struct{}{}
+	s.mu.Unlock()
+
 	if len(buffered) > 0 {
 		WriteFrame(conn, FrameData, buffered)
 	}
 	WriteFrame(conn, FrameReplayEnd, nil)
-
-	s.mu.Lock()
-	s.clients[conn] = struct{}{}
-	s.mu.Unlock()
 
 	defer func() {
 		s.mu.Lock()

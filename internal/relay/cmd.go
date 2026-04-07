@@ -1,11 +1,11 @@
 package relay
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 )
 
@@ -14,7 +14,7 @@ func RunMain(args []string) {
 	sockPath := fs.String("socket", "", "Unix socket path")
 	workDir := fs.String("workdir", "", "Working directory")
 	command := fs.String("command", "", "Command to run")
-	cmdArgs := fs.String("args", "", "Comma-separated command arguments")
+	cmdArgs := fs.String("args", "", "JSON-encoded command arguments")
 	bufSize := fs.Int("buffer", 1024*1024, "Scrollback buffer size in bytes")
 
 	fs.Parse(args)
@@ -30,7 +30,10 @@ func RunMain(args []string) {
 
 	var parsedArgs []string
 	if *cmdArgs != "" {
-		parsedArgs = strings.Split(*cmdArgs, ",")
+		if err := json.Unmarshal([]byte(*cmdArgs), &parsedArgs); err != nil {
+			fmt.Fprintf(os.Stderr, "relay: invalid -args JSON: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	srv, err := NewServer(*sockPath, *workDir, *command, parsedArgs, *bufSize)
