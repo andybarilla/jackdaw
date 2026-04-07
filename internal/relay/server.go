@@ -3,6 +3,7 @@ package relay
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -132,6 +133,30 @@ func (s *Server) writeHistory(data []byte) {
 	}
 	s.historyWriter.Write(data)
 	s.historyBytes += int64(len(data))
+	if s.historyMax > 0 && s.historyBytes > 2*s.historyMax {
+		s.truncateHistory()
+	}
+}
+
+func (s *Server) truncateHistory() {
+	s.historyWriter.Flush()
+
+	tail := make([]byte, s.historyMax)
+	n, err := s.historyFile.ReadAt(tail, s.historyBytes-s.historyMax)
+	if err != nil && err != io.EOF {
+		return
+	}
+	tail = tail[:n]
+
+	s.historyFile.Close()
+	f, err := os.OpenFile(s.historyPath, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0600)
+	if err != nil {
+		return
+	}
+	f.Write(tail)
+	s.historyFile = f
+	s.historyWriter = bufio.NewWriterSize(f, 32768)
+	s.historyBytes = int64(n)
 }
 
 func (s *Server) startHistoryFlusher() {
