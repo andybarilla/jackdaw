@@ -25,10 +25,72 @@
   let searchAddon: SearchAddon;
   let cleanups: Array<() => void> = [];
 
+  let opened = false;
+
+  function fitAndRefresh(): void {
+    fitAddon.fit();
+    terminal.refresh(0, terminal.rows - 1);
+  }
+
   $effect(() => {
-    if (visible && fitAddon) {
-      // Re-fit after becoming visible so xterm measures correctly
-      requestAnimationFrame(() => fitAddon.fit());
+    if (!visible || !terminal) return;
+
+    if (!opened) {
+      opened = true;
+      terminal.open(terminalEl);
+
+      try {
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => {
+          webglAddon.dispose();
+        });
+        terminal.loadAddon(webglAddon);
+      } catch {
+        // WebGL not available, fall back to canvas renderer
+      }
+
+      fitAndRefresh();
+
+      terminal.onData((data: string) => {
+        EventsEmit("terminal-input", sessionId, data);
+      });
+
+      const cancelOutput = EventsOn(
+        `terminal-output-${sessionId}`,
+        (data: string) => {
+          terminal.write(data);
+        },
+      );
+      cleanups.push(cancelOutput);
+
+      let resizeTimer: ReturnType<typeof setTimeout>;
+      const resizeObserver = new ResizeObserver(() => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          if (!visible) return;
+          fitAndRefresh();
+          if (terminal.cols > 0 && terminal.rows > 0) {
+            EventsEmit("terminal-resize", sessionId, terminal.cols, terminal.rows);
+          }
+        }, 50);
+      });
+      resizeObserver.observe(terminalEl);
+      cleanups.push(() => {
+        clearTimeout(resizeTimer);
+        resizeObserver.disconnect();
+      });
+
+      EventsEmit("terminal-resize", sessionId, terminal.cols, terminal.rows);
+      AttachSession(sessionId);
+
+      onReady?.({ searchAddon, focus: () => terminal.focus() });
+    } else {
+      // Already opened, just becoming visible again — double-rAF for layout settle
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          fitAndRefresh();
+        });
+      });
     }
   });
 
@@ -45,42 +107,6 @@
     terminal.loadAddon(new WebLinksAddon());
     searchAddon = new SearchAddon();
     terminal.loadAddon(searchAddon);
-
-    terminal.open(terminalEl);
-
-    try {
-      terminal.loadAddon(new WebglAddon());
-    } catch {
-      // WebGL not available, fall back to canvas renderer
-    }
-
-    fitAddon.fit();
-
-    terminal.onData((data: string) => {
-      EventsEmit("terminal-input", sessionId, data);
-    });
-
-    const cancelOutput = EventsOn(
-      `terminal-output-${sessionId}`,
-      (data: string) => {
-        terminal.write(data);
-      },
-    );
-    cleanups.push(cancelOutput);
-
-    const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
-      EventsEmit("terminal-resize", sessionId, terminal.cols, terminal.rows);
-    });
-    resizeObserver.observe(terminalEl);
-    cleanups.push(() => resizeObserver.disconnect());
-
-    EventsEmit("terminal-resize", sessionId, terminal.cols, terminal.rows);
-
-    // Start the read loop on the backend — ensures replay arrives after we're subscribed
-    AttachSession(sessionId);
-
-    onReady?.({ searchAddon, focus: () => terminal.focus() });
   });
 
   onDestroy(() => {
