@@ -2,7 +2,9 @@ package main
 
 import (
 	"embed"
+	"os"
 
+	"github.com/andybarilla/jackdaw/internal/relay"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -12,6 +14,11 @@ import (
 var assets embed.FS
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "relay" {
+		relay.RunMain(os.Args[2:])
+		return
+	}
+
 	app := NewApp()
 
 	if err := wails.Run(&options.App{
