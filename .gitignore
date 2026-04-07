@@ -17,5 +17,8 @@
 # Superpowers
 .superpowers/
 
+# Worktrees
+.worktrees/
+
 # Screenshots
 jackdaw-*.png
