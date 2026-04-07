@@ -92,3 +92,28 @@ func TestRemoveManifest(t *testing.T) {
 		t.Error("manifest should be gone after Remove")
 	}
 }
+
+func TestWriteAndReadWithSocketPath(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manifest{
+		SessionID:  "test-sock",
+		PID:        12345,
+		Command:    "claude",
+		WorkDir:    "/home/user/project",
+		SocketPath: "/tmp/jackdaw/test-sock.sock",
+		StartedAt:  time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC),
+	}
+
+	path := filepath.Join(dir, "test-sock.json")
+	if err := Write(path, m); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.SocketPath != m.SocketPath {
+		t.Errorf("SocketPath = %q, want %q", got.SocketPath, m.SocketPath)
+	}
+}

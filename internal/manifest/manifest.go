@@ -15,8 +15,9 @@ type Manifest struct {
 	PID       int       `json:"pid"`
 	Command   string    `json:"command"`
 	Args      []string  `json:"args"`
-	WorkDir   string    `json:"work_dir"`
-	StartedAt time.Time `json:"started_at"`
+	WorkDir    string    `json:"work_dir"`
+	SocketPath string    `json:"socket_path"`
+	StartedAt  time.Time `json:"started_at"`
 }
 
 func Write(path string, m *Manifest) error {
