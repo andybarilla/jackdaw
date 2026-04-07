@@ -1,0 +1,16 @@
+- main [ref=e3]:
+  - complementary [ref=e4]:
+    - button "+ New Session" [ref=e5] [cursor=pointer]
+    - generic [ref=e6]:
+      - button "rook ×" [ref=e7] [cursor=pointer]:
+        - generic [ref=e9]: rook
+        - button "×" [ref=e10]
+      - button "jackdaw ×" [ref=e11] [cursor=pointer]:
+        - generic [ref=e13]: jackdaw
+        - button "×" [ref=e14]
+      - button "agent-svc ×" [ref=e15] [cursor=pointer]:
+        - generic [ref=e17]: agent-svc
+        - button "×" [ref=e18]
+  - generic [ref=e20]:
+    - paragraph [ref=e21]: No session selected
+    - button "Launch a new session" [ref=e22] [cursor=pointer]

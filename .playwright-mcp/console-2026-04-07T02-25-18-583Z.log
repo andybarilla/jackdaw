@@ -1,0 +1,4 @@
+[      24ms] [LOG] Queueing: runtime:ready @ http://localhost:34115/wails/ipc.js:6
+[      26ms] [LOG] %c wails dev %c Connected to backend  background: #aa0000; color: #fff; border-radius: 3px 0px 0px 3px; padding: 1px; font-size: 0.7rem background: #009900; color: #fff; border-radius: 0px 3px 3px 0px; padding: 1px; font-size: 0.7rem @ http://localhost:34115/wails/ipc.js:0
+[      26ms] [LOG] sending queued message: runtime:ready @ http://localhost:34115/wails/ipc.js:6
+[  106432ms] [INFO] Autofocus processing was blocked because a document already has a focused element. @ http://localhost:34115/:0
