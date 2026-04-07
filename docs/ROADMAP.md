@@ -2,12 +2,10 @@
 
 ## Completed
 
+- **Session re-attachment** — Relay subprocess per session holds the PTY and listens on a Unix socket; app reconnects on restart with scrollback replay
 - **Theming & keybindings** — Dark/light themes, customizable keyboard shortcuts, config persistence
 
 ## Up Next
-
-### Session Re-attachment
-Recovered sessions currently show in the sidebar but have no terminal I/O. Explore re-attaching to existing PTYs (or replaying saved output) so sessions fully survive an app restart.
 
 ### Session Naming
 Let users rename sessions in the sidebar. Currently sessions display the directory basename, which is ambiguous when multiple sessions share the same working directory.
