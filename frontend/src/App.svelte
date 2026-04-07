@@ -287,20 +287,15 @@
       focusedPath = pendingQuickPickPath;
       pendingQuickPickPath = null;
     } else {
-      // Find an empty pane or use focused pane
+      // Assign to focused pane only if it's empty
       const content = getFocusedContent();
       if (content === null) {
         layoutTree = setLeafContent(layoutTree, asPath(focusedPath), {
           type: "session",
           sessionId: info.id,
         });
-      } else {
-        // No empty focused pane — assign to first empty leaf or just set focused
-        layoutTree = setLeafContent(layoutTree, asPath(focusedPath), {
-          type: "session",
-          sessionId: info.id,
-        });
       }
+      // Otherwise session is created but unassigned — visible in sidebar
     }
     requestAnimationFrame(() => terminalApis[info.id]?.focus());
   }

@@ -10,6 +10,8 @@
   import "@xterm/xterm/css/xterm.css";
   import { getTheme } from "./config.svelte";
   import { getXtermTheme } from "./themes";
+  import { getKeymap } from "./config.svelte";
+  import { matchKeybinding } from "./keybindings";
   import type { TerminalApi } from "./types";
 
   interface Props {
@@ -133,6 +135,14 @@
     terminal.loadAddon(new WebLinksAddon());
     searchAddon = new SearchAddon();
     terminal.loadAddon(searchAddon);
+
+    // Let app-level keybindings pass through xterm
+    terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if (matchKeybinding(event, getKeymap())) {
+        return false; // don't handle — let it bubble to window handler
+      }
+      return true;
+    });
   });
 
   onDestroy(() => {
