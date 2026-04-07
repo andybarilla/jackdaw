@@ -59,6 +59,57 @@ func TestServerWritesHistoryFile(t *testing.T) {
 	}
 }
 
+func TestServerReplayFromHistoryFile(t *testing.T) {
+	dir := t.TempDir()
+	sockPath := filepath.Join(dir, "test.sock")
+	historyPath := filepath.Join(dir, "test.log")
+
+	// Pre-fill a history file with known content
+	historyContent := "pre-existing history content\n"
+	os.WriteFile(historyPath, []byte(historyContent), 0600)
+
+	// Start server with cat (no automatic output) so only replay matters
+	srv, err := NewServer(sockPath, "/tmp", "cat", nil, 4096, historyPath, 1048576)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer srv.Close()
+
+	go srv.Serve()
+	time.Sleep(100 * time.Millisecond)
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	var output strings.Builder
+	deadline := time.After(5 * time.Second)
+	for {
+		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		typ, payload, err := ReadFrame(conn)
+		if err != nil {
+			select {
+			case <-deadline:
+				t.Fatalf("timed out; output so far: %q", output.String())
+			default:
+				continue
+			}
+		}
+		if typ == FrameData {
+			output.Write(payload)
+		}
+		if typ == FrameReplayEnd {
+			break
+		}
+	}
+
+	if !strings.Contains(output.String(), "pre-existing history content") {
+		t.Errorf("replayed output = %q, want to contain %q", output.String(), "pre-existing history content")
+	}
+}
+
 func TestServerHistoryTruncation(t *testing.T) {
 	dir := t.TempDir()
 	historyPath := filepath.Join(dir, "test.log")

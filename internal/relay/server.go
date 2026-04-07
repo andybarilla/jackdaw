@@ -186,11 +186,38 @@ func (s *Server) waitProcess() {
 	// the manager calls Close() via Kill.
 }
 
+func (s *Server) readHistoryTail(maxBytes int) []byte {
+	if s.historyFile == nil {
+		return nil
+	}
+	s.historyWriter.Flush()
+
+	size := s.historyBytes
+	if size == 0 {
+		return nil
+	}
+
+	readSize := size
+	if int64(maxBytes) < readSize {
+		readSize = int64(maxBytes)
+	}
+
+	buf := make([]byte, readSize)
+	n, err := s.historyFile.ReadAt(buf, size-readSize)
+	if err != nil && err != io.EOF {
+		return nil
+	}
+	return buf[:n]
+}
+
 func (s *Server) handleClient(conn net.Conn) {
-	// Register client before replay so no output is lost between replay and live-stream.
-	// The lock ensures readPTY won't broadcast while we're replaying.
 	s.mu.Lock()
-	buffered := s.buffer.Bytes()
+	var buffered []byte
+	if s.historyFile != nil {
+		buffered = s.readHistoryTail(s.buffer.Size())
+	} else {
+		buffered = s.buffer.Bytes()
+	}
 	s.clients[conn] = struct{}{}
 	s.mu.Unlock()
 
