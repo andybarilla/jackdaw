@@ -1,43 +1,161 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { EventsOn } from "../wailsjs/runtime/runtime";
-  import { CreateSession, ListSessions, KillSession, RenameSession } from "../wailsjs/go/main/App";
+  import {
+    CreateSession,
+    ListSessions,
+    KillSession,
+    RenameSession,
+    CreateTerminal,
+    KillTerminal,
+    GetConfig,
+    SetConfig,
+  } from "../wailsjs/go/main/App";
+  import type { LayoutNode, PaneContent, Path } from "./lib/layout";
+  import {
+    emptyLeaf,
+    splitLeaf,
+    closeLeaf,
+    updateRatio,
+    setLeafContent,
+    getLeafContent,
+    findLeafBySessionId,
+    collectSessionIds,
+  } from "./lib/layout";
   import type { SessionInfo, TerminalApi } from "./lib/types";
   import Sidebar from "./lib/Sidebar.svelte";
-  import Terminal from "./lib/Terminal.svelte";
+  import SplitPane from "./lib/SplitPane.svelte";
   import NewSessionDialog from "./lib/NewSessionDialog.svelte";
-  import SearchBar from "./lib/SearchBar.svelte";
   import { getKeymap } from "./lib/config.svelte";
   import { matchKeybinding } from "./lib/keybindings";
 
   let sessions = $state<SessionInfo[]>([]);
-  let activeSessionId = $state<string | null>(null);
+  let layoutTree = $state<LayoutNode>(emptyLeaf());
+  let focusedPath = $state<number[]>([]);
   let showNewDialog = $state(false);
   let sidebarVisible = $state(true);
   let searchVisible = $state(false);
   let terminalApis = $state<Record<string, TerminalApi>>({});
   let cleanups: Array<() => void> = [];
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingQuickPickPath: number[] | null = null;
+
+  function collectLeafPaths(node: LayoutNode, prefix: number[] = []): number[][] {
+    if (node.type === "leaf") return [prefix];
+    return [
+      ...collectLeafPaths(node.children[0], [...prefix, 0]),
+      ...collectLeafPaths(node.children[1], [...prefix, 1]),
+    ];
+  }
+
+  function pathsEqual(a: number[], b: number[]): boolean {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+
+  function cycleFocus(delta: number): void {
+    const paths = collectLeafPaths(layoutTree);
+    if (paths.length === 0) return;
+    const currentIdx = paths.findIndex((p) => pathsEqual(p, focusedPath));
+    const nextIdx = (currentIdx + delta + paths.length) % paths.length;
+    focusedPath = paths[nextIdx];
+    focusTerminalAtPath(focusedPath);
+  }
+
+  function asPath(p: number[]): Path {
+    return p as Path;
+  }
+
+  function focusTerminalAtPath(path: number[]): void {
+    try {
+      const content = getLeafContent(layoutTree, asPath(path));
+      if (content) {
+        const id = content.type === "session" ? content.sessionId : content.id;
+        requestAnimationFrame(() => terminalApis[id]?.focus());
+      }
+    } catch {
+      // path invalid, ignore
+    }
+  }
+
+  function getFocusedContent(): PaneContent {
+    try {
+      return getLeafContent(layoutTree, asPath(focusedPath));
+    } catch {
+      return null;
+    }
+  }
+
+  function getWorkDirFromSiblingPane(): string {
+    // Try to find a sibling pane's workdir
+    if (focusedPath.length > 0) {
+      const siblingPath = [...focusedPath];
+      siblingPath[siblingPath.length - 1] = siblingPath[siblingPath.length - 1] === 0 ? 1 : 0;
+      try {
+        const sibContent = getLeafContent(layoutTree, asPath(siblingPath));
+        if (sibContent?.type === "session") {
+          const s = sessions.find((sess) => sess.id === sibContent.sessionId);
+          if (s) return s.work_dir;
+        } else if (sibContent?.type === "terminal") {
+          return sibContent.workDir;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return "~";
+  }
 
   const actions: Record<string, () => void> = {
     "session.new": () => (showNewDialog = true),
     "session.kill": () => {
-      if (activeSessionId) handleKill(activeSessionId);
+      const content = getFocusedContent();
+      if (content?.type === "session") handleKill(content.sessionId);
     },
-    "session.next": () => selectAdjacentSession(1),
-    "session.prev": () => selectAdjacentSession(-1),
+    "session.next": () => {
+      if (sessions.length === 0) return;
+      const content = getFocusedContent();
+      const currentId = content?.type === "session" ? content.sessionId : null;
+      const currentIdx = currentId ? sessions.findIndex((s) => s.id === currentId) : -1;
+      const nextIdx = (currentIdx + 1) % sessions.length;
+      const nextSession = sessions[nextIdx];
+      const path = findLeafBySessionId(layoutTree, nextSession.id);
+      if (path) {
+        focusedPath = path;
+        focusTerminalAtPath(path);
+      }
+    },
+    "session.prev": () => {
+      if (sessions.length === 0) return;
+      const content = getFocusedContent();
+      const currentId = content?.type === "session" ? content.sessionId : null;
+      const currentIdx = currentId ? sessions.findIndex((s) => s.id === currentId) : -1;
+      const prevIdx = (currentIdx - 1 + sessions.length) % sessions.length;
+      const prevSession = sessions[prevIdx];
+      const path = findLeafBySessionId(layoutTree, prevSession.id);
+      if (path) {
+        focusedPath = path;
+        focusTerminalAtPath(path);
+      }
+    },
     "app.toggleSidebar": () => (sidebarVisible = !sidebarVisible),
     "terminal.search": () => {
-      if (activeSessionId) searchVisible = !searchVisible;
+      const content = getFocusedContent();
+      if (content) searchVisible = !searchVisible;
     },
+    "pane.splitVertical": () => {
+      layoutTree = splitLeaf(layoutTree, asPath(focusedPath), "vertical");
+      focusedPath = [...focusedPath, 1];
+    },
+    "pane.splitHorizontal": () => {
+      layoutTree = splitLeaf(layoutTree, asPath(focusedPath), "horizontal");
+      focusedPath = [...focusedPath, 1];
+    },
+    "pane.close": () => handleClosePane(),
+    "pane.focusUp": () => cycleFocus(-1),
+    "pane.focusDown": () => cycleFocus(1),
+    "pane.focusLeft": () => cycleFocus(-1),
+    "pane.focusRight": () => cycleFocus(1),
   };
-
-  function selectAdjacentSession(delta: number): void {
-    if (sessions.length === 0) return;
-    const currentIndex = sessions.findIndex((s) => s.id === activeSessionId);
-    const nextIndex =
-      (currentIndex + delta + sessions.length) % sessions.length;
-    activeSessionId = sessions[nextIndex].id;
-  }
 
   function handleGlobalKeydown(event: KeyboardEvent): void {
     const action = matchKeybinding(event, getKeymap());
@@ -47,8 +165,93 @@
     }
   }
 
+  async function handleClosePane(): Promise<void> {
+    const content = getFocusedContent();
+    if (content) {
+      const id = content.type === "session" ? content.sessionId : content.id;
+      try {
+        if (content.type === "session") {
+          await KillSession(id);
+        } else {
+          await KillTerminal(id);
+        }
+      } catch {
+        // process may already be dead
+      }
+      delete terminalApis[id];
+    }
+
+    const paths = collectLeafPaths(layoutTree);
+    if (paths.length <= 1) {
+      // Last pane — just clear its content
+      layoutTree = emptyLeaf();
+      focusedPath = [];
+      return;
+    }
+
+    layoutTree = closeLeaf(layoutTree, asPath(focusedPath));
+    const newPaths = collectLeafPaths(layoutTree);
+    focusedPath = newPaths[0] ?? [];
+    focusTerminalAtPath(focusedPath);
+  }
+
+  // Reset search when focus changes
+  $effect(() => {
+    void focusedPath;
+    searchVisible = false;
+  });
+
+  // Persist layout on changes (debounced)
+  $effect(() => {
+    void layoutTree;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        const cfg = await GetConfig();
+        // layout is json.RawMessage in Go — assign the raw object
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (cfg as any).layout = layoutTree;
+        await SetConfig(cfg);
+      } catch {
+        // config save failed, ignore
+      }
+    }, 500);
+  });
+
   onMount(async () => {
     sessions = ((await ListSessions()) || []) as SessionInfo[];
+
+    // Load persisted layout
+    try {
+      const cfg = await GetConfig();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawLayout = (cfg as any).layout;
+      if (rawLayout && typeof rawLayout === "object" && rawLayout !== null && "type" in rawLayout) {
+        layoutTree = rawLayout as LayoutNode;
+
+        // Clean up stale sessions and terminals
+        const layoutSessionIds = collectSessionIds(layoutTree);
+        const liveSessionIds = new Set(sessions.map((s) => s.id));
+
+        let cleaned = layoutTree;
+        for (const sid of layoutSessionIds) {
+          if (!liveSessionIds.has(sid)) {
+            const path = findLeafBySessionId(cleaned, sid);
+            if (path) {
+              cleaned = setLeafContent(cleaned, path, null);
+            }
+          }
+        }
+
+        layoutTree = cleaned;
+      }
+    } catch {
+      // No persisted layout, use default
+    }
+
+    // Set initial focus
+    const paths = collectLeafPaths(layoutTree);
+    if (paths.length > 0) focusedPath = paths[0];
 
     const cancel = EventsOn("sessions-updated", (updated: unknown) => {
       sessions = (updated || []) as SessionInfo[];
@@ -58,44 +261,97 @@
 
   onDestroy(() => {
     cleanups.forEach((fn) => fn());
+    if (saveTimer) clearTimeout(saveTimer);
   });
 
-  async function handleNewSession(workDir: string) {
+  async function handleNewSession(workDir: string): Promise<void> {
     showNewDialog = false;
     const info = await CreateSession(workDir);
-    activeSessionId = info.id;
+
+    if (pendingQuickPickPath) {
+      layoutTree = setLeafContent(layoutTree, asPath(pendingQuickPickPath), {
+        type: "session",
+        sessionId: info.id,
+      });
+      focusedPath = pendingQuickPickPath;
+      pendingQuickPickPath = null;
+    } else {
+      // Find an empty pane or use focused pane
+      const content = getFocusedContent();
+      if (content === null) {
+        layoutTree = setLeafContent(layoutTree, asPath(focusedPath), {
+          type: "session",
+          sessionId: info.id,
+        });
+      } else {
+        // No empty focused pane — assign to first empty leaf or just set focused
+        layoutTree = setLeafContent(layoutTree, asPath(focusedPath), {
+          type: "session",
+          sessionId: info.id,
+        });
+      }
+    }
     requestAnimationFrame(() => terminalApis[info.id]?.focus());
   }
 
-  async function handleKill(id: string) {
+  async function handleKill(id: string): Promise<void> {
     await KillSession(id);
-    if (activeSessionId === id) {
-      activeSessionId = null;
+    delete terminalApis[id];
+    // Clear the pane content
+    const path = findLeafBySessionId(layoutTree, id);
+    if (path) {
+      layoutTree = setLeafContent(layoutTree, asPath(path), null);
     }
   }
 
-  async function handleRename(id: string, name: string) {
+  async function handleRename(id: string, name: string): Promise<void> {
     await RenameSession(id, name);
   }
 
-  let activeSession = $derived(
-    sessions.find((s) => s.id === activeSessionId),
-  );
-
-  $effect(() => {
-    if (searchVisible && activeSessionId) {
-      requestAnimationFrame(() => {
-        const input = document.querySelector<HTMLInputElement>(".search-bar input");
-        input?.focus();
-        input?.select();
-      });
+  function handleSidebarSelect(id: string): void {
+    // If session already in a pane, focus that pane
+    const existingPath = findLeafBySessionId(layoutTree, id);
+    if (existingPath) {
+      focusedPath = existingPath;
+      focusTerminalAtPath(existingPath);
+      return;
     }
-  });
 
-  $effect(() => {
-    void activeSessionId;
-    searchVisible = false;
-  });
+    // If focused pane is empty, assign session there
+    const content = getFocusedContent();
+    if (content === null) {
+      layoutTree = setLeafContent(layoutTree, asPath(focusedPath), {
+        type: "session",
+        sessionId: id,
+      });
+      requestAnimationFrame(() => terminalApis[id]?.focus());
+      return;
+    }
+
+    // Otherwise do nothing
+  }
+
+  async function handleQuickPick(
+    path: number[],
+    choice: "terminal" | "session",
+  ): Promise<void> {
+    if (choice === "session") {
+      pendingQuickPickPath = path;
+      showNewDialog = true;
+      return;
+    }
+
+    // Terminal choice
+    const workDir = getWorkDirFromSiblingPane();
+    const info = await CreateTerminal(workDir);
+    layoutTree = setLeafContent(layoutTree, asPath(path), {
+      type: "terminal",
+      id: info.id,
+      workDir: info.work_dir,
+    });
+    focusedPath = path;
+    requestAnimationFrame(() => terminalApis[info.id]?.focus());
+  }
 </script>
 
 <svelte:window onkeydown={handleGlobalKeydown} />
@@ -104,11 +360,8 @@
   {#if sidebarVisible}
     <Sidebar
       {sessions}
-      {activeSessionId}
-      onSelect={(id) => {
-        activeSessionId = id;
-        requestAnimationFrame(() => terminalApis[id]?.focus());
-      }}
+      activeSessionId={null}
+      onSelect={handleSidebarSelect}
       onNew={() => (showNewDialog = true)}
       onKill={handleKill}
       onRename={handleRename}
@@ -116,38 +369,33 @@
   {/if}
 
   <div class="content">
-    {#each sessions as session (session.id)}
-      <div class="terminal-wrapper" class:active={session.id === activeSessionId}>
-        <Terminal
-          sessionId={session.id}
-          visible={session.id === activeSessionId}
-          onReady={(api) => (terminalApis[session.id] = api)}
-        />
-        {#if searchVisible && session.id === activeSessionId && terminalApis[session.id]}
-          <SearchBar
-            searchAddon={terminalApis[session.id].searchAddon}
-            onClose={() => {
-              searchVisible = false;
-              terminalApis[session.id]?.focus();
-            }}
-          />
-        {/if}
-      </div>
-    {/each}
-    {#if !activeSession}
-      <div class="empty">
-        <p>No session selected</p>
-        <button onclick={() => (showNewDialog = true)}>
-          Launch a new session
-        </button>
-      </div>
-    {/if}
+    <SplitPane
+      node={layoutTree}
+      path={[]}
+      {focusedPath}
+      {searchVisible}
+      {terminalApis}
+      onFocus={(path) => {
+        focusedPath = path;
+        focusTerminalAtPath(path);
+      }}
+      onRatioChange={(path, ratio) => {
+        layoutTree = updateRatio(layoutTree, asPath(path), ratio);
+      }}
+      onQuickPick={handleQuickPick}
+      onTerminalReady={(id, api) => {
+        terminalApis[id] = api;
+      }}
+    />
   </div>
 
   {#if showNewDialog}
     <NewSessionDialog
       onSubmit={handleNewSession}
-      onCancel={() => (showNewDialog = false)}
+      onCancel={() => {
+        showNewDialog = false;
+        pendingQuickPickPath = null;
+      }}
     />
   {/if}
 </main>
@@ -161,36 +409,6 @@
   .content {
     flex: 1;
     min-width: 0;
-    position: relative;
-  }
-
-  .terminal-wrapper {
-    position: absolute;
-    inset: 0;
-    visibility: hidden;
-  }
-
-  .terminal-wrapper.active {
-    visibility: visible;
-  }
-
-  .empty {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    color: var(--text-muted);
-  }
-
-  .empty button {
-    padding: 8px 16px;
-    background: var(--accent);
-    color: var(--bg-primary);
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 600;
+    min-height: 0;
   }
 </style>
