@@ -92,7 +92,9 @@
       });
 
       EventsEmit("terminal-resize", sessionId, terminal.cols, terminal.rows);
-      AttachSession(sessionId);
+      AttachSession(sessionId).catch(() => {
+        // Plain terminals don't need AttachSession
+      });
 
       onReady?.({ searchAddon, focus: () => terminal.focus() });
     } else {
