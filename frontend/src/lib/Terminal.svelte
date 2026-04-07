@@ -5,19 +5,28 @@
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import { WebglAddon } from "@xterm/addon-webgl";
   import { EventsOn, EventsEmit } from "../../wailsjs/runtime/runtime";
+  import { AttachSession } from "../../wailsjs/go/main/App";
   import "@xterm/xterm/css/xterm.css";
   import { getTheme } from "./config.svelte";
   import { getXtermTheme } from "./themes";
 
   interface Props {
     sessionId: string;
+    visible?: boolean;
   }
 
-  let { sessionId }: Props = $props();
+  let { sessionId, visible = true }: Props = $props();
   let terminalEl: HTMLDivElement;
   let terminal: Terminal;
   let fitAddon: FitAddon;
   let cleanups: Array<() => void> = [];
+
+  $effect(() => {
+    if (visible && fitAddon) {
+      // Re-fit after becoming visible so xterm measures correctly
+      requestAnimationFrame(() => fitAddon.fit());
+    }
+  });
 
   onMount(() => {
     terminal = new Terminal({
@@ -61,6 +70,9 @@
     cleanups.push(() => resizeObserver.disconnect());
 
     EventsEmit("terminal-resize", sessionId, terminal.cols, terminal.rows);
+
+    // Start the read loop on the backend — ensures replay arrives after we're subscribed
+    AttachSession(sessionId);
   });
 
   onDestroy(() => {
