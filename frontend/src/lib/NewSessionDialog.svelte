@@ -15,17 +15,10 @@
     }
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      onCancel();
-    }
-  }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="overlay" onclick={onCancel} role="presentation">
+<div class="overlay" onclick={onCancel} onkeydown={(e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); }} role="presentation">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_click_events_have_key_events -->
   <form
     class="dialog"
