@@ -3,6 +3,7 @@ export namespace config {
 	export class Config {
 	    theme: string;
 	    keybindings: Record<string, string>;
+	    layout?: number[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -12,6 +13,7 @@ export namespace config {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.theme = source["theme"];
 	        this.keybindings = source["keybindings"];
+	        this.layout = source["layout"];
 	    }
 	}
 
@@ -63,6 +65,27 @@ export namespace session {
 		    }
 		    return a;
 		}
+	}
+
+}
+
+export namespace terminal {
+	
+	export class TerminalInfo {
+	    id: string;
+	    work_dir: string;
+	    pid: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TerminalInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.work_dir = source["work_dir"];
+	        this.pid = source["pid"];
+	    }
 	}
 
 }

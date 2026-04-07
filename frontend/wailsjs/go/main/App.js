@@ -10,12 +10,20 @@ export function CreateSession(arg1) {
   return window['go']['main']['App']['CreateSession'](arg1);
 }
 
+export function CreateTerminal(arg1) {
+  return window['go']['main']['App']['CreateTerminal'](arg1);
+}
+
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
 export function KillSession(arg1) {
   return window['go']['main']['App']['KillSession'](arg1);
+}
+
+export function KillTerminal(arg1) {
+  return window['go']['main']['App']['KillTerminal'](arg1);
 }
 
 export function ListSessions() {

@@ -10,6 +10,8 @@
   import "@xterm/xterm/css/xterm.css";
   import { getTheme } from "./config.svelte";
   import { getXtermTheme } from "./themes";
+  import { getKeymap } from "./config.svelte";
+  import { matchKeybinding } from "./keybindings";
   import type { TerminalApi } from "./types";
 
   interface Props {
@@ -20,7 +22,7 @@
 
   let { sessionId, visible = true, onReady }: Props = $props();
   let terminalEl: HTMLDivElement;
-  let terminal: Terminal;
+  let terminal = $state<Terminal | undefined>(undefined);
   let fitAddon: FitAddon;
   let searchAddon: SearchAddon;
   let cleanups: Array<() => void> = [];
@@ -31,7 +33,7 @@
 
   function fitAndRefresh(): void {
     fitAddon.fit();
-    terminal.refresh(0, terminal.rows - 1);
+    terminal!.refresh(0, terminal!.rows - 1);
   }
 
   $effect(() => {
@@ -45,23 +47,25 @@
       return;
     }
 
+    const term = terminal;
+
     if (!opened) {
       opened = true;
-      terminal.open(terminalEl);
+      term.open(terminalEl);
 
       try {
         const webglAddon = new WebglAddon();
         webglAddon.onContextLoss(() => {
           webglAddon.dispose();
         });
-        terminal.loadAddon(webglAddon);
+        term.loadAddon(webglAddon);
       } catch {
         // WebGL not available, fall back to canvas renderer
       }
 
       fitAndRefresh();
 
-      const inputDisposable = terminal.onData((data: string) => {
+      const inputDisposable = term.onData((data: string) => {
         EventsEmit("terminal-input", sessionId, data);
       });
       cleanups.push(() => inputDisposable.dispose());
@@ -69,7 +73,7 @@
       const cancelOutput = EventsOn(
         `terminal-output-${sessionId}`,
         (data: string) => {
-          terminal.write(data);
+          term.write(data);
         },
       );
       cleanups.push(cancelOutput);
@@ -80,8 +84,8 @@
         resizeTimer = setTimeout(() => {
           if (!currentlyVisible) return;
           fitAndRefresh();
-          if (terminal.cols > 0 && terminal.rows > 0) {
-            EventsEmit("terminal-resize", sessionId, terminal.cols, terminal.rows);
+          if (term.cols > 0 && term.rows > 0) {
+            EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
           }
         }, 50);
       });
@@ -91,18 +95,20 @@
         resizeObserver.disconnect();
       });
 
-      EventsEmit("terminal-resize", sessionId, terminal.cols, terminal.rows);
-      AttachSession(sessionId);
+      EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
+      AttachSession(sessionId).catch(() => {
+        // Plain terminals don't need AttachSession
+      });
 
-      onReady?.({ searchAddon, focus: () => terminal.focus() });
+      onReady?.({ searchAddon, focus: () => term.focus() });
     } else {
       // Already opened, just becoming visible again — double-rAF for layout settle
       rafId = requestAnimationFrame(() => {
         rafId = requestAnimationFrame(() => {
           rafId = undefined;
           fitAndRefresh();
-          if (terminal.cols > 0 && terminal.rows > 0) {
-            EventsEmit("terminal-resize", sessionId, terminal.cols, terminal.rows);
+          if (term.cols > 0 && term.rows > 0) {
+            EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
           }
         });
       });
@@ -129,6 +135,14 @@
     terminal.loadAddon(new WebLinksAddon());
     searchAddon = new SearchAddon();
     terminal.loadAddon(searchAddon);
+
+    // Let app-level keybindings pass through xterm
+    terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if (matchKeybinding(event, getKeymap())) {
+        return false; // don't handle — let it bubble to window handler
+      }
+      return true;
+    });
   });
 
   onDestroy(() => {
