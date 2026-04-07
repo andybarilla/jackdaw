@@ -153,3 +153,85 @@ func TestManagerRenameNotFound(t *testing.T) {
 		t.Error("expected error for nonexistent session")
 	}
 }
+
+func TestManagerRecoverWithName(t *testing.T) {
+	manifestDir := t.TempDir()
+	socketDir := t.TempDir()
+
+	sockPath := filepath.Join(socketDir, "named-1.sock")
+	srv, err := relay.NewServer(sockPath, "/tmp", "cat", nil, 4096)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	go srv.Serve()
+	defer srv.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	mf := &manifest.Manifest{
+		SessionID:  "named-1",
+		PID:        srv.PID(),
+		Command:    "cat",
+		WorkDir:    "/tmp/myapp",
+		SocketPath: sockPath,
+		StartedAt:  time.Now().Add(-10 * time.Minute),
+		Name:       "custom-name",
+	}
+	manifest.Write(filepath.Join(manifestDir, "named-1.json"), mf)
+
+	m := NewManager(manifestDir, socketDir)
+	recovered := m.Recover()
+
+	found := false
+	for _, info := range recovered {
+		if info.ID == "named-1" {
+			found = true
+			if info.Name != "custom-name" {
+				t.Errorf("Name = %q, want %q", info.Name, "custom-name")
+			}
+		}
+	}
+	if !found {
+		t.Error("expected to recover named session")
+	}
+}
+
+func TestManagerRecoverLegacyNoName(t *testing.T) {
+	manifestDir := t.TempDir()
+	socketDir := t.TempDir()
+
+	sockPath := filepath.Join(socketDir, "legacy-1.sock")
+	srv, err := relay.NewServer(sockPath, "/tmp", "cat", nil, 4096)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	go srv.Serve()
+	defer srv.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	// Write manifest without Name field (legacy)
+	mf := &manifest.Manifest{
+		SessionID:  "legacy-1",
+		PID:        srv.PID(),
+		Command:    "cat",
+		WorkDir:    "/tmp/myapp",
+		SocketPath: sockPath,
+		StartedAt:  time.Now().Add(-10 * time.Minute),
+	}
+	manifest.Write(filepath.Join(manifestDir, "legacy-1.json"), mf)
+
+	m := NewManager(manifestDir, socketDir)
+	recovered := m.Recover()
+
+	found := false
+	for _, info := range recovered {
+		if info.ID == "legacy-1" {
+			found = true
+			if info.Name != "myapp" {
+				t.Errorf("Name = %q, want %q (generated from WorkDir)", info.Name, "myapp")
+			}
+		}
+	}
+	if !found {
+		t.Error("expected to recover legacy session")
+	}
+}

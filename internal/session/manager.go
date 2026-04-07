@@ -251,8 +251,14 @@ func (m *Manager) Recover() []SessionInfo {
 			continue
 		}
 
+		name := mf.Name
+		if name == "" {
+			name = m.generateName(mf.WorkDir)
+		}
+
 		info := &SessionInfo{
 			ID:        mf.SessionID,
+			Name:      name,
 			WorkDir:   mf.WorkDir,
 			Command:   mf.Command,
 			Status:    StatusRunning,
