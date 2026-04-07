@@ -325,7 +325,7 @@ describe("setLeafContent", () => {
   it("does not mutate original tree", () => {
     const root = emptyLeaf();
     setLeafContent(root, [], { type: "session", sessionId: "s1" });
-    expect(root.content).toBeNull();
+    expect(root.type === "leaf" && root.content).toBeNull();
   });
 });
 
