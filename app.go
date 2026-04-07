@@ -41,14 +41,13 @@ func (a *App) Startup(ctx context.Context) {
 		runtime.EventsEmit(ctx, "sessions-updated", sessions)
 	})
 
-	// Wire output for recovered sessions and start their read loops
+	// Wire output handlers for recovered sessions (read loops start when frontend attaches)
 	for _, info := range recovered {
 		id := info.ID
 		a.manager.SetOnOutput(id, func(data []byte) {
 			runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
 		})
 	}
-	a.manager.StartRecoveredReadLoops()
 
 	runtime.EventsOn(ctx, "terminal-input", func(data ...interface{}) {
 		if len(data) < 2 {
@@ -103,6 +102,10 @@ func (a *App) CreateSession(workDir string) (*session.SessionInfo, error) {
 	a.manager.StartSessionReadLoop(info.ID)
 
 	return info, nil
+}
+
+func (a *App) AttachSession(id string) {
+	a.manager.StartSessionReadLoop(id)
 }
 
 func (a *App) ListSessions() []session.SessionInfo {

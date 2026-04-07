@@ -23,11 +23,12 @@ type Session struct {
 	OnOutput   func(data []byte)
 	OnExit     func(exitCode int)
 
-	relayCmd  *exec.Cmd
-	client    *relay.Client
-	pid       int
-	mu        sync.Mutex
-	exitDone  chan struct{}
+	relayCmd     *exec.Cmd
+	client       *relay.Client
+	pid          int
+	mu           sync.Mutex
+	exitDone     chan struct{}
+	readStarted  bool
 }
 
 func New(id string, workDir string, command string, args []string, socketDir string) (*Session, error) {
@@ -107,6 +108,14 @@ func (s *Session) PID() int {
 }
 
 func (s *Session) StartReadLoop() {
+	s.mu.Lock()
+	if s.readStarted {
+		s.mu.Unlock()
+		return
+	}
+	s.readStarted = true
+	s.mu.Unlock()
+
 	s.client.OnOutput = func(data []byte) {
 		if s.OnOutput != nil {
 			s.OnOutput(data)

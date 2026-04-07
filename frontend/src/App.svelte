@@ -86,11 +86,12 @@
   {/if}
 
   <div class="content">
-    {#if activeSession}
-      {#key activeSession.id}
-        <Terminal sessionId={activeSession.id} />
-      {/key}
-    {:else}
+    {#each sessions as session (session.id)}
+      <div class="terminal-wrapper" class:active={session.id === activeSessionId}>
+        <Terminal sessionId={session.id} visible={session.id === activeSessionId} />
+      </div>
+    {/each}
+    {#if !activeSession}
       <div class="empty">
         <p>No session selected</p>
         <button onclick={() => (showNewDialog = true)}>
@@ -117,8 +118,17 @@
   .content {
     flex: 1;
     min-width: 0;
-    display: flex;
-    flex-direction: column;
+    position: relative;
+  }
+
+  .terminal-wrapper {
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+  }
+
+  .terminal-wrapper.active {
+    visibility: visible;
   }
 
   .empty {

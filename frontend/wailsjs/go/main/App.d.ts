@@ -3,14 +3,16 @@
 import {session} from '../models';
 import {config} from '../models';
 
+export function AttachSession(arg1:string):Promise<void>;
+
 export function CreateSession(arg1:string):Promise<session.SessionInfo>;
 
 export function GetConfig():Promise<config.Config>;
 
 export function KillSession(arg1:string):Promise<void>;
 
-export function PickDirectory():Promise<string>;
-
 export function ListSessions():Promise<Array<session.SessionInfo>>;
+
+export function PickDirectory():Promise<string>;
 
 export function SetConfig(arg1:config.Config):Promise<void>;
