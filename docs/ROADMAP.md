@@ -6,11 +6,9 @@
 - **Theming & keybindings** — Dark/light themes, customizable keyboard shortcuts, config persistence
 - **Session naming** — Inline rename in sidebar, persisted in manifests
 - **Terminal search** — xterm.js SearchAddon with Ctrl+F keybinding
+- **Multi-session layout** — Split panes with drag-to-resize, tab bar for quick switching, flexible tiling
 
 ## Up Next
-
-### Multi-session Layout
-Split panes or tiling so multiple terminals are visible simultaneously. Tab bar for quick switching as session count grows.
 
 ### Session History
 Persist terminal scrollback to disk so restarting the app doesn't lose output. Useful both standalone and as a building block for session re-attachment.
