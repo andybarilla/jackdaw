@@ -4,7 +4,6 @@
 
 # Wails
 /frontend/dist/
-/frontend/wailsjs/
 
 # Node
 /frontend/node_modules/
