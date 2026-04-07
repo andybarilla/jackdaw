@@ -15,6 +15,8 @@
     "@xterm/addon-web-links": "^0.11",
     "@xterm/addon-webgl": "^0.18",
     "@xterm/xterm": "^5",
+    "happy-dom": "^20.8.9",
+    "jsdom": "^29.0.1",
     "svelte": "^5",
     "svelte-check": "^4",
     "typescript": "^5",
