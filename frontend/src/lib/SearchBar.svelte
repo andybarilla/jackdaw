@@ -45,6 +45,8 @@
     // Re-run search when options change
     if (query) {
       searchAddon.findNext(query, { ...searchOptions(), incremental: true });
+    } else {
+      searchAddon.clearDecorations();
     }
   });
 
@@ -68,10 +70,6 @@
     onClose();
   }
 
-  export function focusInput(): void {
-    inputEl?.focus();
-    inputEl?.select();
-  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
