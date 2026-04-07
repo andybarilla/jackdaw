@@ -8,15 +8,17 @@ import (
 )
 
 type Config struct {
-	Theme       string            `json:"theme"`
-	Keybindings map[string]string `json:"keybindings"`
-	Layout      json.RawMessage   `json:"layout,omitempty"`
+	Theme           string            `json:"theme"`
+	Keybindings     map[string]string `json:"keybindings"`
+	Layout          json.RawMessage   `json:"layout,omitempty"`
+	HistoryMaxBytes int               `json:"history_max_bytes,omitempty"`
 }
 
 func Defaults() *Config {
 	return &Config{
-		Theme:       "whattheflock",
-		Keybindings: map[string]string{},
+		Theme:           "whattheflock",
+		Keybindings:     map[string]string{},
+		HistoryMaxBytes: 1048576,
 	}
 }
 

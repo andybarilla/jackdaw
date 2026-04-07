@@ -1,6 +1,7 @@
 package session
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -10,7 +11,7 @@ import (
 )
 
 func TestManagerKillNonexistent(t *testing.T) {
-	m := NewManager(t.TempDir(), t.TempDir())
+	m := NewManager(t.TempDir(), t.TempDir(), t.TempDir(), 1048576)
 	err := m.Kill("nonexistent")
 	if err == nil {
 		t.Error("expected error for nonexistent session")
@@ -23,7 +24,7 @@ func TestManagerRecover(t *testing.T) {
 
 	// Start a real relay server so Reconnect succeeds
 	sockPath := filepath.Join(socketDir, "recovered-1.sock")
-	srv, err := relay.NewServer(sockPath, "/tmp", "cat", nil, 4096)
+	srv, err := relay.NewServer(sockPath, "/tmp", "cat", nil, 4096, "", 0)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestManagerRecover(t *testing.T) {
 	}
 	manifest.Write(filepath.Join(manifestDir, "stale-1.json"), staleMf)
 
-	m := NewManager(manifestDir, socketDir)
+	m := NewManager(manifestDir, socketDir, t.TempDir(), 1048576)
 	recovered := m.Recover()
 
 	// Should recover the alive session
@@ -77,7 +78,7 @@ func TestManagerRecover(t *testing.T) {
 }
 
 func TestManagerGenerateName(t *testing.T) {
-	m := NewManager(t.TempDir(), t.TempDir())
+	m := NewManager(t.TempDir(), t.TempDir(), t.TempDir(), 1048576)
 
 	// Simulate existing sessions by inserting into sessionInfo directly
 	m.sessionInfo["1"] = &SessionInfo{ID: "1", WorkDir: "/home/user/myapp", Name: "myapp"}
@@ -95,7 +96,7 @@ func TestManagerGenerateName(t *testing.T) {
 }
 
 func TestManagerGenerateNameFirst(t *testing.T) {
-	m := NewManager(t.TempDir(), t.TempDir())
+	m := NewManager(t.TempDir(), t.TempDir(), t.TempDir(), 1048576)
 	got := m.generateName("/home/user/project")
 	if got != "project" {
 		t.Errorf("generateName = %q, want %q", got, "project")
@@ -103,7 +104,7 @@ func TestManagerGenerateNameFirst(t *testing.T) {
 }
 
 func TestManagerGenerateNameRoot(t *testing.T) {
-	m := NewManager(t.TempDir(), t.TempDir())
+	m := NewManager(t.TempDir(), t.TempDir(), t.TempDir(), 1048576)
 	got := m.generateName("/")
 	if got != "/" {
 		t.Errorf("generateName = %q, want %q", got, "/")
@@ -112,7 +113,7 @@ func TestManagerGenerateNameRoot(t *testing.T) {
 
 func TestManagerRename(t *testing.T) {
 	manifestDir := t.TempDir()
-	m := NewManager(manifestDir, t.TempDir())
+	m := NewManager(manifestDir, t.TempDir(), t.TempDir(), 1048576)
 
 	// Insert a fake session info and manifest
 	m.sessionInfo["s1"] = &SessionInfo{ID: "s1", Name: "old-name", WorkDir: "/tmp/foo"}
@@ -139,7 +140,7 @@ func TestManagerRename(t *testing.T) {
 }
 
 func TestManagerRenameEmptyName(t *testing.T) {
-	m := NewManager(t.TempDir(), t.TempDir())
+	m := NewManager(t.TempDir(), t.TempDir(), t.TempDir(), 1048576)
 	m.sessionInfo["s1"] = &SessionInfo{ID: "s1", Name: "old", WorkDir: "/tmp/foo"}
 
 	if err := m.Rename("s1", "   "); err == nil {
@@ -148,7 +149,7 @@ func TestManagerRenameEmptyName(t *testing.T) {
 }
 
 func TestManagerRenameNotFound(t *testing.T) {
-	m := NewManager(t.TempDir(), t.TempDir())
+	m := NewManager(t.TempDir(), t.TempDir(), t.TempDir(), 1048576)
 	if err := m.Rename("nonexistent", "name"); err == nil {
 		t.Error("expected error for nonexistent session")
 	}
@@ -159,7 +160,7 @@ func TestManagerRecoverWithName(t *testing.T) {
 	socketDir := t.TempDir()
 
 	sockPath := filepath.Join(socketDir, "named-1.sock")
-	srv, err := relay.NewServer(sockPath, "/tmp", "cat", nil, 4096)
+	srv, err := relay.NewServer(sockPath, "/tmp", "cat", nil, 4096, "", 0)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -178,7 +179,7 @@ func TestManagerRecoverWithName(t *testing.T) {
 	}
 	manifest.Write(filepath.Join(manifestDir, "named-1.json"), mf)
 
-	m := NewManager(manifestDir, socketDir)
+	m := NewManager(manifestDir, socketDir, t.TempDir(), 1048576)
 	recovered := m.Recover()
 
 	found := false
@@ -200,7 +201,7 @@ func TestManagerRecoverLegacyNoName(t *testing.T) {
 	socketDir := t.TempDir()
 
 	sockPath := filepath.Join(socketDir, "legacy-1.sock")
-	srv, err := relay.NewServer(sockPath, "/tmp", "cat", nil, 4096)
+	srv, err := relay.NewServer(sockPath, "/tmp", "cat", nil, 4096, "", 0)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -219,7 +220,7 @@ func TestManagerRecoverLegacyNoName(t *testing.T) {
 	}
 	manifest.Write(filepath.Join(manifestDir, "legacy-1.json"), mf)
 
-	m := NewManager(manifestDir, socketDir)
+	m := NewManager(manifestDir, socketDir, t.TempDir(), 1048576)
 	recovered := m.Recover()
 
 	found := false
@@ -233,5 +234,83 @@ func TestManagerRecoverLegacyNoName(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected to recover legacy session")
+	}
+}
+
+func TestManagerKillCleansUpHistoryFile(t *testing.T) {
+	manifestDir := t.TempDir()
+	socketDir := t.TempDir()
+	historyDir := t.TempDir()
+
+	sockPath := filepath.Join(socketDir, "kill-history.sock")
+	srv, err := relay.NewServer(sockPath, "/tmp", "cat", nil, 4096, "", 0)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	go srv.Serve()
+	defer srv.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	m := NewManager(manifestDir, socketDir, historyDir, 1048576)
+
+	historyPath := filepath.Join(historyDir, "kill-history.log")
+	os.WriteFile(historyPath, []byte("some output"), 0600)
+
+	client, _ := relay.NewClient(sockPath)
+	s := &Session{
+		ID:         "kill-history",
+		SocketPath: sockPath,
+		client:     client,
+		pid:        srv.PID(),
+		exitDone:   make(chan struct{}),
+	}
+	m.sessions["kill-history"] = s
+	m.sessionInfo["kill-history"] = &SessionInfo{
+		ID:     "kill-history",
+		Status: StatusRunning,
+		PID:    srv.PID(),
+	}
+
+	mf := &manifest.Manifest{
+		SessionID:   "kill-history",
+		PID:         srv.PID(),
+		Command:     "cat",
+		WorkDir:     "/tmp",
+		SocketPath:  sockPath,
+		StartedAt:   time.Now(),
+		HistoryPath: historyPath,
+	}
+	manifest.Write(filepath.Join(manifestDir, "kill-history.json"), mf)
+
+	m.Kill("kill-history")
+
+	if _, err := os.Stat(historyPath); !os.IsNotExist(err) {
+		t.Error("history file should be deleted after Kill")
+	}
+}
+
+func TestManagerRecoverCleansUpStaleHistoryFile(t *testing.T) {
+	manifestDir := t.TempDir()
+	socketDir := t.TempDir()
+	historyDir := t.TempDir()
+
+	historyPath := filepath.Join(historyDir, "stale-history.log")
+	os.WriteFile(historyPath, []byte("stale output"), 0600)
+
+	staleMf := &manifest.Manifest{
+		SessionID:   "stale-history",
+		PID:         999999999,
+		Command:     "cat",
+		WorkDir:     "/tmp",
+		StartedAt:   time.Now().Add(-1 * time.Hour),
+		HistoryPath: historyPath,
+	}
+	manifest.Write(filepath.Join(manifestDir, "stale-history.json"), staleMf)
+
+	m := NewManager(manifestDir, socketDir, historyDir, 1048576)
+	m.Recover()
+
+	if _, err := os.Stat(historyPath); !os.IsNotExist(err) {
+		t.Error("stale history file should be deleted during Recover")
 	}
 }

@@ -24,13 +24,17 @@ func NewApp() *App {
 	jackdawDir := filepath.Join(home, ".jackdaw")
 	manifestDir := filepath.Join(jackdawDir, "manifests")
 	socketDir := filepath.Join(jackdawDir, "sockets")
+	historyDir := filepath.Join(jackdawDir, "history")
+	configPath := filepath.Join(jackdawDir, "config.json")
 	os.MkdirAll(manifestDir, 0700)
 	os.MkdirAll(socketDir, 0700)
 
+	cfg, _ := config.Load(configPath)
+
 	return &App{
-		manager:     session.NewManager(manifestDir, socketDir),
+		manager:     session.NewManager(manifestDir, socketDir, historyDir, int64(cfg.HistoryMaxBytes)),
 		termManager: terminal.NewManager(),
-		configPath:  filepath.Join(jackdawDir, "config.json"),
+		configPath:  configPath,
 	}
 }
 

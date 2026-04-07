@@ -13,7 +13,7 @@ import (
 func startTestRelay(t *testing.T, command string, args []string) (string, *relay.Server) {
 	t.Helper()
 	sockPath := filepath.Join(t.TempDir(), "test.sock")
-	srv, err := relay.NewServer(sockPath, "/tmp", command, args, 4096)
+	srv, err := relay.NewServer(sockPath, "/tmp", command, args, 4096, "", 0)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

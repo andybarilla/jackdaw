@@ -118,6 +118,33 @@ func TestWriteAndReadWithName(t *testing.T) {
 	}
 }
 
+func TestManifestHistoryPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.json")
+
+	mf := &Manifest{
+		SessionID:   "test-1",
+		PID:         12345,
+		Command:     "claude",
+		WorkDir:     "/tmp",
+		SocketPath:  "/tmp/test.sock",
+		StartedAt:   time.Now(),
+		HistoryPath: "/home/user/.jackdaw/history/test-1.log",
+	}
+
+	if err := Write(path, mf); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.HistoryPath != "/home/user/.jackdaw/history/test-1.log" {
+		t.Errorf("HistoryPath = %q, want %q", got.HistoryPath, "/home/user/.jackdaw/history/test-1.log")
+	}
+}
+
 func TestReadLegacyManifestWithoutName(t *testing.T) {
 	dir := t.TempDir()
 	// Simulate a legacy manifest JSON without a "name" field

@@ -18,7 +18,8 @@ type Manifest struct {
 	WorkDir    string    `json:"work_dir"`
 	SocketPath string    `json:"socket_path"`
 	StartedAt  time.Time `json:"started_at"`
-	Name       string    `json:"name,omitempty"`
+	Name        string    `json:"name,omitempty"`
+	HistoryPath string    `json:"history_path,omitempty"`
 }
 
 func Write(path string, m *Manifest) error {

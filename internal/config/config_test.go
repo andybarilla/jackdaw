@@ -102,6 +102,41 @@ func TestLoadDefaultsHaveNilLayout(t *testing.T) {
 	}
 }
 
+func TestDefaultHistoryMaxBytes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.HistoryMaxBytes != 1048576 {
+		t.Errorf("expected default HistoryMaxBytes 1048576, got %d", cfg.HistoryMaxBytes)
+	}
+}
+
+func TestSaveAndLoadHistoryMaxBytes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg := &Config{
+		Theme:           "dark",
+		Keybindings:     map[string]string{},
+		HistoryMaxBytes: 5242880,
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("save error: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+	if loaded.HistoryMaxBytes != 5242880 {
+		t.Errorf("expected HistoryMaxBytes 5242880, got %d", loaded.HistoryMaxBytes)
+	}
+}
+
 func TestLoadIgnoresCorruptFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

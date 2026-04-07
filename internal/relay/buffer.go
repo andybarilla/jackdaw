@@ -44,6 +44,10 @@ func (rb *RingBuffer) Write(data []byte) {
 	}
 }
 
+func (rb *RingBuffer) Size() int {
+	return rb.size
+}
+
 func (rb *RingBuffer) Bytes() []byte {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()

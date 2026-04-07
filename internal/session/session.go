@@ -31,7 +31,7 @@ type Session struct {
 	readStarted  bool
 }
 
-func New(id string, workDir string, command string, args []string, socketDir string) (*Session, error) {
+func New(id string, workDir string, command string, args []string, socketDir string, historyPath string, historyMax int64) (*Session, error) {
 	sockPath := filepath.Join(socketDir, id+".sock")
 
 	exe, err := os.Executable()
@@ -50,6 +50,9 @@ func New(id string, workDir string, command string, args []string, socketDir str
 			return nil, fmt.Errorf("encode args: %w", err)
 		}
 		relayArgs = append(relayArgs, "-args", string(argsJSON))
+	}
+	if historyPath != "" {
+		relayArgs = append(relayArgs, "-history", historyPath, "-history-max", fmt.Sprintf("%d", historyMax))
 	}
 
 	relayCmd := exec.Command(exe, relayArgs...)
