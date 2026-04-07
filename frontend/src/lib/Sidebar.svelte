@@ -64,6 +64,7 @@
       >
         <span class="status-dot" style="background: {statusColor(session.status)}"></span>
         {#if editingId === session.id}
+          <!-- svelte-ignore a11y_autofocus -->
           <input
             class="rename-input"
             bind:value={editValue}
@@ -73,6 +74,7 @@
             autofocus
           />
         {:else}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <span
             class="session-name"
             ondblclick={(e: MouseEvent) => startEditing(session, e)}
