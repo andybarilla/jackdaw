@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -57,6 +59,46 @@ func TestSaveCreatesParentDirectories(t *testing.T) {
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Error("expected config file to exist")
+	}
+}
+
+func TestSaveAndLoadWithLayout(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	layout := json.RawMessage(`{"type":"leaf","content":null}`)
+	cfg := &Config{
+		Theme:       "dark",
+		Keybindings: map[string]string{},
+		Layout:      layout,
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("save error: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, loaded.Layout); err != nil {
+		t.Fatalf("compact error: %v", err)
+	}
+	if compacted.String() != `{"type":"leaf","content":null}` {
+		t.Errorf("layout = %s, want %s", compacted.String(), layout)
+	}
+}
+
+func TestLoadDefaultsHaveNilLayout(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Layout != nil {
+		t.Errorf("expected nil layout for defaults, got %s", cfg.Layout)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Theme       string            `json:"theme"`
 	Keybindings map[string]string `json:"keybindings"`
+	Layout      json.RawMessage   `json:"layout,omitempty"`
 }
 
 func Defaults() *Config {
