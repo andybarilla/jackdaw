@@ -42,10 +42,10 @@
   }
 
   onMount(async () => {
-    sessions = (await ListSessions()) || [];
+    sessions = ((await ListSessions()) || []) as SessionInfo[];
 
-    const cancel = EventsOn("sessions-updated", (updated: SessionInfo[]) => {
-      sessions = updated || [];
+    const cancel = EventsOn("sessions-updated", (updated: unknown) => {
+      sessions = (updated || []) as SessionInfo[];
     });
     cleanups.push(cancel);
   });
