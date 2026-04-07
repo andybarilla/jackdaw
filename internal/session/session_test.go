@@ -1,16 +1,34 @@
 package session
 
 import (
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/andybarilla/jackdaw/internal/relay"
 )
 
-func TestNewSession(t *testing.T) {
-	s, err := New("test-1", "/tmp", "echo", []string{"hello"})
+func startTestRelay(t *testing.T, command string, args []string) (string, *relay.Server) {
+	t.Helper()
+	sockPath := filepath.Join(t.TempDir(), "test.sock")
+	srv, err := relay.NewServer(sockPath, "/tmp", command, args, 4096)
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("NewServer: %v", err)
+	}
+	go srv.Serve()
+	time.Sleep(100 * time.Millisecond)
+	return sockPath, srv
+}
+
+func TestReconnectSession(t *testing.T) {
+	sockPath, srv := startTestRelay(t, "echo", []string{"hello"})
+	defer srv.Close()
+
+	s, err := Reconnect("test-1", sockPath, "/tmp", "echo", srv.PID(), time.Now())
+	if err != nil {
+		t.Fatalf("Reconnect: %v", err)
 	}
 	defer s.Close()
 
@@ -20,15 +38,21 @@ func TestNewSession(t *testing.T) {
 	if s.WorkDir != "/tmp" {
 		t.Errorf("WorkDir = %q, want %q", s.WorkDir, "/tmp")
 	}
+	if s.SocketPath != sockPath {
+		t.Errorf("SocketPath = %q, want %q", s.SocketPath, sockPath)
+	}
 	if s.PID() <= 0 {
 		t.Errorf("PID = %d, want > 0", s.PID())
 	}
 }
 
 func TestSessionOutput(t *testing.T) {
-	s, err := New("test-2", "/tmp", "echo", []string{"hello world"})
+	sockPath, srv := startTestRelay(t, "echo", []string{"hello world"})
+	defer srv.Close()
+
+	s, err := Reconnect("test-2", sockPath, "/tmp", "echo", srv.PID(), time.Now())
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("Reconnect: %v", err)
 	}
 	defer s.Close()
 
@@ -43,31 +67,32 @@ func TestSessionOutput(t *testing.T) {
 
 	s.StartReadLoop()
 
-	done := make(chan struct{})
-	go func() {
-		s.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for process")
-	}
-
-	mu.Lock()
-	got := output.String()
-	mu.Unlock()
-
-	if !strings.Contains(got, "hello world") {
-		t.Errorf("output = %q, want to contain %q", got, "hello world")
+	deadline := time.After(5 * time.Second)
+	for {
+		time.Sleep(100 * time.Millisecond)
+		mu.Lock()
+		got := output.String()
+		mu.Unlock()
+		if strings.Contains(got, "hello world") {
+			break
+		}
+		select {
+		case <-deadline:
+			mu.Lock()
+			t.Fatalf("timed out; output so far: %q", output.String())
+			mu.Unlock()
+		default:
+		}
 	}
 }
 
 func TestSessionWrite(t *testing.T) {
-	s, err := New("test-3", "/tmp", "cat", nil)
+	sockPath, srv := startTestRelay(t, "cat", nil)
+	defer srv.Close()
+
+	s, err := Reconnect("test-3", sockPath, "/tmp", "cat", srv.PID(), time.Now())
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("Reconnect: %v", err)
 	}
 	defer s.Close()
 
@@ -81,26 +106,40 @@ func TestSessionWrite(t *testing.T) {
 	}
 
 	s.StartReadLoop()
+
+	// Wait for replay to finish
+	time.Sleep(200 * time.Millisecond)
 
 	if err := s.Write([]byte("test input\n")); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
-
-	mu.Lock()
-	got := output.String()
-	mu.Unlock()
-
-	if !strings.Contains(got, "test input") {
-		t.Errorf("output = %q, want to contain %q", got, "test input")
+	deadline := time.After(5 * time.Second)
+	for {
+		time.Sleep(100 * time.Millisecond)
+		mu.Lock()
+		got := output.String()
+		mu.Unlock()
+		if strings.Contains(got, "test input") {
+			break
+		}
+		select {
+		case <-deadline:
+			mu.Lock()
+			t.Fatalf("timed out; output so far: %q", output.String())
+			mu.Unlock()
+		default:
+		}
 	}
 }
 
 func TestSessionResize(t *testing.T) {
-	s, err := New("test-4", "/tmp", "cat", nil)
+	sockPath, srv := startTestRelay(t, "cat", nil)
+	defer srv.Close()
+
+	s, err := Reconnect("test-4", sockPath, "/tmp", "cat", srv.PID(), time.Now())
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("Reconnect: %v", err)
 	}
 	defer s.Close()
 
@@ -110,24 +149,15 @@ func TestSessionResize(t *testing.T) {
 }
 
 func TestSessionClose(t *testing.T) {
-	s, err := New("test-5", "/tmp", "cat", nil)
+	sockPath, srv := startTestRelay(t, "cat", nil)
+	defer srv.Close()
+
+	s, err := Reconnect("test-5", sockPath, "/tmp", "cat", srv.PID(), time.Now())
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("Reconnect: %v", err)
 	}
 
 	if err := s.Close(); err != nil {
 		t.Errorf("Close: %v", err)
-	}
-
-	done := make(chan struct{})
-	go func() {
-		s.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("process did not exit after Close")
 	}
 }

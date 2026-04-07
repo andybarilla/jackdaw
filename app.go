@@ -20,10 +20,12 @@ func NewApp() *App {
 	home := mustUserHome()
 	jackdawDir := filepath.Join(home, ".jackdaw")
 	manifestDir := filepath.Join(jackdawDir, "manifests")
+	socketDir := filepath.Join(jackdawDir, "sockets")
 	os.MkdirAll(manifestDir, 0700)
+	os.MkdirAll(socketDir, 0700)
 
 	return &App{
-		manager:    session.NewManager(manifestDir),
+		manager:    session.NewManager(manifestDir, socketDir),
 		configPath: filepath.Join(jackdawDir, "config.json"),
 	}
 }
@@ -32,11 +34,20 @@ func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
 	// Recover sessions that survived a previous shutdown
-	a.manager.Recover()
+	recovered := a.manager.Recover()
 
 	a.manager.SetOnUpdate(func(sessions []session.SessionInfo) {
 		runtime.EventsEmit(ctx, "sessions-updated", sessions)
 	})
+
+	// Wire output for recovered sessions and start their read loops
+	for _, info := range recovered {
+		id := info.ID
+		a.manager.SetOnOutput(id, func(data []byte) {
+			runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
+		})
+	}
+	a.manager.StartRecoveredReadLoops()
 
 	runtime.EventsOn(ctx, "terminal-input", func(data ...interface{}) {
 		if len(data) < 2 {
@@ -64,14 +75,16 @@ func (a *App) Shutdown(ctx context.Context) {
 }
 
 func (a *App) CreateSession(workDir string) (*session.SessionInfo, error) {
-	info, err := a.manager.Create(workDir, "claude", nil)
+	id := ""
+	info, err := a.manager.Create(workDir, "claude", nil, func(data []byte) {
+		runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
+	})
 	if err != nil {
 		return nil, err
 	}
+	id = info.ID
 
-	a.manager.SetOnOutput(info.ID, func(data []byte) {
-		runtime.EventsEmit(a.ctx, "terminal-output-"+info.ID, string(data))
-	})
+	a.manager.StartSessionReadLoop(info.ID)
 
 	return info, nil
 }

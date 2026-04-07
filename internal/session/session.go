@@ -1,110 +1,169 @@
 package session
 
 import (
-	"io"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
-	"github.com/creack/pty"
+	"github.com/andybarilla/jackdaw/internal/relay"
 )
 
 type Session struct {
-	ID        string
-	WorkDir   string
-	Command   string
-	Args      []string
-	StartedAt time.Time
-	OnOutput  func(data []byte)
-	OnExit    func(exitCode int)
+	ID         string
+	WorkDir    string
+	Command    string
+	Args       []string
+	StartedAt  time.Time
+	SocketPath string
+	OnOutput   func(data []byte)
+	OnExit     func(exitCode int)
 
-	cmd  *exec.Cmd
-	ptmx *os.File
-	mu   sync.Mutex
+	relayCmd  *exec.Cmd
+	client    *relay.Client
+	pid       int
+	mu        sync.Mutex
+	exitDone  chan struct{}
 }
 
-func New(id string, workDir string, command string, args []string) (*Session, error) {
-	cmd := exec.Command(command, args...)
-	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(),
-		"TERM=xterm-256color",
-		"COLORTERM=truecolor",
-	)
+func New(id string, workDir string, command string, args []string, socketDir string) (*Session, error) {
+	sockPath := filepath.Join(socketDir, id+".sock")
 
-	ptmx, err := pty.Start(cmd)
+	exe, err := os.Executable()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("find executable: %w", err)
+	}
+
+	relayArgs := []string{"relay",
+		"-socket", sockPath,
+		"-workdir", workDir,
+		"-command", command,
+	}
+	if len(args) > 0 {
+		argsJSON, err := json.Marshal(args)
+		if err != nil {
+			return nil, fmt.Errorf("encode args: %w", err)
+		}
+		relayArgs = append(relayArgs, "-args", string(argsJSON))
+	}
+
+	relayCmd := exec.Command(exe, relayArgs...)
+	relayCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := relayCmd.Start(); err != nil {
+		return nil, fmt.Errorf("start relay: %w", err)
+	}
+
+	// Wait for socket to appear
+	for i := 0; i < 50; i++ {
+		if _, err := os.Stat(sockPath); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	client, err := relay.NewClient(sockPath)
+	if err != nil {
+		relayCmd.Process.Kill()
+		return nil, fmt.Errorf("connect to relay: %w", err)
 	}
 
 	return &Session{
-		ID:        id,
-		WorkDir:   workDir,
-		Command:   command,
-		Args:      args,
-		StartedAt: time.Now(),
-		cmd:       cmd,
-		ptmx:      ptmx,
+		ID:         id,
+		WorkDir:    workDir,
+		Command:    command,
+		Args:       args,
+		StartedAt:  time.Now(),
+		SocketPath: sockPath,
+		relayCmd:   relayCmd,
+		client:     client,
+		pid:        relayCmd.Process.Pid,
+		exitDone:   make(chan struct{}),
+	}, nil
+}
+
+func Reconnect(id string, sockPath string, workDir string, command string, pid int, startedAt time.Time) (*Session, error) {
+	client, err := relay.NewClient(sockPath)
+	if err != nil {
+		return nil, fmt.Errorf("reconnect to relay: %w", err)
+	}
+
+	return &Session{
+		ID:         id,
+		WorkDir:    workDir,
+		Command:    command,
+		StartedAt:  startedAt,
+		SocketPath: sockPath,
+		client:     client,
+		pid:        pid,
 	}, nil
 }
 
 func (s *Session) PID() int {
-	if s.cmd.Process == nil {
-		return 0
-	}
-	return s.cmd.Process.Pid
+	return s.pid
 }
 
 func (s *Session) StartReadLoop() {
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := s.ptmx.Read(buf)
-			if n > 0 && s.OnOutput != nil {
-				data := make([]byte, n)
-				copy(data, buf[:n])
-				s.OnOutput(data)
+	s.client.OnOutput = func(data []byte) {
+		if s.OnOutput != nil {
+			s.OnOutput(data)
+		}
+	}
+	s.client.OnReplayEnd = func() {}
+	s.client.StartReadLoop()
+
+	if s.relayCmd != nil {
+		go func() {
+			s.relayCmd.Wait()
+			exitCode := -1
+			if s.relayCmd.ProcessState != nil {
+				exitCode = s.relayCmd.ProcessState.ExitCode()
 			}
-			if err != nil {
-				if err != io.EOF {
-					// PTY closed
-				}
-				break
+			if s.OnExit != nil {
+				s.OnExit(exitCode)
 			}
-		}
-		exitCode := -1
-		if s.cmd.ProcessState != nil {
-			exitCode = s.cmd.ProcessState.ExitCode()
-		}
-		if s.OnExit != nil {
-			s.OnExit(exitCode)
-		}
-	}()
+			close(s.exitDone)
+		}()
+	}
 }
 
 func (s *Session) Write(data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.ptmx.Write(data)
-	return err
+	if s.client == nil {
+		return fmt.Errorf("session %q not connected", s.ID)
+	}
+	return s.client.Write(data)
 }
 
 func (s *Session) Resize(cols, rows uint16) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return pty.Setsize(s.ptmx, &pty.Winsize{Rows: rows, Cols: cols})
+	if s.client == nil {
+		return fmt.Errorf("session %q not connected", s.ID)
+	}
+	return s.client.Resize(cols, rows)
 }
 
 func (s *Session) Wait() {
-	s.cmd.Wait()
+	if s.exitDone != nil {
+		<-s.exitDone
+	}
 }
 
 func (s *Session) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ptmx.Close()
-	if s.cmd.Process != nil {
-		s.cmd.Process.Signal(os.Interrupt)
+
+	if s.client != nil {
+		s.client.Close()
+		s.client = nil
+	}
+	if s.relayCmd != nil && s.relayCmd.Process != nil {
+		s.relayCmd.Process.Signal(os.Interrupt)
 	}
 	return nil
 }
