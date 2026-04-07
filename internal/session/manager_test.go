@@ -109,3 +109,47 @@ func TestManagerGenerateNameRoot(t *testing.T) {
 		t.Errorf("generateName = %q, want %q", got, "/")
 	}
 }
+
+func TestManagerRename(t *testing.T) {
+	manifestDir := t.TempDir()
+	m := NewManager(manifestDir, t.TempDir())
+
+	// Insert a fake session info and manifest
+	m.sessionInfo["s1"] = &SessionInfo{ID: "s1", Name: "old-name", WorkDir: "/tmp/foo"}
+	mf := &manifest.Manifest{SessionID: "s1", PID: 1, Command: "claude", WorkDir: "/tmp/foo", Name: "old-name", StartedAt: time.Now()}
+	manifest.Write(filepath.Join(manifestDir, "s1.json"), mf)
+
+	if err := m.Rename("s1", "new-name"); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+
+	// Check in-memory
+	if m.sessionInfo["s1"].Name != "new-name" {
+		t.Errorf("in-memory Name = %q, want %q", m.sessionInfo["s1"].Name, "new-name")
+	}
+
+	// Check manifest on disk
+	got, err := manifest.Read(filepath.Join(manifestDir, "s1.json"))
+	if err != nil {
+		t.Fatalf("manifest.Read: %v", err)
+	}
+	if got.Name != "new-name" {
+		t.Errorf("manifest Name = %q, want %q", got.Name, "new-name")
+	}
+}
+
+func TestManagerRenameEmptyName(t *testing.T) {
+	m := NewManager(t.TempDir(), t.TempDir())
+	m.sessionInfo["s1"] = &SessionInfo{ID: "s1", Name: "old", WorkDir: "/tmp/foo"}
+
+	if err := m.Rename("s1", "   "); err == nil {
+		t.Error("expected error for whitespace-only name")
+	}
+}
+
+func TestManagerRenameNotFound(t *testing.T) {
+	m := NewManager(t.TempDir(), t.TempDir())
+	if err := m.Rename("nonexistent", "name"); err == nil {
+		t.Error("expected error for nonexistent session")
+	}
+}

@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -171,6 +172,38 @@ func (m *Manager) Kill(id string) error {
 	m.notifyUpdate()
 
 	return err
+}
+
+func (m *Manager) Rename(id string, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("session name cannot be empty")
+	}
+
+	m.mu.Lock()
+	info, ok := m.sessionInfo[id]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("session %q not found", id)
+	}
+	info.Name = name
+	m.mu.Unlock()
+
+	// Update the manifest on disk
+	mfPath := filepath.Join(m.manifestDir, id+".json")
+	mf, err := manifest.Read(mfPath)
+	if err != nil {
+		return fmt.Errorf("read manifest: %w", err)
+	}
+	if mf != nil {
+		mf.Name = name
+		if err := manifest.Write(mfPath, mf); err != nil {
+			return fmt.Errorf("write manifest: %w", err)
+		}
+	}
+
+	m.notifyUpdate()
+	return nil
 }
 
 func (m *Manager) WriteToSession(id string, data []byte) error {
