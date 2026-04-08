@@ -27,6 +27,7 @@ type ErrorDetector struct {
 	sessionID        string
 	sessionName      string
 	DebounceInterval time.Duration
+	OnError          func() // called when an error fires
 
 	lastFired time.Time
 	mu        sync.Mutex
@@ -75,4 +76,8 @@ func (ed *ErrorDetector) fire(matchedLine string) {
 		Type:        TypeErrorDetected,
 		Message:     msg,
 	})
+
+	if ed.OnError != nil {
+		ed.OnError()
+	}
 }

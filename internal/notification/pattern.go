@@ -22,6 +22,7 @@ type PatternMatcher struct {
 	sessionID        string
 	sessionName      string
 	DebounceInterval time.Duration
+	OnMatch          func() // called when a pattern fires
 
 	lastFired time.Time
 	mu        sync.Mutex
@@ -62,4 +63,8 @@ func (pm *PatternMatcher) fire(context string) {
 		Type:        TypeInputRequired,
 		Message:     "Session may be waiting for input",
 	})
+
+	if pm.OnMatch != nil {
+		pm.OnMatch()
+	}
 }
