@@ -10,6 +10,8 @@ export function CreateSession(arg1:string):Promise<session.SessionInfo>;
 
 export function CreateTerminal(arg1:string):Promise<terminal.TerminalInfo>;
 
+export function DismissNotification(arg1:string):Promise<void>;
+
 export function GetConfig():Promise<config.Config>;
 
 export function KillSession(arg1:string):Promise<void>;
