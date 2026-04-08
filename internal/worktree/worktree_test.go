@@ -56,3 +56,64 @@ func TestIsGitRepo_Subdirectory(t *testing.T) {
 		t.Errorf("expected subdirectory %q to be recognized as inside a git repo", sub)
 	}
 }
+
+func TestCreate(t *testing.T) {
+	repoDir := initGitRepo(t)
+	wtRoot := t.TempDir()
+
+	wtPath, err := worktree.Create(repoDir, wtRoot, "feature-x", "")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree directory does not exist: %v", err)
+	}
+
+	if filepath.Dir(wtPath) != wtRoot {
+		t.Errorf("expected worktree inside %q, got %q", wtRoot, wtPath)
+	}
+
+	// verify branch exists in repo
+	cmd := exec.Command("git", "-C", repoDir, "branch", "--list", "feature-x")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git branch --list: %v", err)
+	}
+	if len(out) == 0 {
+		t.Error("expected branch feature-x to exist in repo")
+	}
+}
+
+func TestCreateWithBaseBranch(t *testing.T) {
+	repoDir := initGitRepo(t)
+	// create develop branch
+	cmd := exec.Command("git", "-C", repoDir, "branch", "develop")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git branch develop: %v\n%s", err, out)
+	}
+	wtRoot := t.TempDir()
+
+	wtPath, err := worktree.Create(repoDir, wtRoot, "feature-y", "develop")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree directory does not exist: %v", err)
+	}
+}
+
+func TestCreateBranchConflict(t *testing.T) {
+	repoDir := initGitRepo(t)
+	cmd := exec.Command("git", "-C", repoDir, "branch", "existing-branch")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git branch existing-branch: %v\n%s", err, out)
+	}
+	wtRoot := t.TempDir()
+
+	_, err := worktree.Create(repoDir, wtRoot, "existing-branch", "")
+	if err == nil {
+		t.Error("expected error when branch already exists, got nil")
+	}
+}
