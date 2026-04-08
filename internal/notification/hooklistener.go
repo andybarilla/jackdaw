@@ -16,6 +16,8 @@ type HookPayload struct {
 	NotificationType string `json:"notification_type"`
 	Message          string `json:"message"`
 	Title            string `json:"title"`
+	ApproveResponse  string `json:"approve_response,omitempty"`
+	DenyResponse     string `json:"deny_response,omitempty"`
 }
 
 type HookListener struct {
@@ -108,11 +110,24 @@ func (hl *HookListener) handleNotify(w http.ResponseWriter, r *http.Request) {
 		message = payload.Title + ": " + payload.Message
 	}
 
+	approveResponse := payload.ApproveResponse
+	denyResponse := payload.DenyResponse
+	if approveResponse != "" || denyResponse != "" || payload.NotificationType == "permission_prompt" {
+		if approveResponse == "" {
+			approveResponse = "y\n"
+		}
+		if denyResponse == "" {
+			denyResponse = "n\n"
+		}
+	}
+
 	hl.svc.Notify(Notification{
-		SessionID:   sessionID,
-		SessionName: name,
-		Type:        TypeInputRequired,
-		Message:     message,
+		SessionID:       sessionID,
+		SessionName:     name,
+		Type:            TypeInputRequired,
+		Message:         message,
+		ApproveResponse: approveResponse,
+		DenyResponse:    denyResponse,
 	})
 
 	w.WriteHeader(http.StatusOK)

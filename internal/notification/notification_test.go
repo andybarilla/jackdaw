@@ -79,3 +79,29 @@ func TestServiceDismissClearsSession(t *testing.T) {
 		t.Error("expected no active notification after dismiss")
 	}
 }
+
+func TestServicePreservesResponseFields(t *testing.T) {
+	svc := NewService()
+	defer svc.Close()
+
+	var received Notification
+	svc.OnNotification = func(n Notification) {
+		received = n
+	}
+
+	svc.Notify(Notification{
+		SessionID:       "s1",
+		SessionName:     "my-project",
+		Type:            TypeInputRequired,
+		Message:         "Allow Read tool?",
+		ApproveResponse: "y\n",
+		DenyResponse:    "n\n",
+	})
+
+	if received.ApproveResponse != "y\n" {
+		t.Errorf("ApproveResponse = %q, want %q", received.ApproveResponse, "y\n")
+	}
+	if received.DenyResponse != "n\n" {
+		t.Errorf("DenyResponse = %q, want %q", received.DenyResponse, "n\n")
+	}
+}
