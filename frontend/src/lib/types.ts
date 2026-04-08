@@ -16,7 +16,7 @@ export interface SessionInfo {
   name: string;
   work_dir: string;
   command: string;
-  status: "running" | "stopped" | "exited";
+  status: "idle" | "working" | "waiting_for_approval" | "error" | "stopped" | "exited";
   pid: number;
   started_at: string;
   exit_code: number;

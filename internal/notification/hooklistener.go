@@ -21,11 +21,12 @@ type HookPayload struct {
 }
 
 type HookListener struct {
-	svc      *Service
-	listener net.Listener
-	server   *http.Server
-	sessions map[string]string // jackdaw session ID -> session name
-	mu       sync.RWMutex
+	svc            *Service
+	listener       net.Listener
+	server         *http.Server
+	sessions       map[string]string // jackdaw session ID -> session name
+	mu             sync.RWMutex
+	OnNotification func(sessionID string) // called on any notification, after Notify
 }
 
 func NewHookListener(svc *Service, addr string) (*HookListener, error) {
@@ -129,6 +130,10 @@ func (hl *HookListener) handleNotify(w http.ResponseWriter, r *http.Request) {
 		ApproveResponse: approveResponse,
 		DenyResponse:    denyResponse,
 	})
+
+	if hl.OnNotification != nil {
+		hl.OnNotification(sessionID)
+	}
 
 	w.WriteHeader(http.StatusOK)
 }

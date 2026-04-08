@@ -61,8 +61,8 @@ func TestManagerRecover(t *testing.T) {
 	for _, info := range recovered {
 		if info.ID == "recovered-1" {
 			foundAlive = true
-			if info.Status != StatusRunning {
-				t.Errorf("recovered session status = %q, want %q", info.Status, StatusRunning)
+			if info.Status != StatusWorking {
+				t.Errorf("recovered session status = %q, want %q", info.Status, StatusWorking)
 			}
 		}
 	}
@@ -267,7 +267,7 @@ func TestManagerKillCleansUpHistoryFile(t *testing.T) {
 	m.sessions["kill-history"] = s
 	m.sessionInfo["kill-history"] = &SessionInfo{
 		ID:     "kill-history",
-		Status: StatusRunning,
+		Status: StatusWorking,
 		PID:    srv.PID(),
 	}
 

@@ -20,12 +20,17 @@
 
   function statusColor(status: SessionInfo["status"]): string {
     switch (status) {
-      case "running":
-        return "var(--success)";
-      case "exited":
+      case "idle":
+        return "var(--text-muted)";
+      case "working":
+        return "var(--accent)";
+      case "waiting_for_approval":
         return "var(--warning)";
-      case "stopped":
+      case "error":
         return "var(--error)";
+      case "stopped":
+      case "exited":
+        return "var(--text-muted)";
     }
   }
 
@@ -67,7 +72,7 @@
       >
         <span
           class="status-dot"
-          class:pulse={hasNotification(session.id)}
+          class:pulse={hasNotification(session.id) || session.status === 'waiting_for_approval'}
           style="background: {hasNotification(session.id) ? 'var(--warning)' : statusColor(session.status)}"
         ></span>
         {#if editingId === session.id}
@@ -102,7 +107,7 @@
             title="View diff"
           >&#916;</button>
         {/if}
-        {#if session.status === "running"}
+        {#if session.status !== "stopped" && session.status !== "exited"}
           <button
             class="kill-btn"
             onclick={(e: MouseEvent) => { e.stopPropagation(); onKill(session.id); }}

@@ -16,9 +16,12 @@ import (
 type Status string
 
 const (
-	StatusRunning Status = "running"
-	StatusStopped Status = "stopped"
-	StatusExited  Status = "exited"
+	StatusIdle               Status = "idle"
+	StatusWorking            Status = "working"
+	StatusWaitingForApproval Status = "waiting_for_approval"
+	StatusError              Status = "error"
+	StatusStopped            Status = "stopped"
+	StatusExited             Status = "exited"
 )
 
 type SessionInfo struct {
@@ -46,6 +49,7 @@ type WorktreeOptions struct {
 type Manager struct {
 	sessions        map[string]*Session
 	sessionInfo     map[string]*SessionInfo
+	statusTrackers  map[string]*StatusTracker
 	mu              sync.RWMutex
 	manifestDir     string
 	socketDir       string
@@ -59,6 +63,7 @@ func NewManager(manifestDir string, socketDir string, historyDir string, history
 	return &Manager{
 		sessions:        make(map[string]*Session),
 		sessionInfo:     make(map[string]*SessionInfo),
+		statusTrackers:  make(map[string]*StatusTracker),
 		manifestDir:     manifestDir,
 		socketDir:       socketDir,
 		historyDir:      historyDir,
@@ -79,6 +84,12 @@ func (m *Manager) SetOnOutput(sessionID string, fn func(data []byte)) {
 	if ok {
 		s.OnOutput = fn
 	}
+}
+
+func (m *Manager) StatusTracker(id string) *StatusTracker {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.statusTrackers[id]
 }
 
 // generateName returns a unique display name for a session based on its working directory.
@@ -148,7 +159,7 @@ func (m *Manager) Create(id string, workDir string, command string, args []strin
 		Name:            name,
 		WorkDir:         workDir,
 		Command:         command,
-		Status:          StatusRunning,
+		Status:          StatusWorking,
 		PID:             s.PID(),
 		StartedAt:       s.StartedAt,
 		WorktreeEnabled: wtOpts.Enabled,
@@ -158,19 +169,29 @@ func (m *Manager) Create(id string, workDir string, command string, args []strin
 		BaseBranch:      baseBranch,
 	}
 
-	s.OnExit = func(exitCode int) {
+	tracker := NewStatusTracker(func(status Status) {
 		m.mu.Lock()
 		if si, ok := m.sessionInfo[id]; ok {
-			si.Status = StatusExited
-			si.ExitCode = exitCode
+			si.Status = status
 		}
 		m.mu.Unlock()
 		m.notifyUpdate()
+	})
+
+	s.OnExit = func(exitCode int) {
+		tracker.HandleExit(exitCode)
+		m.mu.Lock()
+		if si, ok := m.sessionInfo[id]; ok {
+			si.ExitCode = exitCode
+		}
+		delete(m.statusTrackers, id)
+		m.mu.Unlock()
 	}
 
 	m.mu.Lock()
 	m.sessions[id] = s
 	m.sessionInfo[id] = info
+	m.statusTrackers[id] = tracker
 	m.mu.Unlock()
 
 	mf := &manifest.Manifest{
@@ -230,7 +251,10 @@ func (m *Manager) Kill(id string) error {
 	err := s.Close()
 
 	m.mu.Lock()
-	if si, ok := m.sessionInfo[id]; ok {
+	if tracker, ok := m.statusTrackers[id]; ok {
+		tracker.HandleStop()
+		delete(m.statusTrackers, id)
+	} else if si, ok := m.sessionInfo[id]; ok {
 		si.Status = StatusStopped
 	}
 	m.mu.Unlock()
@@ -350,7 +374,7 @@ func (m *Manager) Recover() []SessionInfo {
 			Name:            name,
 			WorkDir:         mf.WorkDir,
 			Command:         mf.Command,
-			Status:          StatusRunning,
+			Status:          StatusWorking,
 			PID:             mf.PID,
 			StartedAt:       mf.StartedAt,
 			WorktreeEnabled: mf.WorktreeEnabled,
@@ -360,9 +384,20 @@ func (m *Manager) Recover() []SessionInfo {
 			BaseBranch:      mf.BaseBranch,
 		}
 
+		sid := mf.SessionID
+		tracker := NewStatusTracker(func(status Status) {
+			m.mu.Lock()
+			if si, ok := m.sessionInfo[sid]; ok {
+				si.Status = status
+			}
+			m.mu.Unlock()
+			m.notifyUpdate()
+		})
+
 		m.mu.Lock()
 		m.sessions[mf.SessionID] = s
 		m.sessionInfo[mf.SessionID] = info
+		m.statusTrackers[mf.SessionID] = tracker
 		m.mu.Unlock()
 
 		recovered = append(recovered, *info)

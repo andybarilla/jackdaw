@@ -69,6 +69,11 @@ func (a *App) Startup(ctx context.Context) {
 	hl, err := notification.NewHookListener(a.notifSvc, "127.0.0.1:0")
 	if err == nil {
 		a.hookListener = hl
+		hl.OnNotification = func(sessionID string) {
+			if tracker := a.manager.StatusTracker(sessionID); tracker != nil {
+				tracker.HandlePermissionPrompt()
+			}
+		}
 		go hl.Serve()
 	}
 
@@ -101,7 +106,7 @@ func (a *App) Startup(ctx context.Context) {
 			currentStatuses[s.ID] = s.Status
 			if prevStatuses != nil {
 				prev, existed := prevStatuses[s.ID]
-				if existed && prev == session.StatusRunning && s.Status == session.StatusExited {
+				if existed && prev != session.StatusStopped && prev != session.StatusExited && s.Status == session.StatusExited {
 					msg := fmt.Sprintf("Session exited (code %d)", s.ExitCode)
 					a.notifSvc.Notify(notification.Notification{
 						SessionID:   s.ID,
@@ -131,6 +136,10 @@ func (a *App) Startup(ctx context.Context) {
 		input, _ := data[1].(string)
 		if err := a.manager.WriteToSession(id, []byte(input)); err != nil {
 			a.termManager.Write(id, []byte(input))
+		} else {
+			if tracker := a.manager.StatusTracker(id); tracker != nil {
+				tracker.HandleInput()
+			}
 		}
 	})
 
@@ -213,6 +222,9 @@ func (a *App) CreateSession(workDir string, worktreeEnabled bool, branchName str
 
 	info, err := a.manager.Create(id, workDir, "claude", nil, env, func(data []byte) {
 		runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
+		if tracker := a.manager.StatusTracker(id); tracker != nil {
+			tracker.HandleOutput(data)
+		}
 		if pm, ok := a.patternMatchers[id]; ok {
 			if a.hookListener == nil || !a.hookListener.HasSession(id) {
 				pm.Feed(data)
@@ -226,9 +238,22 @@ func (a *App) CreateSession(workDir string, worktreeEnabled bool, branchName str
 		return nil, err
 	}
 
-	a.patternMatchers[info.ID] = notification.NewPatternMatcher(a.notifSvc, info.ID, info.Name)
+	pm := notification.NewPatternMatcher(a.notifSvc, info.ID, info.Name)
+	pm.OnMatch = func() {
+		if tracker := a.manager.StatusTracker(info.ID); tracker != nil {
+			tracker.HandlePermissionPrompt()
+		}
+	}
+	a.patternMatchers[info.ID] = pm
+
 	if a.errorDetectionEnabled {
-		a.errorDetectors[info.ID] = notification.NewErrorDetector(a.notifSvc, info.ID, info.Name)
+		ed := notification.NewErrorDetector(a.notifSvc, info.ID, info.Name)
+		ed.OnError = func() {
+			if tracker := a.manager.StatusTracker(info.ID); tracker != nil {
+				tracker.HandleError()
+			}
+		}
+		a.errorDetectors[info.ID] = ed
 	}
 
 	if a.hookListener != nil {
