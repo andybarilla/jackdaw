@@ -101,7 +101,7 @@ func (a *App) Startup(ctx context.Context) {
 			currentStatuses[s.ID] = s.Status
 			if prevStatuses != nil {
 				prev, existed := prevStatuses[s.ID]
-				if existed && prev == session.StatusRunning && s.Status == session.StatusExited {
+				if existed && prev != session.StatusStopped && prev != session.StatusExited && s.Status == session.StatusExited {
 					msg := fmt.Sprintf("Session exited (code %d)", s.ExitCode)
 					a.notifSvc.Notify(notification.Notification{
 						SessionID:   s.ID,
