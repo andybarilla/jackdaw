@@ -170,6 +170,35 @@ func TestDefaultNotificationSettings(t *testing.T) {
 	}
 }
 
+func TestWorktreeRootConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg := &Config{
+		Theme:        "dark",
+		Keybindings:  map[string]string{},
+		WorktreeRoot: "/home/user/worktrees",
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("save error: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+	if loaded.WorktreeRoot != "/home/user/worktrees" {
+		t.Errorf("WorktreeRoot = %q, want %q", loaded.WorktreeRoot, "/home/user/worktrees")
+	}
+}
+
+func TestWorktreeRootDefaultEmpty(t *testing.T) {
+	cfg := Defaults()
+	if cfg.WorktreeRoot != "" {
+		t.Errorf("WorktreeRoot = %q, want empty in defaults", cfg.WorktreeRoot)
+	}
+}
+
 func TestSaveAndLoadNotificationSettings(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
