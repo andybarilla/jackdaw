@@ -3,6 +3,7 @@
 import {session} from '../models';
 import {terminal} from '../models';
 import {config} from '../models';
+import {worktree} from '../models';
 import {main} from '../models';
 
 export function AttachSession(arg1:string):Promise<void>;
@@ -16,6 +17,10 @@ export function CreateTerminal(arg1:string):Promise<terminal.TerminalInfo>;
 export function DismissNotification(arg1:string):Promise<void>;
 
 export function GetConfig():Promise<config.Config>;
+
+export function GetFileDiff(arg1:string,arg2:string):Promise<worktree.FileDiff>;
+
+export function GetSessionDiff(arg1:string):Promise<Array<worktree.FileDiff>>;
 
 export function GetWorktreeStatus(arg1:string):Promise<main.WorktreeStatusResult>;
 

@@ -36,7 +36,7 @@
 
   function getContentId(content: PaneContent): string | null {
     if (content === null) return null;
-    return content.type === "session" ? content.sessionId : content.id;
+    return content.type === "session" ? content.sessionId : content.type === "terminal" ? content.id : null;
   }
 </script>
 

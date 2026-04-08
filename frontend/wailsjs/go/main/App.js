@@ -26,6 +26,14 @@ export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
+export function GetFileDiff(arg1, arg2) {
+  return window['go']['main']['App']['GetFileDiff'](arg1, arg2);
+}
+
+export function GetSessionDiff(arg1) {
+  return window['go']['main']['App']['GetSessionDiff'](arg1);
+}
+
 export function GetWorktreeStatus(arg1) {
   return window['go']['main']['App']['GetWorktreeStatus'](arg1);
 }

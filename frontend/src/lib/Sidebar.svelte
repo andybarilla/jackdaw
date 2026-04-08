@@ -9,9 +9,10 @@
     onNew: () => void;
     onKill: (id: string) => void;
     onRename: (id: string, name: string) => void;
+    onViewDiff: (id: string) => void;
   }
 
-  let { sessions, activeSessionId, onSelect, onNew, onKill, onRename }: Props =
+  let { sessions, activeSessionId, onSelect, onNew, onKill, onRename, onViewDiff }: Props =
     $props();
 
   let editingId = $state<string | null>(null);
@@ -93,6 +94,13 @@
             onclick={(e: MouseEvent) => startEditing(session, e)}
             title="Rename session"
           >&#9998;</button>
+        {/if}
+        {#if session.status !== "stopped"}
+          <button
+            class="diff-btn"
+            onclick={(e: MouseEvent) => { e.stopPropagation(); onViewDiff(session.id); }}
+            title="View diff"
+          >&#916;</button>
         {/if}
         {#if session.status === "running"}
           <button
@@ -216,6 +224,26 @@
     font-family: inherit;
     outline: none;
     min-width: 0;
+  }
+
+  .diff-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0 4px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .session-item:hover .diff-btn {
+    opacity: 1;
+  }
+
+  .diff-btn:hover {
+    color: var(--accent);
   }
 
   .kill-btn {
