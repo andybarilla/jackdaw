@@ -4,9 +4,13 @@
 
   interface Props {
     sessionId: string;
+    worktreeEnabled?: boolean;
+    baseBranch?: string;
+    uncommittedFiles?: number;
+    onMerge?: () => void;
   }
 
-  let { sessionId }: Props = $props();
+  let { sessionId, worktreeEnabled, baseBranch, uncommittedFiles, onMerge }: Props = $props();
   let files = $state<FileDiff[]>([]);
   let selectedPath = $state<string | null>(null);
   let selectedFile = $state<FileDiff | null>(null);
@@ -79,7 +83,17 @@
     <div class="empty-state">No changes</div>
   {:else}
     <div class="file-list">
-      <div class="file-list-header">{files.length} file{files.length === 1 ? "" : "s"} changed</div>
+      <div class="file-list-header">
+        <span>{files.length} file{files.length === 1 ? "" : "s"} changed</span>
+        {#if worktreeEnabled && onMerge}
+          <button
+            class="merge-btn"
+            onclick={onMerge}
+            disabled={uncommittedFiles !== undefined && uncommittedFiles > 0}
+            title={uncommittedFiles !== undefined && uncommittedFiles > 0 ? "Commit or stash changes first" : `Merge to ${baseBranch}`}
+          >Merge</button>
+        {/if}
+      </div>
       {#each files as file (file.path)}
         <button
           class="file-item"
@@ -181,12 +195,33 @@
   }
 
   .file-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     padding: 8px 12px;
     font-size: 11px;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     border-bottom: 1px solid var(--border);
+  }
+
+  .merge-btn {
+    padding: 3px 8px;
+    font-size: 11px;
+    background: var(--accent);
+    color: var(--bg-primary);
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .merge-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .file-item {
