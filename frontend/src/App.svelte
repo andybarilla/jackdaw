@@ -11,6 +11,8 @@
     GetConfig,
     SetConfig,
     DismissNotification,
+    GetWorktreeStatus,
+    CleanupWorktree,
   } from "../wailsjs/go/main/App";
   import type { LayoutNode, PaneContent, Path } from "./lib/layout";
   import {
@@ -25,12 +27,13 @@
     collectSessionIds,
     collectTerminalIds,
   } from "./lib/layout";
-  import type { SessionInfo, TerminalApi, AppNotification } from "./lib/types";
+  import type { SessionInfo, TerminalApi, AppNotification, WorktreeStatus } from "./lib/types";
   import { addNotification, dismissNotification } from "./lib/notifications.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
   import ToastContainer from "./lib/ToastContainer.svelte";
   import SplitPane from "./lib/SplitPane.svelte";
   import NewSessionDialog from "./lib/NewSessionDialog.svelte";
+  import WorktreeCleanupDialog from "./lib/WorktreeCleanupDialog.svelte";
   import { getKeymap, getToastDuration } from "./lib/config.svelte";
   import { matchKeybinding } from "./lib/keybindings";
 
@@ -44,6 +47,12 @@
   let cleanups: Array<() => void> = [];
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingQuickPickPath: number[] | null = null;
+  let worktreeCleanup = $state<{
+    sessionId: string;
+    sessionName: string;
+    branchName: string;
+    status: WorktreeStatus | null;
+  } | null>(null);
 
   function collectLeafPaths(node: LayoutNode, prefix: number[] = []): number[][] {
     if (node.type === "leaf") return [prefix];
@@ -279,6 +288,23 @@
         if (s.status === "exited") {
           const path = findLeafBySessionId(layoutTree, s.id);
           if (path) {
+            if (s.worktree_enabled && s.worktree_path) {
+              GetWorktreeStatus(s.id).then((status) => {
+                worktreeCleanup = {
+                  sessionId: s.id,
+                  sessionName: s.name,
+                  branchName: s.branch_name || "",
+                  status,
+                };
+              }).catch(() => {
+                worktreeCleanup = {
+                  sessionId: s.id,
+                  sessionName: s.name,
+                  branchName: s.branch_name || "",
+                  status: null,
+                };
+              });
+            }
             delete terminalApis[s.id];
             collapsePane(path);
           }
@@ -319,9 +345,9 @@
     if (saveTimer) clearTimeout(saveTimer);
   });
 
-  async function handleNewSession(workDir: string): Promise<void> {
+  async function handleNewSession(workDir: string, worktreeEnabled: boolean, branchName: string): Promise<void> {
     showNewDialog = false;
-    const info = await CreateSession(workDir);
+    const info = await CreateSession(workDir, worktreeEnabled, branchName);
 
     if (pendingQuickPickPath) {
       layoutTree = setLeafContent(layoutTree, asPath(pendingQuickPickPath), {
@@ -381,6 +407,18 @@
 
   function handleGoToSession(sessionID: string): void {
     handleSidebarSelect(sessionID);
+  }
+
+  async function handleWorktreeKeep(): Promise<void> {
+    if (!worktreeCleanup) return;
+    await CleanupWorktree(worktreeCleanup.sessionId, false);
+    worktreeCleanup = null;
+  }
+
+  async function handleWorktreeDelete(): Promise<void> {
+    if (!worktreeCleanup) return;
+    await CleanupWorktree(worktreeCleanup.sessionId, true);
+    worktreeCleanup = null;
   }
 
   async function handleQuickPick(
@@ -452,6 +490,16 @@
   {/if}
 
   <ToastContainer toastDuration={getToastDuration()} onGoToSession={handleGoToSession} />
+
+  {#if worktreeCleanup}
+    <WorktreeCleanupDialog
+      sessionName={worktreeCleanup.sessionName}
+      branchName={worktreeCleanup.branchName}
+      status={worktreeCleanup.status}
+      onKeep={handleWorktreeKeep}
+      onDelete={handleWorktreeDelete}
+    />
+  {/if}
 </main>
 
 <style>

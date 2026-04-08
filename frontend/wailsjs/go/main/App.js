@@ -6,8 +6,12 @@ export function AttachSession(arg1) {
   return window['go']['main']['App']['AttachSession'](arg1);
 }
 
-export function CreateSession(arg1) {
-  return window['go']['main']['App']['CreateSession'](arg1);
+export function CleanupWorktree(arg1, arg2) {
+  return window['go']['main']['App']['CleanupWorktree'](arg1, arg2);
+}
+
+export function CreateSession(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreateSession'](arg1, arg2, arg3);
 }
 
 export function CreateTerminal(arg1) {
@@ -20,6 +24,14 @@ export function DismissNotification(arg1) {
 
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
+}
+
+export function GetWorktreeStatus(arg1) {
+  return window['go']['main']['App']['GetWorktreeStatus'](arg1);
+}
+
+export function IsGitRepo(arg1) {
+  return window['go']['main']['App']['IsGitRepo'](arg1);
 }
 
 export function KillSession(arg1) {
