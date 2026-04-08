@@ -1,6 +1,7 @@
 export type PaneContent =
   | { type: "session"; sessionId: string }
   | { type: "terminal"; id: string; workDir: string }
+  | { type: "diff"; sessionId: string }
   | null;
 
 export type LayoutNode =
@@ -163,6 +164,34 @@ export function collectSessionIds(node: LayoutNode): string[] {
   return [
     ...collectSessionIds(node.children[0]),
     ...collectSessionIds(node.children[1]),
+  ];
+}
+
+export function findLeafByDiffSessionId(node: LayoutNode, sessionId: string): Path | null {
+  if (node.type === "leaf") {
+    if (node.content?.type === "diff" && node.content.sessionId === sessionId) {
+      return [];
+    }
+    return null;
+  }
+  const leftResult = findLeafByDiffSessionId(node.children[0], sessionId);
+  if (leftResult !== null) {
+    return [0, ...leftResult];
+  }
+  const rightResult = findLeafByDiffSessionId(node.children[1], sessionId);
+  if (rightResult !== null) {
+    return [1, ...rightResult];
+  }
+  return null;
+}
+
+export function collectDiffSessionIds(node: LayoutNode): string[] {
+  if (node.type === "leaf") {
+    return node.content?.type === "diff" ? [node.content.sessionId] : [];
+  }
+  return [
+    ...collectDiffSessionIds(node.children[0]),
+    ...collectDiffSessionIds(node.children[1]),
   ];
 }
 

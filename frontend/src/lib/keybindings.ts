@@ -3,6 +3,7 @@ export type Action =
   | "session.kill"
   | "session.next"
   | "session.prev"
+  | "session.viewDiff"
   | "app.toggleSidebar"
   | "terminal.search"
   | "pane.splitVertical"
@@ -25,6 +26,7 @@ export type Keymap = Record<string, string>;
 export const DEFAULT_KEYMAP: Keymap = {
   "session.new": "Ctrl+Shift+N",
   "session.kill": "Ctrl+Shift+K",
+  "session.viewDiff": "Ctrl+Shift+D",
   "session.next": "Ctrl+Shift+]",
   "session.prev": "Ctrl+Shift+[",
   "app.toggleSidebar": "Ctrl+Shift+B",

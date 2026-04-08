@@ -33,6 +33,26 @@ export interface WorktreeStatus {
   unpushed_commits: number;
 }
 
+export interface FileDiff {
+  path: string;
+  old_path?: string;
+  status: "added" | "modified" | "deleted" | "renamed";
+  hunks: DiffHunk[];
+  binary: boolean;
+}
+
+export interface DiffHunk {
+  header: string;
+  lines: DiffLine[];
+}
+
+export interface DiffLine {
+  type: "context" | "add" | "delete";
+  content: string;
+  old_line?: number;
+  new_line?: number;
+}
+
 export interface AppNotification {
   sessionID: string;
   sessionName: string;
