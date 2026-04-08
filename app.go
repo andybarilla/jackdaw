@@ -2,21 +2,28 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/andybarilla/jackdaw/internal/config"
+	"github.com/andybarilla/jackdaw/internal/notification"
 	"github.com/andybarilla/jackdaw/internal/session"
 	"github.com/andybarilla/jackdaw/internal/terminal"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type App struct {
-	ctx         context.Context
-	manager     *session.Manager
-	termManager *terminal.Manager
-	configPath  string
+	ctx             context.Context
+	manager         *session.Manager
+	termManager     *terminal.Manager
+	configPath      string
+	notifSvc        *notification.Service
+	hookListener    *notification.HookListener
+	desktop         *notification.DesktopNotifier
+	patternMatchers map[string]*notification.PatternMatcher
 }
 
 func NewApp() *App {
@@ -31,10 +38,19 @@ func NewApp() *App {
 
 	cfg, _ := config.Load(configPath)
 
+	notifSvc := notification.NewService()
+	notifSvc.Enabled = cfg.NotificationsEnabled
+
+	desktop := notification.NewDesktopNotifier()
+	desktop.Enabled = cfg.DesktopNotifications
+
 	return &App{
-		manager:     session.NewManager(manifestDir, socketDir, historyDir, int64(cfg.HistoryMaxBytes)),
-		termManager: terminal.NewManager(),
-		configPath:  configPath,
+		manager:         session.NewManager(manifestDir, socketDir, historyDir, int64(cfg.HistoryMaxBytes)),
+		termManager:     terminal.NewManager(),
+		configPath:      configPath,
+		notifSvc:        notifSvc,
+		desktop:         desktop,
+		patternMatchers: make(map[string]*notification.PatternMatcher),
 	}
 }
 
@@ -44,8 +60,54 @@ func (a *App) Startup(ctx context.Context) {
 	// Recover sessions that survived a previous shutdown
 	recovered := a.manager.Recover()
 
+	// Start hook listener
+	hl, err := notification.NewHookListener(a.notifSvc, "127.0.0.1:0")
+	if err == nil {
+		a.hookListener = hl
+		go hl.Serve()
+	}
+
+	// Track window focus state — frontend emits this via document.hasFocus()
+	windowFocused := true
+	runtime.EventsOn(ctx, "window-focus-changed", func(data ...interface{}) {
+		if len(data) > 0 {
+			if focused, ok := data[0].(bool); ok {
+				windowFocused = focused
+			}
+		}
+	})
+
+	// Wire notification outputs
+	a.notifSvc.OnNotification = func(n notification.Notification) {
+		runtime.EventsEmit(ctx, "notification-fired", n)
+		if !windowFocused {
+			a.desktop.Send(n.SessionName, n.Message)
+		}
+	}
+
+	var prevStatuses map[string]session.Status
+
 	a.manager.SetOnUpdate(func(sessions []session.SessionInfo) {
 		runtime.EventsEmit(ctx, "sessions-updated", sessions)
+
+		// Detect session exits
+		currentStatuses := make(map[string]session.Status, len(sessions))
+		for _, s := range sessions {
+			currentStatuses[s.ID] = s.Status
+			if prevStatuses != nil {
+				prev, existed := prevStatuses[s.ID]
+				if existed && prev == session.StatusRunning && s.Status == session.StatusExited {
+					msg := fmt.Sprintf("Session exited (code %d)", s.ExitCode)
+					a.notifSvc.Notify(notification.Notification{
+						SessionID:   s.ID,
+						SessionName: s.Name,
+						Type:        notification.TypeSessionExited,
+						Message:     msg,
+					})
+				}
+			}
+		}
+		prevStatuses = currentStatuses
 	})
 
 	// Wire output handlers for recovered sessions (read loops start when frontend attaches)
@@ -81,8 +143,10 @@ func (a *App) Startup(ctx context.Context) {
 }
 
 func (a *App) Shutdown(ctx context.Context) {
-	// Sessions survive app shutdown — don't kill them.
-	// Manifests remain on disk for re-adoption on next launch.
+	if a.hookListener != nil {
+		a.hookListener.Close()
+	}
+	a.notifSvc.Close()
 	a.termManager.CloseAll()
 }
 
@@ -122,18 +186,38 @@ func (a *App) PickDirectory() (string, error) {
 
 func (a *App) CreateSession(workDir string) (*session.SessionInfo, error) {
 	workDir = expandHome(workDir)
-	id := ""
-	info, err := a.manager.Create(workDir, "claude", nil, func(data []byte) {
+	id := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	var env []string
+	if a.hookListener != nil {
+		hookURL := fmt.Sprintf("http://%s/notify/%s", a.hookListener.Addr(), id)
+		env = append(env, session.BuildClaudeHookEnv(hookURL))
+	}
+
+	info, err := a.manager.Create(id, workDir, "claude", nil, env, func(data []byte) {
 		runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
+		if pm, ok := a.patternMatchers[id]; ok {
+			if a.hookListener == nil || !a.hookListener.HasSession(id) {
+				pm.Feed(data)
+			}
+		}
 	})
 	if err != nil {
 		return nil, err
 	}
-	id = info.ID
+
+	a.patternMatchers[info.ID] = notification.NewPatternMatcher(a.notifSvc, info.ID, info.Name)
+
+	if a.hookListener != nil {
+		a.hookListener.RegisterSession(info.ID, info.Name)
+	}
 
 	a.manager.StartSessionReadLoop(info.ID)
-
 	return info, nil
+}
+
+func (a *App) DismissNotification(sessionID string) {
+	a.notifSvc.Dismiss(sessionID)
 }
 
 func (a *App) AttachSession(id string) {
@@ -145,6 +229,10 @@ func (a *App) ListSessions() []session.SessionInfo {
 }
 
 func (a *App) KillSession(id string) error {
+	delete(a.patternMatchers, id)
+	if a.hookListener != nil {
+		a.hookListener.UnregisterSession(id)
+	}
 	return a.manager.Kill(id)
 }
 

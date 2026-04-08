@@ -13,6 +13,21 @@ import (
 	"github.com/andybarilla/jackdaw/internal/relay"
 )
 
+func BuildClaudeHookEnv(hookURL string) string {
+	hookConfig := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"Notification": []map[string]interface{}{
+				{
+					"type":    "command",
+					"command": fmt.Sprintf("curl -s -X POST -H 'Content-Type: application/json' -d @- '%s'", hookURL),
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(hookConfig)
+	return "CLAUDE_CODE_HOOKS=" + string(data)
+}
+
 type Session struct {
 	ID         string
 	WorkDir    string
@@ -31,7 +46,7 @@ type Session struct {
 	readStarted  bool
 }
 
-func New(id string, workDir string, command string, args []string, socketDir string, historyPath string, historyMax int64) (*Session, error) {
+func New(id string, workDir string, command string, args []string, socketDir string, historyPath string, historyMax int64, env []string) (*Session, error) {
 	sockPath := filepath.Join(socketDir, id+".sock")
 
 	exe, err := os.Executable()
@@ -57,6 +72,7 @@ func New(id string, workDir string, command string, args []string, socketDir str
 
 	relayCmd := exec.Command(exe, relayArgs...)
 	relayCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	relayCmd.Env = append(os.Environ(), env...)
 	if err := relayCmd.Start(); err != nil {
 		return nil, fmt.Errorf("start relay: %w", err)
 	}
