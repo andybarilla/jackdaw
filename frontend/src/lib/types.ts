@@ -33,6 +33,12 @@ export interface WorktreeStatus {
   unpushed_commits: number;
 }
 
+export interface MergeResult {
+  success: boolean;
+  commit_message?: string;
+  error?: string;
+}
+
 export interface FileDiff {
   path: string;
   old_path?: string;
