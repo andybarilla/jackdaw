@@ -4,6 +4,7 @@ export namespace config {
 	    theme: string;
 	    keybindings: Record<string, string>;
 	    layout?: number[];
+	    history_max_bytes?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -14,6 +15,7 @@ export namespace config {
 	        this.theme = source["theme"];
 	        this.keybindings = source["keybindings"];
 	        this.layout = source["layout"];
+	        this.history_max_bytes = source["history_max_bytes"];
 	    }
 	}
 
