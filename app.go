@@ -24,6 +24,8 @@ type App struct {
 	hookListener    *notification.HookListener
 	desktop         *notification.DesktopNotifier
 	patternMatchers map[string]*notification.PatternMatcher
+	errorDetectors        map[string]*notification.ErrorDetector
+	errorDetectionEnabled bool
 }
 
 func NewApp() *App {
@@ -50,7 +52,9 @@ func NewApp() *App {
 		configPath:      configPath,
 		notifSvc:        notifSvc,
 		desktop:         desktop,
-		patternMatchers: make(map[string]*notification.PatternMatcher),
+		patternMatchers:       make(map[string]*notification.PatternMatcher),
+		errorDetectors:        make(map[string]*notification.ErrorDetector),
+		errorDetectionEnabled: cfg.ErrorDetectionEnabled,
 	}
 }
 
@@ -201,12 +205,18 @@ func (a *App) CreateSession(workDir string) (*session.SessionInfo, error) {
 				pm.Feed(data)
 			}
 		}
+		if ed, ok := a.errorDetectors[id]; ok {
+			ed.Feed(data)
+		}
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	a.patternMatchers[info.ID] = notification.NewPatternMatcher(a.notifSvc, info.ID, info.Name)
+	if a.errorDetectionEnabled {
+		a.errorDetectors[info.ID] = notification.NewErrorDetector(a.notifSvc, info.ID, info.Name)
+	}
 
 	if a.hookListener != nil {
 		a.hookListener.RegisterSession(info.ID, info.Name)
@@ -241,6 +251,7 @@ func (a *App) ListSessions() []session.SessionInfo {
 
 func (a *App) KillSession(id string) error {
 	delete(a.patternMatchers, id)
+	delete(a.errorDetectors, id)
 	if a.hookListener != nil {
 		a.hookListener.UnregisterSession(id)
 	}

@@ -14,7 +14,8 @@ type Config struct {
 	HistoryMaxBytes      int               `json:"history_max_bytes,omitempty"`
 	NotificationsEnabled bool              `json:"notifications_enabled"`
 	DesktopNotifications bool              `json:"desktop_notifications"`
-	ToastDurationSeconds int               `json:"toast_duration_seconds,omitempty"`
+	ToastDurationSeconds    int               `json:"toast_duration_seconds,omitempty"`
+	ErrorDetectionEnabled   bool              `json:"error_detection_enabled"`
 }
 
 func Defaults() *Config {
@@ -24,7 +25,8 @@ func Defaults() *Config {
 		HistoryMaxBytes:      1048576,
 		NotificationsEnabled: true,
 		DesktopNotifications: true,
-		ToastDurationSeconds: 5,
+		ToastDurationSeconds:  5,
+		ErrorDetectionEnabled: true,
 	}
 }
 

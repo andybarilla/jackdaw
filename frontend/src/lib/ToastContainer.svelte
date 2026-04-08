@@ -97,12 +97,13 @@
       class="toast"
       class:exited={notif.type === "session_exited"}
       class:input={notif.type === "input_required"}
+      class:error={notif.type === "error_detected"}
       role="alert"
       onmouseenter={() => handleMouseEnter(notif.sessionID)}
       onmouseleave={() => handleMouseLeave(notif.sessionID)}
     >
       <div class="toast-header">
-        <span class="toast-icon">{notif.type === "session_exited" ? "⏹" : "⏳"}</span>
+        <span class="toast-icon">{notif.type === "error_detected" ? "🔴" : notif.type === "session_exited" ? "⏹" : "⏳"}</span>
         <span class="toast-title">{notif.sessionName}</span>
       </div>
       <div class="toast-message">{notif.message}</div>
@@ -150,6 +151,10 @@
 
   .toast.exited {
     border-color: var(--text-muted);
+  }
+
+  .toast.error {
+    border-color: var(--danger, #e06c75);
   }
 
   .toast-header {
