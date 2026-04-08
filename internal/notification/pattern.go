@@ -37,9 +37,10 @@ func NewPatternMatcher(svc *Service, sessionID string, sessionName string) *Patt
 }
 
 func (pm *PatternMatcher) Feed(data []byte) {
+	cleaned := StripANSI(data)
 	for _, pat := range inputPatterns {
-		if pat.Match(data) {
-			pm.fire(string(data))
+		if pat.Match(cleaned) {
+			pm.fire(string(cleaned))
 			return
 		}
 	}

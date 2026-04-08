@@ -25,7 +25,7 @@ export interface SessionInfo {
 export interface AppNotification {
   sessionID: string;
   sessionName: string;
-  type: "session_exited" | "input_required";
+  type: "session_exited" | "input_required" | "error_detected";
   message: string;
   timestamp: string;
   approveResponse?: string;

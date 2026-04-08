@@ -9,16 +9,11 @@
 - **Multi-session layout** — Split panes with drag-to-resize, tab bar for quick switching, flexible tiling
 - **Session history** — Persist terminal scrollback to disk with configurable size limits; relay replays from history file on reconnect
 
+- **Notifications** — Surface alerts when a background session needs attention — process exit, agent waiting for input (permission prompts, questions)
+- **Notification actions** — Quick-approve permission prompts and other actionable responses directly from toast notifications
+- **Error detection** — Pattern-match terminal output to detect errors, failures, or anomalies in background sessions
+
 ## Up Next
-
-### Notifications
-Surface alerts when a background session needs attention — process exit, agent waiting for input (permission prompts, questions).
-
-### Notification Actions
-Quick-approve permission prompts and other actionable responses directly from toast notifications.
-
-### Error Detection
-Pattern-match terminal output to detect errors, failures, or anomalies in background sessions.
 
 ## Workflow
 

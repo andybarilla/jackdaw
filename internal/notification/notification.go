@@ -8,8 +8,9 @@ import (
 type NotificationType string
 
 const (
-	TypeSessionExited NotificationType = "session_exited"
-	TypeInputRequired NotificationType = "input_required"
+	TypeSessionExited  NotificationType = "session_exited"
+	TypeInputRequired  NotificationType = "input_required"
+	TypeErrorDetected  NotificationType = "error_detected"
 )
 
 type Notification struct {
