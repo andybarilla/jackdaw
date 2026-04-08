@@ -85,6 +85,9 @@
             class="session-name"
             ondblclick={(e: MouseEvent) => startEditing(session, e)}
           >{session.name}</span>
+          {#if session.worktree_enabled}
+            <span class="branch-badge" title={session.branch_name}>&#9741;</span>
+          {/if}
           <button
             class="edit-btn"
             onclick={(e: MouseEvent) => startEditing(session, e)}
@@ -173,6 +176,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .branch-badge {
+    color: var(--accent);
+    font-size: 14px;
+    flex-shrink: 0;
+    opacity: 0.7;
   }
 
   .edit-btn {

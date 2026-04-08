@@ -12,6 +12,7 @@ import (
 	"github.com/andybarilla/jackdaw/internal/notification"
 	"github.com/andybarilla/jackdaw/internal/session"
 	"github.com/andybarilla/jackdaw/internal/terminal"
+	"github.com/andybarilla/jackdaw/internal/worktree"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -182,13 +183,18 @@ func expandHome(path string) string {
 	return path
 }
 
+func (a *App) IsGitRepo(dir string) bool {
+	dir = expandHome(dir)
+	return worktree.IsGitRepo(dir)
+}
+
 func (a *App) PickDirectory() (string, error) {
 	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Select Working Directory",
 	})
 }
 
-func (a *App) CreateSession(workDir string) (*session.SessionInfo, error) {
+func (a *App) CreateSession(workDir string, worktreeEnabled bool, branchName string) (*session.SessionInfo, error) {
 	workDir = expandHome(workDir)
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
 
@@ -196,6 +202,13 @@ func (a *App) CreateSession(workDir string) (*session.SessionInfo, error) {
 	if a.hookListener != nil {
 		hookURL := fmt.Sprintf("http://%s/notify/%s", a.hookListener.Addr(), id)
 		env = append(env, session.BuildClaudeHookEnv(hookURL))
+	}
+
+	cfg, _ := config.Load(a.configPath)
+	wtOpts := session.WorktreeOptions{
+		Enabled:      worktreeEnabled,
+		BranchName:   branchName,
+		WorktreeRoot: cfg.WorktreeRoot,
 	}
 
 	info, err := a.manager.Create(id, workDir, "claude", nil, env, func(data []byte) {
@@ -208,7 +221,7 @@ func (a *App) CreateSession(workDir string) (*session.SessionInfo, error) {
 		if ed, ok := a.errorDetectors[id]; ok {
 			ed.Feed(data)
 		}
-	})
+	}, wtOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -247,6 +260,50 @@ func (a *App) AttachSession(id string) {
 
 func (a *App) ListSessions() []session.SessionInfo {
 	return a.manager.List()
+}
+
+type WorktreeStatusResult struct {
+	Branch           string `json:"branch"`
+	UncommittedFiles int    `json:"uncommitted_files"`
+	UnpushedCommits  int    `json:"unpushed_commits"`
+}
+
+func (a *App) GetWorktreeStatus(sessionID string) (*WorktreeStatusResult, error) {
+	info := a.manager.GetSessionInfo(sessionID)
+	if info == nil {
+		return nil, fmt.Errorf("session %q not found", sessionID)
+	}
+	if !info.WorktreeEnabled || info.WorktreePath == "" {
+		return nil, fmt.Errorf("session %q is not a worktree session", sessionID)
+	}
+
+	st, err := worktree.Status(info.WorktreePath)
+	if err != nil {
+		return nil, err
+	}
+	return &WorktreeStatusResult{
+		Branch:           st.Branch,
+		UncommittedFiles: st.UncommittedFiles,
+		UnpushedCommits:  st.UnpushedCommits,
+	}, nil
+}
+
+func (a *App) CleanupWorktree(sessionID string, deleteWorktree bool) error {
+	info := a.manager.GetSessionInfo(sessionID)
+	if info == nil {
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	if !info.WorktreeEnabled {
+		return nil
+	}
+
+	if deleteWorktree {
+		if err := worktree.Remove(info.OriginalDir, info.WorktreePath, info.BranchName); err != nil {
+			return fmt.Errorf("remove worktree: %w", err)
+		}
+	}
+
+	return a.manager.Kill(sessionID)
 }
 
 func (a *App) KillSession(id string) error {
