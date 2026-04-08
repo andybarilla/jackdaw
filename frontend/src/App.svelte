@@ -31,7 +31,7 @@
   import ToastContainer from "./lib/ToastContainer.svelte";
   import SplitPane from "./lib/SplitPane.svelte";
   import NewSessionDialog from "./lib/NewSessionDialog.svelte";
-  import { getKeymap } from "./lib/config.svelte";
+  import { getKeymap, getToastDuration } from "./lib/config.svelte";
   import { matchKeybinding } from "./lib/keybindings";
 
   let sessions = $state<SessionInfo[]>([]);
@@ -451,7 +451,7 @@
     />
   {/if}
 
-  <ToastContainer toastDuration={5} onGoToSession={handleGoToSession} />
+  <ToastContainer toastDuration={getToastDuration()} onGoToSession={handleGoToSession} />
 </main>
 
 <style>
