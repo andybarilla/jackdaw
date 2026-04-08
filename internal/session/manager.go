@@ -3,12 +3,14 @@ package session
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/andybarilla/jackdaw/internal/manifest"
+	"github.com/andybarilla/jackdaw/internal/worktree"
 )
 
 type Status string
@@ -28,6 +30,17 @@ type SessionInfo struct {
 	PID       int       `json:"pid"`
 	StartedAt time.Time `json:"started_at"`
 	ExitCode  int       `json:"exit_code"`
+	WorktreeEnabled bool      `json:"worktree_enabled,omitempty"`
+	WorktreePath    string    `json:"worktree_path,omitempty"`
+	OriginalDir     string    `json:"original_dir,omitempty"`
+	BranchName      string    `json:"branch_name,omitempty"`
+	BaseBranch      string    `json:"base_branch,omitempty"`
+}
+
+type WorktreeOptions struct {
+	Enabled      bool
+	BranchName   string
+	WorktreeRoot string
 }
 
 type Manager struct {
@@ -93,27 +106,56 @@ func (m *Manager) generateName(workDir string) string {
 	}
 }
 
-func (m *Manager) Create(id string, workDir string, command string, args []string, env []string, onOutput func([]byte)) (*SessionInfo, error) {
+func (m *Manager) Create(id string, workDir string, command string, args []string, env []string, onOutput func([]byte), wtOpts WorktreeOptions) (*SessionInfo, error) {
 	if id == "" {
 		id = fmt.Sprintf("%d", time.Now().UnixNano())
 	}
+
+	var wtPath, originalDir, branchName, baseBranch string
+
+	if wtOpts.Enabled {
+		wtRoot := wtOpts.WorktreeRoot
+		if wtRoot == "" {
+			repoBase := filepath.Base(workDir)
+			wtRoot = filepath.Join(filepath.Dir(workDir), ".jackdaw-worktrees", repoBase)
+		}
+
+		detected, err := worktree.Create(workDir, wtRoot, wtOpts.BranchName, "")
+		if err != nil {
+			return nil, fmt.Errorf("create worktree: %w", err)
+		}
+		originalDir = workDir
+		wtPath = detected
+		branchName = wtOpts.BranchName
+		baseBranch = detectBaseBranch(workDir)
+		workDir = wtPath
+	}
+
 	historyPath := filepath.Join(m.historyDir, id+".log")
 
 	s, err := New(id, workDir, command, args, m.socketDir, historyPath, m.historyMaxBytes, env)
 	if err != nil {
+		if wtOpts.Enabled && wtPath != "" {
+			worktree.Remove(originalDir, wtPath, branchName)
+		}
 		return nil, err
 	}
 
 	name := m.generateName(workDir)
 
 	info := &SessionInfo{
-		ID:        id,
-		Name:      name,
-		WorkDir:   workDir,
-		Command:   command,
-		Status:    StatusRunning,
-		PID:       s.PID(),
-		StartedAt: s.StartedAt,
+		ID:              id,
+		Name:            name,
+		WorkDir:         workDir,
+		Command:         command,
+		Status:          StatusRunning,
+		PID:             s.PID(),
+		StartedAt:       s.StartedAt,
+		WorktreeEnabled: wtOpts.Enabled,
+		WorktreePath:    wtPath,
+		OriginalDir:     originalDir,
+		BranchName:      branchName,
+		BaseBranch:      baseBranch,
 	}
 
 	s.OnExit = func(exitCode int) {
@@ -132,15 +174,20 @@ func (m *Manager) Create(id string, workDir string, command string, args []strin
 	m.mu.Unlock()
 
 	mf := &manifest.Manifest{
-		SessionID:   id,
-		PID:         s.PID(),
-		Command:     command,
-		Args:        args,
-		WorkDir:     workDir,
-		SocketPath:  s.SocketPath,
-		StartedAt:   s.StartedAt,
-		Name:        name,
-		HistoryPath: historyPath,
+		SessionID:       id,
+		PID:             s.PID(),
+		Command:         command,
+		Args:            args,
+		WorkDir:         workDir,
+		SocketPath:      s.SocketPath,
+		StartedAt:       s.StartedAt,
+		Name:            name,
+		HistoryPath:     historyPath,
+		WorktreeEnabled: wtOpts.Enabled,
+		WorktreePath:    wtPath,
+		OriginalDir:     originalDir,
+		BranchName:      branchName,
+		BaseBranch:      baseBranch,
 	}
 	manifest.Write(filepath.Join(m.manifestDir, id+".json"), mf)
 
@@ -150,6 +197,16 @@ func (m *Manager) Create(id string, workDir string, command string, args []strin
 	m.notifyUpdate()
 
 	return info, nil
+}
+
+func (m *Manager) GetSessionInfo(id string) *SessionInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if info, ok := m.sessionInfo[id]; ok {
+		cp := *info
+		return &cp
+	}
+	return nil
 }
 
 func (m *Manager) List() []SessionInfo {
@@ -263,6 +320,17 @@ func (m *Manager) Recover() []SessionInfo {
 			continue
 		}
 
+		// For worktree sessions, check that the worktree directory still exists
+		if mf.WorktreeEnabled && mf.WorktreePath != "" {
+			if _, err := os.Stat(mf.WorktreePath); os.IsNotExist(err) {
+				if mf.HistoryPath != "" {
+					os.Remove(mf.HistoryPath)
+				}
+				manifest.Remove(path)
+				continue
+			}
+		}
+
 		s, err := Reconnect(mf.SessionID, mf.SocketPath, mf.WorkDir, mf.Command, mf.PID, mf.StartedAt)
 		if err != nil {
 			if mf.HistoryPath != "" {
@@ -278,13 +346,18 @@ func (m *Manager) Recover() []SessionInfo {
 		}
 
 		info := &SessionInfo{
-			ID:        mf.SessionID,
-			Name:      name,
-			WorkDir:   mf.WorkDir,
-			Command:   mf.Command,
-			Status:    StatusRunning,
-			PID:       mf.PID,
-			StartedAt: mf.StartedAt,
+			ID:              mf.SessionID,
+			Name:            name,
+			WorkDir:         mf.WorkDir,
+			Command:         mf.Command,
+			Status:          StatusRunning,
+			PID:             mf.PID,
+			StartedAt:       mf.StartedAt,
+			WorktreeEnabled: mf.WorktreeEnabled,
+			WorktreePath:    mf.WorktreePath,
+			OriginalDir:     mf.OriginalDir,
+			BranchName:      mf.BranchName,
+			BaseBranch:      mf.BaseBranch,
 		}
 
 		m.mu.Lock()
@@ -322,4 +395,20 @@ func (m *Manager) notifyUpdate() {
 	if fn != nil {
 		fn(m.List())
 	}
+}
+
+func detectBaseBranch(repoDir string) string {
+	cmd := exec.Command("git", "-C", repoDir, "symbolic-ref", "refs/remotes/origin/HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		cmd2 := exec.Command("git", "-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD")
+		out2, err2 := cmd2.Output()
+		if err2 != nil {
+			return "main"
+		}
+		return strings.TrimSpace(string(out2))
+	}
+	ref := strings.TrimSpace(string(out))
+	parts := strings.Split(ref, "/")
+	return parts[len(parts)-1]
 }

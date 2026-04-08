@@ -3,16 +3,23 @@
 import {session} from '../models';
 import {terminal} from '../models';
 import {config} from '../models';
+import {main} from '../models';
 
 export function AttachSession(arg1:string):Promise<void>;
 
-export function CreateSession(arg1:string):Promise<session.SessionInfo>;
+export function CleanupWorktree(arg1:string,arg2:boolean):Promise<void>;
+
+export function CreateSession(arg1:string,arg2:boolean,arg3:string):Promise<session.SessionInfo>;
 
 export function CreateTerminal(arg1:string):Promise<terminal.TerminalInfo>;
 
 export function DismissNotification(arg1:string):Promise<void>;
 
 export function GetConfig():Promise<config.Config>;
+
+export function GetWorktreeStatus(arg1:string):Promise<main.WorktreeStatusResult>;
+
+export function IsGitRepo(arg1:string):Promise<boolean>;
 
 export function KillSession(arg1:string):Promise<void>;
 

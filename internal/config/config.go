@@ -16,6 +16,7 @@ type Config struct {
 	DesktopNotifications bool              `json:"desktop_notifications"`
 	ToastDurationSeconds    int               `json:"toast_duration_seconds,omitempty"`
 	ErrorDetectionEnabled   bool              `json:"error_detection_enabled"`
+	WorktreeRoot            string            `json:"worktree_root,omitempty"`
 }
 
 func Defaults() *Config {

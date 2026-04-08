@@ -1,19 +1,54 @@
 <script lang="ts">
-  import { PickDirectory } from "../../wailsjs/go/main/App";
+  import { PickDirectory, IsGitRepo } from "../../wailsjs/go/main/App";
 
   interface Props {
-    onSubmit: (workDir: string) => void;
+    onSubmit: (workDir: string, worktreeEnabled: boolean, branchName: string) => void;
     onCancel: () => void;
   }
 
   let { onSubmit, onCancel }: Props = $props();
   let workDir = $state("");
+  let isGitRepo = $state(false);
+  let worktreeEnabled = $state(false);
+  let branchName = $state("");
+  let checkingGit = $state(false);
+
+  function generateBranchName(dir: string): string {
+    const basename = dir.split("/").pop() || "project";
+    const short = Date.now().toString(36).slice(-6);
+    return `jackdaw-${basename}-${short}`;
+  }
+
+  async function checkGitRepo(dir: string): Promise<void> {
+    if (!dir.trim()) {
+      isGitRepo = false;
+      return;
+    }
+    checkingGit = true;
+    try {
+      isGitRepo = await IsGitRepo(dir);
+      if (isGitRepo && !branchName) {
+        branchName = generateBranchName(dir);
+      }
+    } catch {
+      isGitRepo = false;
+    } finally {
+      checkingGit = false;
+    }
+  }
+
+  let checkTimer: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    if (checkTimer) clearTimeout(checkTimer);
+    const dir = workDir;
+    checkTimer = setTimeout(() => checkGitRepo(dir), 300);
+  });
 
   function handleSubmit(e: Event) {
     e.preventDefault();
     const trimmed = workDir.trim();
     if (trimmed) {
-      onSubmit(trimmed);
+      onSubmit(trimmed, worktreeEnabled, branchName.trim());
     }
   }
 
@@ -48,9 +83,29 @@
         <button type="button" class="browse" onclick={handleBrowse}>Browse</button>
       </div>
     </label>
+
+    {#if isGitRepo}
+      <label class="checkbox-label">
+        <input type="checkbox" bind:checked={worktreeEnabled} />
+        Create isolated worktree
+      </label>
+
+      {#if worktreeEnabled}
+        <label>
+          Branch name
+          <input
+            type="text"
+            bind:value={branchName}
+            placeholder="jackdaw-project-abc123"
+            class="branch-input"
+          />
+        </label>
+      {/if}
+    {/if}
+
     <div class="actions">
       <button type="button" class="cancel" onclick={onCancel}>Cancel</button>
-      <button type="submit" class="submit" disabled={!workDir.trim()}>
+      <button type="submit" class="submit" disabled={!workDir.trim() || (worktreeEnabled && !branchName.trim())}>
         Launch
       </button>
     </div>
@@ -94,7 +149,7 @@
     margin-top: 6px;
   }
 
-  input {
+  input[type="text"] {
     flex: 1;
     padding: 8px 10px;
     background: var(--bg-primary);
@@ -111,9 +166,25 @@
     white-space: nowrap;
   }
 
-  input:focus {
+  input[type="text"]:focus {
     outline: none;
     border-color: var(--accent);
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+
+  input[type="checkbox"] {
+    accent-color: var(--accent);
+  }
+
+  .branch-input {
+    width: 100%;
+    margin-top: 6px;
   }
 
   .actions {

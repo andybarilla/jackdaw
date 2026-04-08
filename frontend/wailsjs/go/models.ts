@@ -8,6 +8,8 @@ export namespace config {
 	    notifications_enabled: boolean;
 	    desktop_notifications: boolean;
 	    toast_duration_seconds?: number;
+	    error_detection_enabled: boolean;
+	    worktree_root?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -22,6 +24,29 @@ export namespace config {
 	        this.notifications_enabled = source["notifications_enabled"];
 	        this.desktop_notifications = source["desktop_notifications"];
 	        this.toast_duration_seconds = source["toast_duration_seconds"];
+	        this.error_detection_enabled = source["error_detection_enabled"];
+	        this.worktree_root = source["worktree_root"];
+	    }
+	}
+
+}
+
+export namespace main {
+	
+	export class WorktreeStatusResult {
+	    branch: string;
+	    uncommitted_files: number;
+	    unpushed_commits: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorktreeStatusResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.branch = source["branch"];
+	        this.uncommitted_files = source["uncommitted_files"];
+	        this.unpushed_commits = source["unpushed_commits"];
 	    }
 	}
 
@@ -39,6 +64,11 @@ export namespace session {
 	    // Go type: time
 	    started_at: any;
 	    exit_code: number;
+	    worktree_enabled?: boolean;
+	    worktree_path?: string;
+	    original_dir?: string;
+	    branch_name?: string;
+	    base_branch?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SessionInfo(source);
@@ -54,6 +84,11 @@ export namespace session {
 	        this.pid = source["pid"];
 	        this.started_at = this.convertValues(source["started_at"], null);
 	        this.exit_code = source["exit_code"];
+	        this.worktree_enabled = source["worktree_enabled"];
+	        this.worktree_path = source["worktree_path"];
+	        this.original_dir = source["original_dir"];
+	        this.branch_name = source["branch_name"];
+	        this.base_branch = source["base_branch"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -20,6 +20,17 @@ export interface SessionInfo {
   pid: number;
   started_at: string;
   exit_code: number;
+  worktree_enabled?: boolean;
+  worktree_path?: string;
+  original_dir?: string;
+  branch_name?: string;
+  base_branch?: string;
+}
+
+export interface WorktreeStatus {
+  branch: string;
+  uncommitted_files: number;
+  unpushed_commits: number;
 }
 
 export interface AppNotification {
