@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { EventsOn } from "../wailsjs/runtime/runtime";
+  import { EventsOn, EventsEmit } from "../wailsjs/runtime/runtime";
   import {
     CreateSession,
     ListSessions,
@@ -10,6 +10,7 @@
     KillTerminal,
     GetConfig,
     SetConfig,
+    DismissNotification,
   } from "../wailsjs/go/main/App";
   import type { LayoutNode, PaneContent, Path } from "./lib/layout";
   import {
@@ -24,8 +25,10 @@
     collectSessionIds,
     collectTerminalIds,
   } from "./lib/layout";
-  import type { SessionInfo, TerminalApi } from "./lib/types";
+  import type { SessionInfo, TerminalApi, AppNotification } from "./lib/types";
+  import { addNotification, dismissNotification } from "./lib/notifications.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
+  import ToastContainer from "./lib/ToastContainer.svelte";
   import SplitPane from "./lib/SplitPane.svelte";
   import NewSessionDialog from "./lib/NewSessionDialog.svelte";
   import { getKeymap } from "./lib/config.svelte";
@@ -293,6 +296,22 @@
       }
     });
     cleanups.push(cancelTermExit);
+
+    const cancelNotification = EventsOn("notification-fired", (data: unknown) => {
+      const notif = data as AppNotification;
+      addNotification(notif);
+    });
+    cleanups.push(cancelNotification);
+
+    // Track window focus for desktop notification gating
+    const handleFocus = () => EventsEmit("window-focus-changed", true);
+    const handleBlur = () => EventsEmit("window-focus-changed", false);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+    cleanups.push(() => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+    });
   });
 
   onDestroy(() => {
@@ -340,6 +359,10 @@
   }
 
   function handleSidebarSelect(id: string): void {
+    // Dismiss any active notification for this session
+    dismissNotification(id);
+    DismissNotification(id);
+
     // If session already in a pane, focus that pane
     const existingPath = findLeafBySessionId(layoutTree, id);
     if (existingPath) {
@@ -354,6 +377,10 @@
       sessionId: id,
     });
     requestAnimationFrame(() => terminalApis[id]?.focus());
+  }
+
+  function handleGoToSession(sessionID: string): void {
+    handleSidebarSelect(sessionID);
   }
 
   async function handleQuickPick(
@@ -423,6 +450,8 @@
       }}
     />
   {/if}
+
+  <ToastContainer toastDuration={5} onGoToSession={handleGoToSession} />
 </main>
 
 <style>
