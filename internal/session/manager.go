@@ -93,11 +93,13 @@ func (m *Manager) generateName(workDir string) string {
 	}
 }
 
-func (m *Manager) Create(workDir string, command string, args []string, onOutput func([]byte)) (*SessionInfo, error) {
-	id := fmt.Sprintf("%d", time.Now().UnixNano())
+func (m *Manager) Create(id string, workDir string, command string, args []string, env []string, onOutput func([]byte)) (*SessionInfo, error) {
+	if id == "" {
+		id = fmt.Sprintf("%d", time.Now().UnixNano())
+	}
 	historyPath := filepath.Join(m.historyDir, id+".log")
 
-	s, err := New(id, workDir, command, args, m.socketDir, historyPath, m.historyMaxBytes)
+	s, err := New(id, workDir, command, args, m.socketDir, historyPath, m.historyMaxBytes, env)
 	if err != nil {
 		return nil, err
 	}

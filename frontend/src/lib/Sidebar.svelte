@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { SessionInfo } from "./types";
+  import { hasNotification } from "./notifications.svelte";
 
   interface Props {
     sessions: SessionInfo[];
@@ -57,12 +58,17 @@
       <div
         class="session-item"
         class:active={session.id === activeSessionId}
+        class:attention={hasNotification(session.id)}
         onclick={() => onSelect(session.id)}
         onkeydown={(e: KeyboardEvent) => { if (e.key === "Enter") onSelect(session.id); }}
         role="button"
         tabindex="0"
       >
-        <span class="status-dot" style="background: {statusColor(session.status)}"></span>
+        <span
+          class="status-dot"
+          class:pulse={hasNotification(session.id)}
+          style="background: {hasNotification(session.id) ? 'var(--warning)' : statusColor(session.status)}"
+        ></span>
         {#if editingId === session.id}
           <!-- svelte-ignore a11y_autofocus -->
           <input
@@ -91,6 +97,9 @@
             onclick={(e: MouseEvent) => { e.stopPropagation(); onKill(session.id); }}
             title="Kill session"
           >&#215;</button>
+        {/if}
+        {#if hasNotification(session.id)}
+          <span class="attention-badge">!</span>
         {/if}
       </div>
     {/each}
@@ -211,5 +220,28 @@
 
   .kill-btn:hover {
     color: var(--error);
+  }
+
+  .session-item.attention {
+    background: rgba(251, 146, 60, 0.1);
+  }
+
+  .status-dot.pulse {
+    animation: pulse 1.5s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .attention-badge {
+    background: var(--warning);
+    color: var(--bg-primary);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    flex-shrink: 0;
   }
 </style>

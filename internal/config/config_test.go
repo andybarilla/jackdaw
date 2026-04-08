@@ -150,3 +150,52 @@ func TestLoadIgnoresCorruptFile(t *testing.T) {
 		t.Errorf("expected default theme on corrupt file, got %q", cfg.Theme)
 	}
 }
+
+func TestDefaultNotificationSettings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.NotificationsEnabled {
+		t.Error("expected NotificationsEnabled default true")
+	}
+	if !cfg.DesktopNotifications {
+		t.Error("expected DesktopNotifications default true")
+	}
+	if cfg.ToastDurationSeconds != 5 {
+		t.Errorf("expected ToastDurationSeconds default 5, got %d", cfg.ToastDurationSeconds)
+	}
+}
+
+func TestSaveAndLoadNotificationSettings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	cfg := &Config{
+		Theme:                "dark",
+		Keybindings:          map[string]string{},
+		NotificationsEnabled: false,
+		DesktopNotifications: false,
+		ToastDurationSeconds: 10,
+	}
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("save error: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+	if loaded.NotificationsEnabled {
+		t.Error("expected NotificationsEnabled false")
+	}
+	if loaded.DesktopNotifications {
+		t.Error("expected DesktopNotifications false")
+	}
+	if loaded.ToastDurationSeconds != 10 {
+		t.Errorf("expected ToastDurationSeconds 10, got %d", loaded.ToastDurationSeconds)
+	}
+}
