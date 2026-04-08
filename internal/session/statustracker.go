@@ -11,7 +11,7 @@ var ansiPattern = regexp.MustCompile(`\x1b(?:\[[0-9;]*[a-zA-Z]|\][^\x07]*\x07)`)
 
 // promptPattern matches Claude Code's idle prompt character (U+276F) at a line start,
 // optionally preceded by whitespace.
-var promptPattern = regexp.MustCompile(`(?m)^\s*\xe2\x9d\xaf`)
+var promptPattern = regexp.MustCompile(`(?m)^\s*❯`)
 
 type StatusTracker struct {
 	mu        sync.Mutex
