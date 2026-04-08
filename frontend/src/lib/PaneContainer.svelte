@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PaneContent } from "./layout";
-  import type { TerminalApi } from "./types";
+  import type { TerminalApi, SessionInfo } from "./types";
   import Terminal from "./Terminal.svelte";
   import SearchBar from "./SearchBar.svelte";
   import QuickPicker from "./QuickPicker.svelte";
@@ -11,9 +11,11 @@
     focused: boolean;
     searchVisible: boolean;
     terminalApi: TerminalApi | null;
+    sessions?: SessionInfo[];
     onFocus: () => void;
     onQuickPick: (choice: "terminal" | "session") => void;
     onTerminalReady: (api: TerminalApi) => void;
+    onMerge?: (sessionId: string) => void;
   }
 
   let {
@@ -21,9 +23,11 @@
     focused,
     searchVisible,
     terminalApi,
+    sessions,
     onFocus,
     onQuickPick,
     onTerminalReady,
+    onMerge,
   }: Props = $props();
 
   let contentId = $derived(
@@ -35,6 +39,12 @@
           ? content.id
           : null,
   );
+
+  let diffSession = $derived(
+    content?.type === "diff" && sessions
+      ? sessions.find((s) => s.id === content.sessionId) ?? null
+      : null,
+  );
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -42,7 +52,12 @@
   {#if content === null}
     <QuickPicker onSelect={onQuickPick} />
   {:else if content.type === "diff"}
-    <DiffViewer sessionId={content.sessionId} />
+    <DiffViewer
+      sessionId={content.sessionId}
+      worktreeEnabled={diffSession?.worktree_enabled}
+      baseBranch={diffSession?.base_branch}
+      onMerge={onMerge && content.sessionId ? () => onMerge(content.sessionId) : undefined}
+    />
   {:else if contentId}
     <Terminal
       sessionId={contentId}

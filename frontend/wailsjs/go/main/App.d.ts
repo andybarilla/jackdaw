@@ -32,6 +32,8 @@ export function KillTerminal(arg1:string):Promise<void>;
 
 export function ListSessions():Promise<Array<session.SessionInfo>>;
 
+export function MergeSession(arg1:string):Promise<worktree.MergeResult>;
+
 export function PickDirectory():Promise<string>;
 
 export function RenameSession(arg1:string,arg2:string):Promise<void>;

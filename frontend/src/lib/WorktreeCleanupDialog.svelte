@@ -4,12 +4,14 @@
   interface Props {
     sessionName: string;
     branchName: string;
+    baseBranch: string;
     status: WorktreeStatus | null;
     onKeep: () => void;
+    onMerge: () => void;
     onDelete: () => void;
   }
 
-  let { sessionName, branchName, status, onKeep, onDelete }: Props = $props();
+  let { sessionName, branchName, baseBranch, status, onKeep, onMerge, onDelete }: Props = $props();
 </script>
 
 <div class="overlay" role="presentation">
@@ -34,6 +36,12 @@
 
     <div class="actions">
       <button class="keep" onclick={onKeep}>Keep worktree</button>
+      <button
+        class="merge"
+        onclick={onMerge}
+        disabled={status !== null && status.uncommitted_files > 0}
+        title={status !== null && status.uncommitted_files > 0 ? "Commit or stash changes first" : `Squash merge into ${baseBranch}`}
+      >Merge to {baseBranch}</button>
       <button class="delete" onclick={onDelete}>Delete worktree</button>
     </div>
   </div>
@@ -114,6 +122,17 @@
   .keep {
     background: var(--bg-tertiary);
     color: var(--text-secondary);
+  }
+
+  .merge {
+    background: var(--accent);
+    color: var(--bg-primary);
+    font-weight: 600;
+  }
+
+  .merge:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .delete {

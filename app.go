@@ -306,6 +306,42 @@ func (a *App) CleanupWorktree(sessionID string, deleteWorktree bool) error {
 	return a.manager.Kill(sessionID)
 }
 
+func (a *App) MergeSession(sessionID string) (*worktree.MergeResult, error) {
+	info := a.manager.GetSessionInfo(sessionID)
+	if info == nil {
+		return nil, fmt.Errorf("session %q not found", sessionID)
+	}
+	if !info.WorktreeEnabled || info.WorktreePath == "" {
+		return nil, fmt.Errorf("session %q is not a worktree session", sessionID)
+	}
+
+	cfg, _ := config.Load(a.configPath)
+	squash := cfg.MergeMode != "merge"
+
+	result, err := worktree.Merge(info.OriginalDir, info.WorktreePath, info.BranchName, info.BaseBranch, squash)
+	if err != nil {
+		return nil, err
+	}
+	if !result.Success {
+		return result, nil
+	}
+
+	// Clean up worktree and branch — log errors but don't fail the merge
+	if rmErr := worktree.Remove(info.OriginalDir, info.WorktreePath, info.BranchName); rmErr != nil {
+		fmt.Fprintf(os.Stderr, "worktree cleanup after merge: %v\n", rmErr)
+	}
+
+	// Kill the session
+	delete(a.patternMatchers, sessionID)
+	delete(a.errorDetectors, sessionID)
+	if a.hookListener != nil {
+		a.hookListener.UnregisterSession(sessionID)
+	}
+	a.manager.Kill(sessionID) //nolint:errcheck
+
+	return result, nil
+}
+
 func (a *App) GetSessionDiff(sessionID string) ([]worktree.FileDiff, error) {
 	info := a.manager.GetSessionInfo(sessionID)
 	if info == nil {

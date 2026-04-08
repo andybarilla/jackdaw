@@ -17,6 +17,7 @@ type Config struct {
 	ToastDurationSeconds    int               `json:"toast_duration_seconds,omitempty"`
 	ErrorDetectionEnabled   bool              `json:"error_detection_enabled"`
 	WorktreeRoot            string            `json:"worktree_root,omitempty"`
+	MergeMode               string            `json:"merge_mode,omitempty"` // "squash" (default) or "merge"
 }
 
 func Defaults() *Config {
