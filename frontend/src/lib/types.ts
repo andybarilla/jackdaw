@@ -21,3 +21,11 @@ export interface SessionInfo {
   started_at: string;
   exit_code: number;
 }
+
+export interface AppNotification {
+  sessionID: string;
+  sessionName: string;
+  type: "session_exited" | "input_required";
+  message: string;
+  timestamp: string;
+}
