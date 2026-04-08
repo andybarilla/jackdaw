@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { AppNotification } from "./types";
   import { getNotifications, dismissNotification } from "./notifications.svelte";
-  import { DismissNotification } from "../../wailsjs/go/main/App";
+  import { DismissNotification, RespondToNotification } from "../../wailsjs/go/main/App";
 
   interface Props {
     toastDuration: number;
@@ -10,7 +10,7 @@
 
   let { toastDuration, onGoToSession }: Props = $props();
 
-  let visibleToasts = $state<Record<string, ReturnType<typeof setTimeout>>>({});
+  let visibleToasts = $state<Record<string, ReturnType<typeof setTimeout> | undefined>>({});
   let hoveredToasts = $state<Set<string>>(new Set());
   let notifications = $derived(getNotifications());
 
@@ -18,10 +18,16 @@
   $effect(() => {
     for (const sessionID of Object.keys(notifications)) {
       if (!(sessionID in visibleToasts)) {
-        const timer = setTimeout(() => {
-          handleDismiss(sessionID);
-        }, toastDuration * 1000);
-        visibleToasts = { ...visibleToasts, [sessionID]: timer };
+        const notif = notifications[sessionID];
+        if (notif.approveResponse) {
+          // Actionable notifications don't auto-dismiss — user must respond
+          visibleToasts = { ...visibleToasts, [sessionID]: undefined };
+        } else {
+          const timer = setTimeout(() => {
+            handleDismiss(sessionID);
+          }, toastDuration * 1000);
+          visibleToasts = { ...visibleToasts, [sessionID]: timer };
+        }
       }
     }
     // Clean up timers for dismissed notifications
@@ -50,6 +56,21 @@
     handleDismiss(sessionID);
   }
 
+  async function handleRespond(sessionID: string, response: string): Promise<void> {
+    try {
+      await RespondToNotification(sessionID, response);
+    } catch (err) {
+      console.error("Failed to respond to notification:", err);
+      return;
+    }
+    dismissNotification(sessionID);
+    if (sessionID in visibleToasts) {
+      clearTimeout(visibleToasts[sessionID]);
+      const { [sessionID]: _, ...rest } = visibleToasts;
+      visibleToasts = rest;
+    }
+  }
+
   function handleMouseEnter(sessionID: string): void {
     hoveredToasts = new Set([...hoveredToasts, sessionID]);
     if (sessionID in visibleToasts) {
@@ -61,6 +82,8 @@
     const next = new Set(hoveredToasts);
     next.delete(sessionID);
     hoveredToasts = next;
+    const notif = notifications[sessionID];
+    if (notif?.approveResponse) return;
     const timer = setTimeout(() => {
       handleDismiss(sessionID);
     }, toastDuration * 1000);
@@ -84,8 +107,14 @@
       </div>
       <div class="toast-message">{notif.message}</div>
       <div class="toast-actions">
-        <button class="toast-btn go" onclick={() => handleGoTo(notif.sessionID)}>Go to session</button>
-        <button class="toast-btn dismiss" onclick={() => handleDismiss(notif.sessionID)}>Dismiss</button>
+        {#if notif.approveResponse && notif.denyResponse}
+          <button class="toast-btn approve" onclick={() => handleRespond(notif.sessionID, notif.approveResponse!)}>Approve</button>
+          <button class="toast-btn deny" onclick={() => handleRespond(notif.sessionID, notif.denyResponse!)}>Deny</button>
+          <button class="toast-btn goto" onclick={() => handleGoTo(notif.sessionID)}>Go to session</button>
+        {:else}
+          <button class="toast-btn go" onclick={() => handleGoTo(notif.sessionID)}>Go to session</button>
+          <button class="toast-btn dismiss" onclick={() => handleDismiss(notif.sessionID)}>Dismiss</button>
+        {/if}
       </div>
     </div>
   {/each}
@@ -174,6 +203,36 @@
   }
 
   .toast-btn.dismiss:hover {
+    color: var(--text-primary);
+  }
+
+  .toast-btn.approve {
+    background: var(--accent);
+    color: var(--bg-primary);
+  }
+
+  .toast-btn.approve:hover {
+    opacity: 0.9;
+  }
+
+  .toast-btn.deny {
+    background: var(--bg-tertiary);
+    color: var(--danger, #e06c75);
+    border: 1px solid var(--danger, #e06c75);
+  }
+
+  .toast-btn.deny:hover {
+    background: var(--danger, #e06c75);
+    color: var(--bg-primary);
+  }
+
+  .toast-btn.goto {
+    background: none;
+    color: var(--text-secondary);
+    text-decoration: underline;
+  }
+
+  .toast-btn.goto:hover {
     color: var(--text-primary);
   }
 

@@ -28,4 +28,6 @@ export interface AppNotification {
   type: "session_exited" | "input_required";
   message: string;
   timestamp: string;
+  approveResponse?: string;
+  denyResponse?: string;
 }

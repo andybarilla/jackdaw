@@ -13,11 +13,13 @@ const (
 )
 
 type Notification struct {
-	SessionID   string           `json:"sessionID"`
-	SessionName string           `json:"sessionName"`
-	Type        NotificationType `json:"type"`
-	Message     string           `json:"message"`
-	Timestamp   time.Time        `json:"timestamp"`
+	SessionID       string           `json:"sessionID"`
+	SessionName     string           `json:"sessionName"`
+	Type            NotificationType `json:"type"`
+	Message         string           `json:"message"`
+	Timestamp       time.Time        `json:"timestamp"`
+	ApproveResponse string           `json:"approveResponse,omitempty"`
+	DenyResponse    string           `json:"denyResponse,omitempty"`
 }
 
 type Service struct {

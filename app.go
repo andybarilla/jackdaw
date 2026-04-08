@@ -220,6 +220,17 @@ func (a *App) DismissNotification(sessionID string) {
 	a.notifSvc.Dismiss(sessionID)
 }
 
+func (a *App) RespondToNotification(sessionID string, response string) error {
+	if !a.notifSvc.HasActive(sessionID) {
+		return fmt.Errorf("no active notification for session %q", sessionID)
+	}
+	if err := a.manager.WriteToSession(sessionID, []byte(response)); err != nil {
+		return fmt.Errorf("write to session: %w", err)
+	}
+	a.notifSvc.Dismiss(sessionID)
+	return nil
+}
+
 func (a *App) AttachSession(id string) {
 	a.manager.StartSessionReadLoop(id)
 }
