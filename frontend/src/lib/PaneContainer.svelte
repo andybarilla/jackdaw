@@ -4,6 +4,7 @@
   import Terminal from "./Terminal.svelte";
   import SearchBar from "./SearchBar.svelte";
   import QuickPicker from "./QuickPicker.svelte";
+  import DiffViewer from "./DiffViewer.svelte";
 
   interface Props {
     content: PaneContent;
@@ -30,7 +31,9 @@
       ? null
       : content.type === "session"
         ? content.sessionId
-        : content.id,
+        : content.type === "terminal"
+          ? content.id
+          : null,
   );
 </script>
 
@@ -38,6 +41,8 @@
 <div class="pane-container" class:focused onclick={onFocus}>
   {#if content === null}
     <QuickPicker onSelect={onQuickPick} />
+  {:else if content.type === "diff"}
+    <DiffViewer sessionId={content.sessionId} />
   {:else if contentId}
     <Terminal
       sessionId={contentId}

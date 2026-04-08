@@ -24,8 +24,10 @@
     getLeafContent,
     findLeafBySessionId,
     findLeafByTerminalId,
+    findLeafByDiffSessionId,
     collectSessionIds,
     collectTerminalIds,
+    collectDiffSessionIds,
   } from "./lib/layout";
   import type { SessionInfo, TerminalApi, AppNotification, WorktreeStatus } from "./lib/types";
   import { addNotification, dismissNotification } from "./lib/notifications.svelte";
@@ -83,8 +85,8 @@
     try {
       const content = getLeafContent(layoutTree, asPath(path));
       if (content) {
-        const id = content.type === "session" ? content.sessionId : content.id;
-        requestAnimationFrame(() => terminalApis[id]?.focus());
+        const id = content.type === "session" ? content.sessionId : content.type === "terminal" ? content.id : null;
+        if (id) requestAnimationFrame(() => terminalApis[id]?.focus());
       }
     } catch {
       // path invalid, ignore
@@ -151,6 +153,10 @@
         focusTerminalAtPath(path);
       }
     },
+    "session.viewDiff": () => {
+      const content = getFocusedContent();
+      if (content?.type === "session") openDiffForSession(content.sessionId);
+    },
     "app.toggleSidebar": () => (sidebarVisible = !sidebarVisible),
     "terminal.search": () => {
       const content = getFocusedContent();
@@ -196,17 +202,14 @@
   async function handleClosePane(): Promise<void> {
     const content = getFocusedContent();
     if (content) {
-      const id = content.type === "session" ? content.sessionId : content.id;
-      try {
-        if (content.type === "session") {
-          await KillSession(id);
-        } else {
-          await KillTerminal(id);
-        }
-      } catch {
-        // process may already be dead
+      if (content.type === "session") {
+        try { await KillSession(content.sessionId); } catch { /* may already be dead */ }
+        delete terminalApis[content.sessionId];
+      } else if (content.type === "terminal") {
+        try { await KillTerminal(content.id); } catch { /* may already be dead */ }
+        delete terminalApis[content.id];
       }
-      delete terminalApis[id];
+      // diff panes just close — nothing to kill
     }
 
     collapsePane(focusedPath);
@@ -260,12 +263,19 @@
           }
         }
 
-        // Terminals don't survive restart — clear all terminal panes
+        // Terminals and diff panes don't survive restart — clear them
         const termIds = collectTerminalIds(cleaned);
         for (const tid of termIds) {
           const tpath = findLeafByTerminalId(cleaned, tid);
           if (tpath) {
             cleaned = setLeafContent(cleaned, tpath, null);
+          }
+        }
+        const diffSids = collectDiffSessionIds(cleaned);
+        for (const dsid of diffSids) {
+          const dpath = findLeafByDiffSessionId(cleaned, dsid);
+          if (dpath) {
+            cleaned = setLeafContent(cleaned, dpath, null);
           }
         }
 
@@ -421,6 +431,33 @@
     worktreeCleanup = null;
   }
 
+  function openDiffForSession(sessionId: string): void {
+    // If diff pane already open for this session, focus it
+    const existingDiff = findLeafByDiffSessionId(layoutTree, sessionId);
+    if (existingDiff) {
+      focusedPath = existingDiff;
+      return;
+    }
+
+    // Find the session's pane and split it to show diff alongside
+    const sessionPath = findLeafBySessionId(layoutTree, sessionId);
+    if (sessionPath) {
+      layoutTree = splitLeaf(layoutTree, asPath(sessionPath), "vertical");
+      const diffPath = [...sessionPath, 1];
+      layoutTree = setLeafContent(layoutTree, asPath(diffPath), {
+        type: "diff",
+        sessionId,
+      });
+      focusedPath = diffPath;
+    } else {
+      // Session not in any pane — put diff in focused pane
+      layoutTree = setLeafContent(layoutTree, asPath(focusedPath), {
+        type: "diff",
+        sessionId,
+      });
+    }
+  }
+
   async function handleQuickPick(
     path: number[],
     choice: "terminal" | "session",
@@ -455,6 +492,7 @@
       onNew={() => (showNewDialog = true)}
       onKill={handleKill}
       onRename={handleRename}
+      onViewDiff={openDiffForSession}
     />
   {/if}
 

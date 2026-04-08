@@ -306,6 +306,22 @@ func (a *App) CleanupWorktree(sessionID string, deleteWorktree bool) error {
 	return a.manager.Kill(sessionID)
 }
 
+func (a *App) GetSessionDiff(sessionID string) ([]worktree.FileDiff, error) {
+	info := a.manager.GetSessionInfo(sessionID)
+	if info == nil {
+		return nil, fmt.Errorf("session %q not found", sessionID)
+	}
+	return worktree.Diff(info.WorkDir, info.BaseBranch)
+}
+
+func (a *App) GetFileDiff(sessionID string, filePath string) (*worktree.FileDiff, error) {
+	info := a.manager.GetSessionInfo(sessionID)
+	if info == nil {
+		return nil, fmt.Errorf("session %q not found", sessionID)
+	}
+	return worktree.DiffFile(info.WorkDir, info.BaseBranch, filePath)
+}
+
 func (a *App) KillSession(id string) error {
 	delete(a.patternMatchers, id)
 	delete(a.errorDetectors, id)
