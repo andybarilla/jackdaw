@@ -199,6 +199,16 @@ func (m *Manager) Create(id string, workDir string, command string, args []strin
 	return info, nil
 }
 
+func (m *Manager) GetSessionInfo(id string) *SessionInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if info, ok := m.sessionInfo[id]; ok {
+		cp := *info
+		return &cp
+	}
+	return nil
+}
+
 func (m *Manager) List() []SessionInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -310,6 +320,17 @@ func (m *Manager) Recover() []SessionInfo {
 			continue
 		}
 
+		// For worktree sessions, check that the worktree directory still exists
+		if mf.WorktreeEnabled && mf.WorktreePath != "" {
+			if _, err := os.Stat(mf.WorktreePath); os.IsNotExist(err) {
+				if mf.HistoryPath != "" {
+					os.Remove(mf.HistoryPath)
+				}
+				manifest.Remove(path)
+				continue
+			}
+		}
+
 		s, err := Reconnect(mf.SessionID, mf.SocketPath, mf.WorkDir, mf.Command, mf.PID, mf.StartedAt)
 		if err != nil {
 			if mf.HistoryPath != "" {
@@ -325,13 +346,18 @@ func (m *Manager) Recover() []SessionInfo {
 		}
 
 		info := &SessionInfo{
-			ID:        mf.SessionID,
-			Name:      name,
-			WorkDir:   mf.WorkDir,
-			Command:   mf.Command,
-			Status:    StatusRunning,
-			PID:       mf.PID,
-			StartedAt: mf.StartedAt,
+			ID:              mf.SessionID,
+			Name:            name,
+			WorkDir:         mf.WorkDir,
+			Command:         mf.Command,
+			Status:          StatusRunning,
+			PID:             mf.PID,
+			StartedAt:       mf.StartedAt,
+			WorktreeEnabled: mf.WorktreeEnabled,
+			WorktreePath:    mf.WorktreePath,
+			OriginalDir:     mf.OriginalDir,
+			BranchName:      mf.BranchName,
+			BaseBranch:      mf.BaseBranch,
 		}
 
 		m.mu.Lock()

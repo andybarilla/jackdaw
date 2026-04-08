@@ -262,6 +262,50 @@ func (a *App) ListSessions() []session.SessionInfo {
 	return a.manager.List()
 }
 
+type WorktreeStatusResult struct {
+	Branch           string `json:"branch"`
+	UncommittedFiles int    `json:"uncommitted_files"`
+	UnpushedCommits  int    `json:"unpushed_commits"`
+}
+
+func (a *App) GetWorktreeStatus(sessionID string) (*WorktreeStatusResult, error) {
+	info := a.manager.GetSessionInfo(sessionID)
+	if info == nil {
+		return nil, fmt.Errorf("session %q not found", sessionID)
+	}
+	if !info.WorktreeEnabled || info.WorktreePath == "" {
+		return nil, fmt.Errorf("session %q is not a worktree session", sessionID)
+	}
+
+	st, err := worktree.Status(info.WorktreePath)
+	if err != nil {
+		return nil, err
+	}
+	return &WorktreeStatusResult{
+		Branch:           st.Branch,
+		UncommittedFiles: st.UncommittedFiles,
+		UnpushedCommits:  st.UnpushedCommits,
+	}, nil
+}
+
+func (a *App) CleanupWorktree(sessionID string, deleteWorktree bool) error {
+	info := a.manager.GetSessionInfo(sessionID)
+	if info == nil {
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	if !info.WorktreeEnabled {
+		return nil
+	}
+
+	if deleteWorktree {
+		if err := worktree.Remove(info.OriginalDir, info.WorktreePath, info.BranchName); err != nil {
+			return fmt.Errorf("remove worktree: %w", err)
+		}
+	}
+
+	return a.manager.Kill(sessionID)
+}
+
 func (a *App) KillSession(id string) error {
 	delete(a.patternMatchers, id)
 	delete(a.errorDetectors, id)
