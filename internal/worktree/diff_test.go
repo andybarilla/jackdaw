@@ -17,7 +17,7 @@ func initTestRepo(t *testing.T) string {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	cmd := exec.Command("git", "init", dir)
+	cmd := exec.Command("git", "init", "--initial-branch=main", dir)
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
@@ -326,11 +326,7 @@ func TestDiffWithBaseBranch(t *testing.T) {
 	out, _ := exec.Command("git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD").Output()
 	_ = out // we're on feature
 
-	files, err := Diff(repo, "master")
-	if err != nil {
-		// Try "main" if "master" doesn't work
-		files, err = Diff(repo, "main")
-	}
+	files, err := Diff(repo, "main")
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
