@@ -163,6 +163,76 @@ func TestReadLegacyManifestWithoutName(t *testing.T) {
 	}
 }
 
+func TestWriteAndReadWithWorktreeFields(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manifest{
+		SessionID:       "test-wt",
+		PID:             12345,
+		Command:         "claude",
+		WorkDir:         "/home/user/project-worktree",
+		StartedAt:       time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC),
+		WorktreeEnabled: true,
+		WorktreePath:    "/home/user/worktrees/project-feat-x",
+		OriginalDir:     "/home/user/project",
+		BranchName:      "feat-x",
+		BaseBranch:      "main",
+	}
+
+	path := filepath.Join(dir, "test-wt.json")
+	if err := Write(path, m); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if !got.WorktreeEnabled {
+		t.Error("WorktreeEnabled = false, want true")
+	}
+	if got.WorktreePath != m.WorktreePath {
+		t.Errorf("WorktreePath = %q, want %q", got.WorktreePath, m.WorktreePath)
+	}
+	if got.OriginalDir != m.OriginalDir {
+		t.Errorf("OriginalDir = %q, want %q", got.OriginalDir, m.OriginalDir)
+	}
+	if got.BranchName != m.BranchName {
+		t.Errorf("BranchName = %q, want %q", got.BranchName, m.BranchName)
+	}
+	if got.BaseBranch != m.BaseBranch {
+		t.Errorf("BaseBranch = %q, want %q", got.BaseBranch, m.BaseBranch)
+	}
+}
+
+func TestReadLegacyManifestWithoutWorktreeFields(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `{"session_id":"old-2","pid":100,"command":"claude","work_dir":"/tmp/foo","started_at":"2026-04-06T12:00:00Z"}`
+	path := filepath.Join(dir, "old-2.json")
+	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.WorktreeEnabled {
+		t.Error("WorktreeEnabled = true, want false for legacy manifest")
+	}
+	if got.WorktreePath != "" {
+		t.Errorf("WorktreePath = %q, want empty", got.WorktreePath)
+	}
+	if got.OriginalDir != "" {
+		t.Errorf("OriginalDir = %q, want empty", got.OriginalDir)
+	}
+	if got.BranchName != "" {
+		t.Errorf("BranchName = %q, want empty", got.BranchName)
+	}
+	if got.BaseBranch != "" {
+		t.Errorf("BaseBranch = %q, want empty", got.BaseBranch)
+	}
+}
+
 func TestWriteAndReadWithSocketPath(t *testing.T) {
 	dir := t.TempDir()
 	m := &Manifest{

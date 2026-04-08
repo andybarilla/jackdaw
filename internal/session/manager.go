@@ -28,6 +28,11 @@ type SessionInfo struct {
 	PID       int       `json:"pid"`
 	StartedAt time.Time `json:"started_at"`
 	ExitCode  int       `json:"exit_code"`
+	WorktreeEnabled bool      `json:"worktree_enabled,omitempty"`
+	WorktreePath    string    `json:"worktree_path,omitempty"`
+	OriginalDir     string    `json:"original_dir,omitempty"`
+	BranchName      string    `json:"branch_name,omitempty"`
+	BaseBranch      string    `json:"base_branch,omitempty"`
 }
 
 type Manager struct {

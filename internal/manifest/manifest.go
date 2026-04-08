@@ -20,6 +20,11 @@ type Manifest struct {
 	StartedAt  time.Time `json:"started_at"`
 	Name        string    `json:"name,omitempty"`
 	HistoryPath string    `json:"history_path,omitempty"`
+	WorktreeEnabled bool   `json:"worktree_enabled,omitempty"`
+	WorktreePath    string `json:"worktree_path,omitempty"`
+	OriginalDir     string `json:"original_dir,omitempty"`
+	BranchName      string `json:"branch_name,omitempty"`
+	BaseBranch      string `json:"base_branch,omitempty"`
 }
 
 func Write(path string, m *Manifest) error {
