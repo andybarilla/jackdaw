@@ -54,6 +54,10 @@ export function ListSessions() {
   return window['go']['main']['App']['ListSessions']();
 }
 
+export function MergeSession(arg1) {
+  return window['go']['main']['App']['MergeSession'](arg1);
+}
+
 export function PickDirectory() {
   return window['go']['main']['App']['PickDirectory']();
 }

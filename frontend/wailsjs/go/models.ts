@@ -10,6 +10,7 @@ export namespace config {
 	    toast_duration_seconds?: number;
 	    error_detection_enabled: boolean;
 	    worktree_root?: string;
+	    merge_mode?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -26,6 +27,7 @@ export namespace config {
 	        this.toast_duration_seconds = source["toast_duration_seconds"];
 	        this.error_detection_enabled = source["error_detection_enabled"];
 	        this.worktree_root = source["worktree_root"];
+	        this.merge_mode = source["merge_mode"];
 	    }
 	}
 
@@ -223,6 +225,22 @@ export namespace worktree {
 		    }
 		    return a;
 		}
+	}
+	export class MergeResult {
+	    success: boolean;
+	    commit_message?: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MergeResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.commit_message = source["commit_message"];
+	        this.error = source["error"];
+	    }
 	}
 
 }
