@@ -111,12 +111,14 @@ func (hl *HookListener) handleNotify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	approveResponse := payload.ApproveResponse
-	if approveResponse == "" {
-		approveResponse = "y\n"
-	}
 	denyResponse := payload.DenyResponse
-	if denyResponse == "" {
-		denyResponse = "n\n"
+	if approveResponse != "" || denyResponse != "" || payload.NotificationType == "permission_prompt" {
+		if approveResponse == "" {
+			approveResponse = "y\n"
+		}
+		if denyResponse == "" {
+			denyResponse = "n\n"
+		}
 	}
 
 	hl.svc.Notify(Notification{

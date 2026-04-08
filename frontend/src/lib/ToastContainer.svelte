@@ -57,7 +57,12 @@
   }
 
   async function handleRespond(sessionID: string, response: string): Promise<void> {
-    await RespondToNotification(sessionID, response);
+    try {
+      await RespondToNotification(sessionID, response);
+    } catch (err) {
+      console.error("Failed to respond to notification:", err);
+      return;
+    }
     dismissNotification(sessionID);
     if (sessionID in visibleToasts) {
       clearTimeout(visibleToasts[sessionID]);

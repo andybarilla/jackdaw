@@ -200,6 +200,56 @@ func TestHookListenerDefaultsResponseFields(t *testing.T) {
 	}
 }
 
+func TestHookListenerNoDefaultsForNonPermissionType(t *testing.T) {
+	svc := NewService()
+	defer svc.Close()
+
+	var received Notification
+	var mu sync.Mutex
+	svc.OnNotification = func(n Notification) {
+		mu.Lock()
+		received = n
+		mu.Unlock()
+	}
+
+	hl, err := NewHookListener(svc, "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("NewHookListener: %v", err)
+	}
+	go hl.Serve()
+	defer hl.Close()
+
+	hl.RegisterSession("jd-1", "my-project")
+
+	payload := HookPayload{
+		HookEventName:    "Notification",
+		NotificationType: "info",
+		Message:          "Task completed",
+	}
+	body, _ := json.Marshal(payload)
+
+	url := fmt.Sprintf("http://%s/notify/jd-1", hl.Addr())
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if received.ApproveResponse != "" {
+		t.Errorf("ApproveResponse = %q, want empty", received.ApproveResponse)
+	}
+	if received.DenyResponse != "" {
+		t.Errorf("DenyResponse = %q, want empty", received.DenyResponse)
+	}
+}
+
 func TestHookListenerReportsActiveSession(t *testing.T) {
 	svc := NewService()
 	defer svc.Close()
