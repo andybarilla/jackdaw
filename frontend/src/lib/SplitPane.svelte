@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { LayoutNode, PaneContent } from "./layout";
-  import type { TerminalApi } from "./types";
+  import type { TerminalApi, SessionInfo } from "./types";
   import PaneContainer from "./PaneContainer.svelte";
   import DragDivider from "./DragDivider.svelte";
   import SplitPane from "./SplitPane.svelte";
@@ -11,10 +11,12 @@
     focusedPath: number[];
     searchVisible: boolean;
     terminalApis: Record<string, TerminalApi>;
+    sessions?: SessionInfo[];
     onFocus: (path: number[]) => void;
     onRatioChange: (path: number[], ratio: number) => void;
     onQuickPick: (path: number[], choice: "terminal" | "session") => void;
     onTerminalReady: (id: string, api: TerminalApi) => void;
+    onMerge?: (sessionId: string) => void;
   }
 
   let {
@@ -23,10 +25,12 @@
     focusedPath,
     searchVisible,
     terminalApis,
+    sessions,
     onFocus,
     onRatioChange,
     onQuickPick,
     onTerminalReady,
+    onMerge,
   }: Props = $props();
 
   function isFocused(leafPath: number[]): boolean {
@@ -47,11 +51,13 @@
     focused={isFocused(path)}
     searchVisible={searchVisible && isFocused(path)}
     terminalApi={contentId ? terminalApis[contentId] ?? null : null}
+    {sessions}
     onFocus={() => onFocus(path)}
     onQuickPick={(choice) => onQuickPick(path, choice)}
     onTerminalReady={(api) => {
       if (contentId) onTerminalReady(contentId, api);
     }}
+    {onMerge}
   />
 {:else}
   <div
@@ -71,10 +77,12 @@
         {focusedPath}
         {searchVisible}
         {terminalApis}
+        {sessions}
         {onFocus}
         {onRatioChange}
         {onQuickPick}
         {onTerminalReady}
+        {onMerge}
       />
     </div>
 
@@ -95,10 +103,12 @@
         {focusedPath}
         {searchVisible}
         {terminalApis}
+        {sessions}
         {onFocus}
         {onRatioChange}
         {onQuickPick}
         {onTerminalReady}
+        {onMerge}
       />
     </div>
   </div>

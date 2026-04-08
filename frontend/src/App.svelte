@@ -13,6 +13,7 @@
     DismissNotification,
     GetWorktreeStatus,
     CleanupWorktree,
+    MergeSession,
   } from "../wailsjs/go/main/App";
   import type { LayoutNode, PaneContent, Path } from "./lib/layout";
   import {
@@ -53,6 +54,7 @@
     sessionId: string;
     sessionName: string;
     branchName: string;
+    baseBranch: string;
     status: WorktreeStatus | null;
   } | null>(null);
 
@@ -304,6 +306,7 @@
                   sessionId: s.id,
                   sessionName: s.name,
                   branchName: s.branch_name || "",
+                  baseBranch: s.base_branch || "main",
                   status,
                 };
               }).catch(() => {
@@ -311,6 +314,7 @@
                   sessionId: s.id,
                   sessionName: s.name,
                   branchName: s.branch_name || "",
+                  baseBranch: s.base_branch || "main",
                   status: null,
                 };
               });
@@ -431,6 +435,45 @@
     worktreeCleanup = null;
   }
 
+  async function handleMergeSession(sessionId: string): Promise<void> {
+    try {
+      const result = await MergeSession(sessionId);
+      if (result.success) {
+        addNotification({
+          sessionID: sessionId,
+          sessionName: "",
+          type: "session_exited",
+          message: `Merged: ${result.commit_message}`,
+          timestamp: new Date().toISOString(),
+        });
+        worktreeCleanup = null;
+        const diffPath = findLeafByDiffSessionId(layoutTree, sessionId);
+        if (diffPath) collapsePane(diffPath);
+      } else {
+        addNotification({
+          sessionID: sessionId,
+          sessionName: "",
+          type: "error_detected",
+          message: `Merge failed: ${result.error}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (e) {
+      addNotification({
+        sessionID: sessionId,
+        sessionName: "",
+        type: "error_detected",
+        message: `Merge error: ${e instanceof Error ? e.message : String(e)}`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  async function handleWorktreeMerge(): Promise<void> {
+    if (!worktreeCleanup) return;
+    await handleMergeSession(worktreeCleanup.sessionId);
+  }
+
   function openDiffForSession(sessionId: string): void {
     // If diff pane already open for this session, focus it
     const existingDiff = findLeafByDiffSessionId(layoutTree, sessionId);
@@ -503,6 +546,8 @@
       {focusedPath}
       {searchVisible}
       {terminalApis}
+      {sessions}
+      onMerge={handleMergeSession}
       onFocus={(path) => {
         focusedPath = path;
         focusTerminalAtPath(path);
@@ -533,8 +578,10 @@
     <WorktreeCleanupDialog
       sessionName={worktreeCleanup.sessionName}
       branchName={worktreeCleanup.branchName}
+      baseBranch={worktreeCleanup.baseBranch}
       status={worktreeCleanup.status}
       onKeep={handleWorktreeKeep}
+      onMerge={handleWorktreeMerge}
       onDelete={handleWorktreeDelete}
     />
   {/if}
