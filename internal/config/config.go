@@ -8,17 +8,23 @@ import (
 )
 
 type Config struct {
-	Theme           string            `json:"theme"`
-	Keybindings     map[string]string `json:"keybindings"`
-	Layout          json.RawMessage   `json:"layout,omitempty"`
-	HistoryMaxBytes int               `json:"history_max_bytes,omitempty"`
+	Theme                string            `json:"theme"`
+	Keybindings          map[string]string `json:"keybindings"`
+	Layout               json.RawMessage   `json:"layout,omitempty"`
+	HistoryMaxBytes      int               `json:"history_max_bytes,omitempty"`
+	NotificationsEnabled bool              `json:"notifications_enabled"`
+	DesktopNotifications bool              `json:"desktop_notifications"`
+	ToastDurationSeconds int               `json:"toast_duration_seconds,omitempty"`
 }
 
 func Defaults() *Config {
 	return &Config{
-		Theme:           "whattheflock",
-		Keybindings:     map[string]string{},
-		HistoryMaxBytes: 1048576,
+		Theme:                "whattheflock",
+		Keybindings:          map[string]string{},
+		HistoryMaxBytes:      1048576,
+		NotificationsEnabled: true,
+		DesktopNotifications: true,
+		ToastDurationSeconds: 5,
 	}
 }
 
