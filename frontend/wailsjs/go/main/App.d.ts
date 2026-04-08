@@ -24,4 +24,6 @@ export function PickDirectory():Promise<string>;
 
 export function RenameSession(arg1:string,arg2:string):Promise<void>;
 
+export function RespondToNotification(arg1:string,arg2:string):Promise<void>;
+
 export function SetConfig(arg1:config.Config):Promise<void>;
