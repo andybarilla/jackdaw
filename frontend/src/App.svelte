@@ -711,7 +711,10 @@
     // Reset focus
     const paths = collectLeafPaths(layoutTree);
     focusedPath = paths[0] ?? [];
-    setTimeout(() => window.dispatchEvent(new Event("pane-resize")), 200);
+    // Terminals need time to mount and open — pulse resize at staggered intervals
+    for (const delay of [100, 300, 600]) {
+      setTimeout(() => window.dispatchEvent(new Event("pane-resize")), delay);
+    }
   }
 
   async function handleCreateWorkspace(name: string): Promise<void> {
