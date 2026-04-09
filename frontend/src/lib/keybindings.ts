@@ -15,7 +15,8 @@ export type Action =
   | "pane.focusRight"
   | "pane.unsplit"
   | "tab.next"
-  | "tab.prev";
+  | "tab.prev"
+  | "app.openSettings";
 
 export interface ParsedBinding {
   key: string;
@@ -44,6 +45,7 @@ export const DEFAULT_KEYMAP: Keymap = {
   "pane.unsplit": "Ctrl+Shift+j",
   "tab.next": "Alt+Shift+]",
   "tab.prev": "Alt+Shift+[",
+  "app.openSettings": "Ctrl+,",
 };
 
 export function parseBinding(binding: string): ParsedBinding {

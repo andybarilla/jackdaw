@@ -150,6 +150,8 @@
         baseBranch={diffSession?.base_branch}
         onMerge={onMerge && content.sessionId ? () => onMerge(content.sessionId) : undefined}
       />
+    {:else if content.type === "settings"}
+      <div class="settings-placeholder" style="padding: 24px; color: var(--text-primary);">Settings (placeholder)</div>
     {:else if contentId}
       {#key contentId}
         <Terminal
