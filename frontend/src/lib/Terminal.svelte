@@ -5,8 +5,8 @@
   import { SearchAddon } from "@xterm/addon-search";
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import { WebglAddon } from "@xterm/addon-webgl";
-  import { EventsOn, EventsEmit } from "../../wailsjs/runtime/runtime";
-  import { AttachSession, GetSessionHistory } from "../../wailsjs/go/main/App";
+  import { AttachSession, GetSessionHistory, GetWSPort } from "../../wailsjs/go/main/App";
+  import { connectSession, type WSConnection } from "./ws";
   import "@xterm/xterm/css/xterm.css";
   import {
     getTheme,
@@ -32,6 +32,7 @@
   let fitAddon: FitAddon;
   let searchAddon: SearchAddon;
   let cleanups: Array<() => void> = [];
+  let wsConn: WSConnection | undefined;
 
   let opened = false;
   let currentlyVisible = false;
@@ -77,18 +78,27 @@
       }).catch(() => {});
 
       if (!readonly) {
+        // Connect WebSocket for terminal I/O
+        GetWSPort().then((port) => {
+          if (port <= 0) return;
+          wsConn = connectSession(port, sessionId, (data) => {
+            term.write(data);
+          }, () => {
+            // Send initial resize on connect/reconnect
+            if (term.cols > 0 && term.rows > 0) {
+              wsConn?.resize(term.cols, term.rows);
+            }
+          });
+          cleanups.push(() => {
+            wsConn?.close();
+            wsConn = undefined;
+          });
+        }).catch(() => {});
+
         const inputDisposable = term.onData((data: string) => {
-          EventsEmit("terminal-input", sessionId, data);
+          wsConn?.send(data);
         });
         cleanups.push(() => inputDisposable.dispose());
-
-        const cancelOutput = EventsOn(
-          `terminal-output-${sessionId}`,
-          (data: string) => {
-            term.write(data);
-          },
-        );
-        cleanups.push(cancelOutput);
       }
 
       let resizeTimer: ReturnType<typeof setTimeout>;
@@ -98,7 +108,7 @@
           if (!currentlyVisible) return;
           fitAndRefresh();
           if (!readonly && term.cols > 0 && term.rows > 0) {
-            EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
+            wsConn?.resize(term.cols, term.rows);
           }
         }, 50);
       });
@@ -110,7 +120,7 @@
           if (!currentlyVisible) return;
           fitAndRefresh();
           if (!readonly && term.cols > 0 && term.rows > 0) {
-            EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
+            wsConn?.resize(term.cols, term.rows);
           }
         }, 50);
       };
@@ -123,7 +133,7 @@
       });
 
       if (!readonly) {
-        EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
+        // Initial resize will be sent once WS connects
         AttachSession(sessionId).catch(() => {
           // Plain terminals don't need AttachSession
         });
@@ -137,7 +147,7 @@
           rafId = undefined;
           fitAndRefresh();
           if (term.cols > 0 && term.rows > 0) {
-            EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
+            wsConn?.resize(term.cols, term.rows);
           }
         });
       });

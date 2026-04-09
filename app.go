@@ -17,6 +17,7 @@ import (
 	"github.com/andybarilla/jackdaw/internal/terminal"
 	"github.com/andybarilla/jackdaw/internal/workspace"
 	"github.com/andybarilla/jackdaw/internal/worktree"
+	"github.com/andybarilla/jackdaw/internal/wsserver"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -39,6 +40,7 @@ type App struct {
 	dashTicker      *time.Ticker
 	recentDirsPath  string
 	proxyServer     *proxy.Server
+	wsServer        *wsserver.Server
 }
 
 func NewApp() *App {
@@ -104,6 +106,11 @@ func (a *App) Startup(ctx context.Context) {
 		a.proxyServer = ps
 	}
 
+	// Start WebSocket server for terminal I/O
+	if ws, err := wsserver.New(a); err == nil {
+		a.wsServer = ws
+	}
+
 	// Track window focus state — frontend emits this via document.hasFocus()
 	windowFocused := true
 	runtime.EventsOn(ctx, "window-focus-changed", func(data ...interface{}) {
@@ -159,7 +166,9 @@ func (a *App) Startup(ctx context.Context) {
 	for _, info := range recovered {
 		id := info.ID
 		a.manager.SetOnOutput(id, func(data []byte) {
-			runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
+			if a.wsServer != nil {
+				a.wsServer.SendOutput(id, data)
+			}
 		})
 	}
 
@@ -170,32 +179,6 @@ func (a *App) Startup(ctx context.Context) {
 		}
 	}
 
-	runtime.EventsOn(ctx, "terminal-input", func(data ...interface{}) {
-		if len(data) < 2 {
-			return
-		}
-		id, _ := data[0].(string)
-		input, _ := data[1].(string)
-		if err := a.manager.WriteToSession(id, []byte(input)); err != nil {
-			a.termManager.Write(id, []byte(input))
-		} else {
-			if tracker := a.manager.StatusTracker(id); tracker != nil {
-				tracker.HandleInput()
-			}
-		}
-	})
-
-	runtime.EventsOn(ctx, "terminal-resize", func(data ...interface{}) {
-		if len(data) < 3 {
-			return
-		}
-		id, _ := data[0].(string)
-		cols, _ := data[1].(float64)
-		rows, _ := data[2].(float64)
-		if err := a.manager.ResizeSession(id, uint16(cols), uint16(rows)); err != nil {
-			a.termManager.Resize(id, uint16(cols), uint16(rows))
-		}
-	})
 }
 
 func (a *App) Shutdown(ctx context.Context) {
@@ -208,8 +191,37 @@ func (a *App) Shutdown(ctx context.Context) {
 	if a.proxyServer != nil {
 		a.proxyServer.Close()
 	}
+	if a.wsServer != nil {
+		a.wsServer.Close()
+	}
 	a.notifSvc.Close()
 	a.termManager.CloseAll()
+}
+
+// WriteToSession implements wsserver.SessionWriter for WebSocket input routing.
+func (a *App) WriteToSession(id string, data []byte) error {
+	if err := a.manager.WriteToSession(id, data); err != nil {
+		return a.termManager.Write(id, data)
+	}
+	if tracker := a.manager.StatusTracker(id); tracker != nil {
+		tracker.HandleInput()
+	}
+	return nil
+}
+
+// ResizeSession implements wsserver.SessionWriter for WebSocket resize routing.
+func (a *App) ResizeSession(id string, cols, rows uint16) error {
+	if err := a.manager.ResizeSession(id, cols, rows); err != nil {
+		return a.termManager.Resize(id, cols, rows)
+	}
+	return nil
+}
+
+func (a *App) GetWSPort() int {
+	if a.wsServer == nil {
+		return 0
+	}
+	return a.wsServer.Port()
 }
 
 func (a *App) GetProxyBaseURL() string {
@@ -227,7 +239,9 @@ func (a *App) CreateTerminal(workDir string) (*terminal.TerminalInfo, error) {
 	}
 
 	a.termManager.StartReadLoop(info.ID, func(data []byte) {
-		runtime.EventsEmit(a.ctx, "terminal-output-"+info.ID, string(data))
+		if a.wsServer != nil {
+			a.wsServer.SendOutput(info.ID, data)
+		}
 	}, func() {
 		runtime.EventsEmit(a.ctx, "terminal-exited", info.ID)
 	})
@@ -277,7 +291,11 @@ func (a *App) CreateSession(workDir string, worktreeEnabled bool, branchName str
 	}
 
 	info, err := a.manager.Create(id, workDir, "claude", nil, env, func(data []byte) {
-		runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
+		// Send output via WebSocket
+		if a.wsServer != nil {
+			a.wsServer.SendOutput(id, data)
+		}
+		// Async notification processing
 		if tracker := a.manager.StatusTracker(id); tracker != nil {
 			tracker.HandleOutput(data)
 		}
