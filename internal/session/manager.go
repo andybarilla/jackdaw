@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -271,6 +272,9 @@ func (m *Manager) DashboardData() []DashboardSession {
 			BranchName:      info.BranchName,
 		})
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].StartedAt.Before(result[j].StartedAt)
+	})
 	return result
 }
 

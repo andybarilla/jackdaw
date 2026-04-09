@@ -1,17 +1,21 @@
 <script lang="ts">
   import type { PaneContent } from "./layout";
   import type { SessionInfo } from "./types";
+  import { TAB_DRAG_MIME } from "./drag";
+
 
   interface Props {
     contents: PaneContent[];
     activeIndex: number;
     sessions: SessionInfo[];
+    panePath: number[];
     onSelect: (index: number) => void;
     onClose: (index: number) => void;
     onReorder: (fromIndex: number, toIndex: number) => void;
+    onCrossDropTab: (data: string, targetIndex: number) => void;
   }
 
-  let { contents, activeIndex, sessions, onSelect, onClose, onReorder }: Props = $props();
+  let { contents, activeIndex, sessions, panePath, onSelect, onClose, onReorder, onCrossDropTab }: Props = $props();
 
   let dragFrom: number | null = $state(null);
   let dragOver: number | null = $state(null);
@@ -26,7 +30,6 @@
       const s = sessions.find((s) => s.id === content.sessionId);
       return `Diff: ${s?.name || content.sessionId.slice(0, 8)}`;
     }
-    if (content.type === "dashboard") return "Dashboard";
     return "Unknown";
   }
 
@@ -34,6 +37,15 @@
     dragFrom = index;
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = "move";
+      // Set cross-pane drag data
+      e.dataTransfer.setData(
+        TAB_DRAG_MIME,
+        JSON.stringify({
+          sourcePath: panePath,
+          tabIndex: index,
+          content: contents[index],
+        }),
+      );
     }
   }
 
@@ -44,6 +56,25 @@
 
   function handleDrop(e: DragEvent, index: number): void {
     e.preventDefault();
+
+    // Check if this is a cross-pane drop
+    const crossData = e.dataTransfer?.getData(TAB_DRAG_MIME);
+    if (crossData) {
+      try {
+        const parsed = JSON.parse(crossData);
+        const sourcePath = parsed.sourcePath as number[];
+        // If from a different pane, handle as cross-pane move
+        if (sourcePath.length !== panePath.length || !sourcePath.every((v: number, i: number) => v === panePath[i])) {
+          onCrossDropTab(crossData, index);
+          dragFrom = null;
+          dragOver = null;
+          return;
+        }
+      } catch {
+        // fall through to local reorder
+      }
+    }
+
     if (dragFrom !== null && dragFrom !== index) {
       onReorder(dragFrom, index);
     }

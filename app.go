@@ -27,6 +27,7 @@ type App struct {
 	patternMatchers map[string]*notification.PatternMatcher
 	errorDetectors        map[string]*notification.ErrorDetector
 	errorDetectionEnabled bool
+	dashTicker      *time.Ticker
 }
 
 func NewApp() *App {
@@ -118,7 +119,15 @@ func (a *App) Startup(ctx context.Context) {
 			}
 		}
 		prevStatuses = currentStatuses
+		runtime.EventsEmit(ctx, "dashboard-updated", a.manager.DashboardData())
 	})
+
+	a.dashTicker = time.NewTicker(2 * time.Second)
+	go func() {
+		for range a.dashTicker.C {
+			runtime.EventsEmit(ctx, "dashboard-updated", a.manager.DashboardData())
+		}
+	}()
 
 	// Wire output handlers for recovered sessions (read loops start when frontend attaches)
 	for _, info := range recovered {
@@ -157,6 +166,9 @@ func (a *App) Startup(ctx context.Context) {
 }
 
 func (a *App) Shutdown(ctx context.Context) {
+	if a.dashTicker != nil {
+		a.dashTicker.Stop()
+	}
 	if a.hookListener != nil {
 		a.hookListener.Close()
 	}

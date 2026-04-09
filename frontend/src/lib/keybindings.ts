@@ -14,7 +14,6 @@ export type Action =
   | "pane.focusLeft"
   | "pane.focusRight"
   | "pane.unsplit"
-  | "session.dashboard"
   | "tab.next"
   | "tab.prev";
 
@@ -33,7 +32,6 @@ export const DEFAULT_KEYMAP: Keymap = {
   "session.viewDiff": "Ctrl+Shift+D",
   "session.next": "Ctrl+Shift+]",
   "session.prev": "Ctrl+Shift+[",
-  "session.dashboard": "Ctrl+Shift+G",
   "app.toggleSidebar": "Ctrl+Shift+B",
   "terminal.search": "Ctrl+f",
   "pane.splitVertical": "Ctrl+Shift+|",

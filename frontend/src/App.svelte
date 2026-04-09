@@ -15,7 +15,7 @@
     CleanupWorktree,
     MergeSession,
   } from "../wailsjs/go/main/App";
-  import type { LayoutNode, PaneContent, Path, FindResult } from "./lib/layout";
+  import type { LayoutNode, PaneContent, Path, FindResult, DropZone, TabDragData } from "./lib/layout";
   import {
     emptyLeaf,
     splitLeaf,
@@ -27,7 +27,6 @@
     findLeafBySessionId,
     findLeafByTerminalId,
     findLeafByDiffSessionId,
-    findLeafByDashboard,
     collectSessionIds,
     collectTerminalIds,
     collectDiffSessionIds,
@@ -37,6 +36,7 @@
     reorderTab,
     unsplitPane,
     migrateLayout,
+    moveTab,
   } from "./lib/layout";
   import type { SessionInfo, TerminalApi, AppNotification, WorktreeStatus } from "./lib/types";
   import { addNotification, dismissNotification } from "./lib/notifications.svelte";
@@ -53,6 +53,7 @@
   let focusedPath = $state<number[]>([]);
   let showNewDialog = $state(false);
   let sidebarVisible = $state(true);
+  let sidebarWidth = $state(280);
   let searchVisible = $state(false);
   let terminalApis = $state<Record<string, TerminalApi>>({});
   let cleanups: Array<() => void> = [];
@@ -180,7 +181,6 @@
       const content = getFocusedContent();
       if (content?.type === "session") openDiffForSession(content.sessionId);
     },
-    "session.dashboard": () => openDashboard(),
     "app.toggleSidebar": () => (sidebarVisible = !sidebarVisible),
     "terminal.search": () => {
       const content = getFocusedContent();
@@ -271,12 +271,15 @@
   // Persist layout on changes (debounced)
   $effect(() => {
     void layoutTree;
+    void sidebarWidth;
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       try {
         const cfg = await GetConfig();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (cfg as any).layout = layoutTree;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (cfg as any).sidebar_width = sidebarWidth;
         await SetConfig(cfg);
       } catch {
         // config save failed, ignore
@@ -291,6 +294,10 @@
     try {
       const cfg = await GetConfig();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawSidebarWidth = (cfg as any).sidebar_width;
+      if (typeof rawSidebarWidth === "number" && rawSidebarWidth >= 180 && rawSidebarWidth <= 480) {
+        sidebarWidth = rawSidebarWidth;
+      }
       const rawLayout = (cfg as any).layout;
       if (rawLayout && typeof rawLayout === "object" && rawLayout !== null && "type" in rawLayout) {
         // Migrate from old format if needed
@@ -327,13 +334,6 @@
             cleaned = removeTab(cleaned, found.path, found.tabIndex);
             found = findLeafByDiffSessionId(cleaned, dsid);
           }
-        }
-
-        // Dashboard panes don't survive restart
-        let dashFound = findLeafByDashboard(cleaned);
-        while (dashFound) {
-          cleaned = removeTab(cleaned, dashFound.path, dashFound.tabIndex);
-          dashFound = findLeafByDashboard(cleaned);
         }
 
         layoutTree = cleaned;
@@ -554,32 +554,10 @@
     });
   }
 
-  function openDashboard(): void {
-    const existing = findLeafByDashboard(layoutTree);
-    if (existing) {
-      focusedPath = existing.path as number[];
-      layoutTree = setActiveTab(layoutTree, existing.path, existing.tabIndex);
-      return;
-    }
-    layoutTree = addTab(layoutTree, asPath(focusedPath), { type: "dashboard" });
-  }
-
   async function handleQuickPick(
     path: number[],
-    choice: "terminal" | "session" | "dashboard",
+    choice: "terminal" | "session",
   ): Promise<void> {
-    if (choice === "dashboard") {
-      const existing = findLeafByDashboard(layoutTree);
-      if (existing) {
-        focusedPath = existing.path as number[];
-        layoutTree = setActiveTab(layoutTree, existing.path, existing.tabIndex);
-      } else {
-        layoutTree = addTab(layoutTree, asPath(path), { type: "dashboard" });
-        focusedPath = path;
-      }
-      return;
-    }
-
     if (choice === "session") {
       pendingQuickPickPath = path;
       showNewDialog = true;
@@ -625,6 +603,38 @@
   function handleTabReorder(path: number[], fromIndex: number, toIndex: number): void {
     layoutTree = reorderTab(layoutTree, asPath(path), fromIndex, toIndex);
   }
+
+  function handleTabDrop(targetPath: number[], data: string, zone: DropZone, insertIndex?: number): void {
+    try {
+      const parsed = JSON.parse(data) as TabDragData;
+      const sourcePath = parsed.sourcePath as Path;
+      const tabIndex = parsed.tabIndex;
+
+      // If dropping onto the same pane center, it's just a reorder (handled by TabBar)
+      const samePanePaths = sourcePath.length === targetPath.length &&
+        sourcePath.every((v, i) => v === targetPath[i]);
+
+      if (samePanePaths && zone === "center") {
+        // If we have an insertIndex from the tab bar, reorder
+        if (insertIndex !== undefined && insertIndex !== tabIndex) {
+          layoutTree = reorderTab(layoutTree, sourcePath, tabIndex, insertIndex);
+        }
+        return;
+      }
+
+      const result = moveTab(
+        layoutTree,
+        { path: sourcePath, tabIndex },
+        asPath(targetPath),
+        zone,
+      );
+      layoutTree = result.layout;
+      focusedPath = result.newFocusPath as number[];
+      focusTerminalAtPath(focusedPath);
+    } catch {
+      // invalid drag data, ignore
+    }
+  }
 </script>
 
 <svelte:window onkeydown={handleGlobalKeydown} />
@@ -632,14 +642,13 @@
 <main>
   {#if sidebarVisible}
     <Sidebar
-      {sessions}
-      activeSessionId={null}
+      width={sidebarWidth}
       onSelect={handleSidebarSelect}
       onNew={() => (showNewDialog = true)}
       onKill={handleKill}
       onRename={handleRename}
       onViewDiff={openDiffForSession}
-      onDashboard={openDashboard}
+      onResize={(w) => { sidebarWidth = w; }}
     />
   {/if}
 
@@ -667,6 +676,7 @@
       onTabSelect={handleTabSelect}
       onTabClose={handleTabClose}
       onTabReorder={handleTabReorder}
+      onTabDrop={handleTabDrop}
     />
   </div>
 
