@@ -27,6 +27,7 @@
     findLeafBySessionId,
     findLeafByTerminalId,
     findLeafByDiffSessionId,
+    findSettings,
     collectSessionIds,
     collectTerminalIds,
     collectDiffSessionIds,
@@ -204,6 +205,15 @@
     "pane.focusRight": () => cycleFocus(1),
     "tab.next": () => cycleTab(1),
     "tab.prev": () => cycleTab(-1),
+    "app.openSettings": () => {
+      const existing = findSettings(layoutTree);
+      if (existing) {
+        focusedPath = existing.path as number[];
+        layoutTree = setActiveTab(layoutTree, existing.path, existing.tabIndex);
+        return;
+      }
+      layoutTree = addTab(layoutTree, asPath(focusedPath), { type: "settings" });
+    },
   };
 
   function handleGlobalKeydown(event: KeyboardEvent): void {
@@ -350,6 +360,13 @@
             cleaned = removeTab(cleaned, found.path, found.tabIndex);
             found = findLeafByDiffSessionId(cleaned, dsid);
           }
+        }
+
+        // Settings tabs don't survive restart
+        let settingsFound = findSettings(cleaned);
+        while (settingsFound) {
+          cleaned = removeTab(cleaned, settingsFound.path, settingsFound.tabIndex);
+          settingsFound = findSettings(cleaned);
         }
 
         layoutTree = collapseEmptyLeaves(cleaned);

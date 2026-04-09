@@ -7,6 +7,7 @@
   import SearchBar from "./SearchBar.svelte";
   import QuickPicker from "./QuickPicker.svelte";
   import DiffViewer from "./DiffViewer.svelte";
+  import SettingsEditor from "./SettingsEditor.svelte";
   import TabBar from "./TabBar.svelte";
 
   interface Props {
@@ -150,6 +151,8 @@
         baseBranch={diffSession?.base_branch}
         onMerge={onMerge && content.sessionId ? () => onMerge(content.sessionId) : undefined}
       />
+    {:else if content.type === "settings"}
+      <SettingsEditor />
     {:else if contentId}
       {#key contentId}
         <Terminal
