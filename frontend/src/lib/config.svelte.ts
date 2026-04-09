@@ -12,6 +12,12 @@ let worktreeRoot = $state("");
 let mergeMode = $state("squash");
 let historyMaxBytes = $state(1048576);
 let autoRemoveKilledSessions = $state(false);
+let terminalFontFamily = $state("'JetBrains Mono', 'Fira Code', monospace");
+let terminalFontSize = $state(14);
+let uiFontFamily = $state(
+  "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+);
+let uiFontSize = $state(13);
 
 export function getTheme(): Theme {
   return currentTheme;
@@ -53,6 +59,30 @@ export function getAutoRemoveKilledSessions(): boolean {
   return autoRemoveKilledSessions;
 }
 
+export function getTerminalFontFamily(): string {
+  return terminalFontFamily;
+}
+
+export function getTerminalFontSize(): number {
+  return terminalFontSize;
+}
+
+export function getUIFontFamily(): string {
+  return uiFontFamily;
+}
+
+export function getUIFontSize(): number {
+  return uiFontSize;
+}
+
+function applyUIFonts(): void {
+  document.documentElement.style.setProperty("--ui-font-family", uiFontFamily);
+  document.documentElement.style.setProperty(
+    "--ui-font-size",
+    `${uiFontSize}px`,
+  );
+}
+
 export async function loadConfig(): Promise<void> {
   const cfg = await GetConfig();
   currentTheme = findTheme(cfg.theme);
@@ -65,7 +95,15 @@ export async function loadConfig(): Promise<void> {
   mergeMode = cfg.merge_mode || "squash";
   historyMaxBytes = cfg.history_max_bytes || 1048576;
   autoRemoveKilledSessions = cfg.auto_remove_killed_sessions ?? false;
+  terminalFontFamily =
+    cfg.terminal_font_family || "'JetBrains Mono', 'Fira Code', monospace";
+  terminalFontSize = cfg.terminal_font_size || 14;
+  uiFontFamily =
+    cfg.ui_font_family ||
+    "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  uiFontSize = cfg.ui_font_size || 13;
   applyTheme(currentTheme);
+  applyUIFonts();
 }
 
 export async function setTheme(name: string): Promise<void> {
@@ -139,5 +177,35 @@ export async function setAutoRemoveKilledSessions(v: boolean): Promise<void> {
   autoRemoveKilledSessions = v;
   const cfg = await GetConfig();
   cfg.auto_remove_killed_sessions = v;
+  await SetConfig(cfg);
+}
+
+export async function setTerminalFontFamily(v: string): Promise<void> {
+  terminalFontFamily = v;
+  const cfg = await GetConfig();
+  cfg.terminal_font_family = v;
+  await SetConfig(cfg);
+}
+
+export async function setTerminalFontSize(v: number): Promise<void> {
+  terminalFontSize = v;
+  const cfg = await GetConfig();
+  cfg.terminal_font_size = v;
+  await SetConfig(cfg);
+}
+
+export async function setUIFontFamily(v: string): Promise<void> {
+  uiFontFamily = v;
+  applyUIFonts();
+  const cfg = await GetConfig();
+  cfg.ui_font_family = v;
+  await SetConfig(cfg);
+}
+
+export async function setUIFontSize(v: number): Promise<void> {
+  uiFontSize = v;
+  applyUIFonts();
+  const cfg = await GetConfig();
+  cfg.ui_font_size = v;
   await SetConfig(cfg);
 }

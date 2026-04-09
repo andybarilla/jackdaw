@@ -117,8 +117,8 @@
 <style>
   .tab-bar {
     display: flex;
-    height: 28px;
-    min-height: 28px;
+    height: 2.154rem;
+    min-height: 2.154rem;
     background: var(--bg-secondary, #1e1e1e);
     border-bottom: 1px solid var(--border, #333);
     overflow-x: auto;
@@ -133,18 +133,18 @@
   .tab {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 0 8px;
+    gap: 0.308rem;
+    padding: 0 0.615rem;
     height: 100%;
     border: none;
     border-bottom: 2px solid transparent;
     background: transparent;
     color: var(--text-secondary, #888);
-    font-size: 12px;
+    font-size: 0.923rem;
     cursor: pointer;
     white-space: nowrap;
     min-width: 0;
-    max-width: 160px;
+    max-width: 12.308rem;
     flex-shrink: 0;
   }
 
@@ -169,10 +169,10 @@
 
   .tab-close {
     opacity: 0;
-    font-size: 14px;
+    font-size: 1.077rem;
     line-height: 1;
-    padding: 0 2px;
-    border-radius: 3px;
+    padding: 0 0.154rem;
+    border-radius: 0.231rem;
     flex-shrink: 0;
   }
 

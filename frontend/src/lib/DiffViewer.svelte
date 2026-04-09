@@ -155,7 +155,7 @@
     height: 100%;
     overflow: hidden;
     font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 13px;
+    font-size: 1rem;
     color: var(--text-primary);
   }
 
@@ -167,7 +167,7 @@
     width: 100%;
     height: 100%;
     color: var(--text-muted);
-    font-size: 14px;
+    font-size: 1.077rem;
     gap: 12px;
   }
 
@@ -182,7 +182,7 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 1rem;
   }
 
   .file-list {
@@ -199,7 +199,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 12px;
-    font-size: 11px;
+    font-size: 0.846rem;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -208,7 +208,7 @@
 
   .merge-btn {
     padding: 3px 8px;
-    font-size: 11px;
+    font-size: 0.846rem;
     background: var(--accent);
     color: var(--bg-primary);
     border: none;
@@ -234,7 +234,7 @@
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 0.923rem;
     font-family: inherit;
     text-align: left;
   }
@@ -269,7 +269,7 @@
   }
 
   .binary-badge {
-    font-size: 10px;
+    font-size: 0.769rem;
     padding: 1px 4px;
     background: var(--bg-tertiary);
     border-radius: 3px;
@@ -287,7 +287,7 @@
     padding: 8px 16px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
-    font-size: 12px;
+    font-size: 0.923rem;
     color: var(--text-secondary);
     position: sticky;
     top: 0;
@@ -315,7 +315,7 @@
     padding: 4px 16px;
     background: rgba(100, 149, 237, 0.1);
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: 0.923rem;
     position: sticky;
     top: 32px;
     z-index: 0;
@@ -348,7 +348,7 @@
     opacity: 0.5;
     flex-shrink: 0;
     user-select: none;
-    font-size: 11px;
+    font-size: 0.846rem;
   }
 
   .line-marker {

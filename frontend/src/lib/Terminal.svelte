@@ -8,9 +8,13 @@
   import { EventsOn, EventsEmit } from "../../wailsjs/runtime/runtime";
   import { AttachSession, GetSessionHistory } from "../../wailsjs/go/main/App";
   import "@xterm/xterm/css/xterm.css";
-  import { getTheme } from "./config.svelte";
+  import {
+    getTheme,
+    getKeymap,
+    getTerminalFontFamily,
+    getTerminalFontSize,
+  } from "./config.svelte";
   import { getXtermTheme } from "./themes";
-  import { getKeymap } from "./config.svelte";
   import { matchKeybinding } from "./keybindings";
   import type { TerminalApi } from "./types";
 
@@ -146,12 +150,21 @@
     };
   });
 
+  $effect(() => {
+    const family = getTerminalFontFamily();
+    const size = getTerminalFontSize();
+    if (!terminal || !opened) return;
+    terminal.options.fontFamily = family;
+    terminal.options.fontSize = size;
+    fitAddon.fit();
+  });
+
   onMount(() => {
     terminal = new Terminal({
       cursorBlink: !readonly,
       disableStdin: readonly,
-      fontSize: 14,
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      fontSize: getTerminalFontSize(),
+      fontFamily: getTerminalFontFamily(),
       theme: getXtermTheme(getTheme()),
     });
 

@@ -235,7 +235,7 @@
     border-radius: 6px;
     cursor: pointer;
     font-weight: 600;
-    font-size: 14px;
+    font-size: 1.077rem;
   }
 
   .new-session:hover {
@@ -300,14 +300,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
+    font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
   }
 
   .elapsed {
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 0.846rem;
     flex-shrink: 0;
   }
 
@@ -328,7 +328,7 @@
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 14px;
+    font-size: 1.077rem;
     padding: 0 3px;
     line-height: 1;
     border-radius: 3px;
@@ -349,7 +349,7 @@
   .attention-badge {
     background: var(--warning);
     color: var(--bg-primary);
-    font-size: 10px;
+    font-size: 0.769rem;
     font-weight: 600;
     padding: 1px 6px;
     border-radius: 8px;
@@ -361,7 +361,7 @@
     align-items: center;
     gap: 6px;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: 0.846rem;
     padding-left: 14px;
   }
 
@@ -383,7 +383,7 @@
 
   .last-line {
     font-family: monospace;
-    font-size: 11px;
+    font-size: 0.846rem;
     color: var(--text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -404,7 +404,7 @@
     border: 1px solid var(--accent);
     border-radius: 3px;
     padding: 2px 4px;
-    font-size: 13px;
+    font-size: 1rem;
     font-family: inherit;
     outline: none;
     min-width: 0;
@@ -430,7 +430,7 @@
     background: none;
     border: none;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: 0.923rem;
     cursor: pointer;
     text-align: left;
   }
