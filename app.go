@@ -12,6 +12,7 @@ import (
 
 	"github.com/andybarilla/jackdaw/internal/config"
 	"github.com/andybarilla/jackdaw/internal/notification"
+	"github.com/andybarilla/jackdaw/internal/proxy"
 	"github.com/andybarilla/jackdaw/internal/session"
 	"github.com/andybarilla/jackdaw/internal/terminal"
 	"github.com/andybarilla/jackdaw/internal/workspace"
@@ -37,6 +38,7 @@ type App struct {
 	errorDetectionEnabled bool
 	dashTicker      *time.Ticker
 	recentDirsPath  string
+	proxyServer     *proxy.Server
 }
 
 func NewApp() *App {
@@ -95,6 +97,11 @@ func (a *App) Startup(ctx context.Context) {
 			}
 		}
 		go hl.Serve()
+	}
+
+	// Start proxy server for embedded browser panes
+	if ps, err := proxy.Start(); err == nil {
+		a.proxyServer = ps
 	}
 
 	// Track window focus state — frontend emits this via document.hasFocus()
@@ -198,8 +205,18 @@ func (a *App) Shutdown(ctx context.Context) {
 	if a.hookListener != nil {
 		a.hookListener.Close()
 	}
+	if a.proxyServer != nil {
+		a.proxyServer.Close()
+	}
 	a.notifSvc.Close()
 	a.termManager.CloseAll()
+}
+
+func (a *App) GetProxyBaseURL() string {
+	if a.proxyServer == nil {
+		return ""
+	}
+	return a.proxyServer.BaseURL()
 }
 
 func (a *App) CreateTerminal(workDir string) (*terminal.TerminalInfo, error) {

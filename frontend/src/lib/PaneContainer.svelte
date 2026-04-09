@@ -7,6 +7,7 @@
   import SearchBar from "./SearchBar.svelte";
   import QuickPicker from "./QuickPicker.svelte";
   import DiffViewer from "./DiffViewer.svelte";
+  import BrowserPane from "./BrowserPane.svelte";
   import SettingsEditor from "./SettingsEditor.svelte";
   import DeadSessionBanner from "./DeadSessionBanner.svelte";
   import TabBar from "./TabBar.svelte";
@@ -24,6 +25,9 @@
     onQuickPick: (choice: "terminal" | "session") => void;
     onTerminalReady: (api: TerminalApi) => void;
     onMerge?: (sessionId: string) => void;
+    onOpenUrl?: (url: string) => void;
+    onBrowserUrlChange?: (oldUrl: string, newUrl: string) => void;
+    proxyBaseUrl?: string;
     onSelectSession?: (id: string) => void;
     onRemoveSession?: (id: string) => void;
     onRestartSession?: (id: string) => void;
@@ -46,6 +50,9 @@
     onQuickPick,
     onTerminalReady,
     onMerge,
+    onOpenUrl,
+    onBrowserUrlChange,
+    proxyBaseUrl,
     onSelectSession,
     onRemoveSession,
     onRestartSession,
@@ -185,6 +192,12 @@
         baseBranch={diffSession?.base_branch}
         onMerge={onMerge && content.sessionId ? () => onMerge(content.sessionId) : undefined}
       />
+    {:else if content.type === "browser"}
+      <BrowserPane
+        url={content.url}
+        proxyBaseUrl={proxyBaseUrl ?? ""}
+        onUrlChange={(newUrl) => onBrowserUrlChange?.(content.url, newUrl)}
+      />
     {:else if content.type === "settings"}
       <SettingsEditor />
     {:else if contentId}
@@ -194,6 +207,7 @@
           visible={true}
           readonly={isDead}
           onReady={onTerminalReady}
+          {onOpenUrl}
         />
       {/key}
       {#if searchVisible && terminalApi}

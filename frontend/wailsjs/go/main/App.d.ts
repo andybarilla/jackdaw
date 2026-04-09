@@ -29,6 +29,8 @@ export function GetDashboardData():Promise<Array<session.DashboardSession>>;
 
 export function GetFileDiff(arg1:string,arg2:string):Promise<worktree.FileDiff>;
 
+export function GetProxyBaseURL():Promise<string>;
+
 export function GetRecentDirs():Promise<Array<main.RecentDir>>;
 
 export function GetSessionDiff(arg1:string):Promise<Array<worktree.FileDiff>>;
