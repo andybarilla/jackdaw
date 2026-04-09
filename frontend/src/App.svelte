@@ -29,6 +29,7 @@
     collectSessionIds,
     collectTerminalIds,
     collectDiffSessionIds,
+    unsplitPane,
   } from "./lib/layout";
   import type { SessionInfo, TerminalApi, AppNotification, WorktreeStatus } from "./lib/types";
   import { addNotification, dismissNotification } from "./lib/notifications.svelte";
@@ -173,6 +174,7 @@
       focusedPath = [...focusedPath, 1];
     },
     "pane.close": () => handleClosePane(),
+    "pane.unsplit": () => handleUnsplitPane(),
     "pane.focusUp": () => cycleFocus(-1),
     "pane.focusDown": () => cycleFocus(1),
     "pane.focusLeft": () => cycleFocus(-1),
@@ -215,6 +217,15 @@
     }
 
     collapsePane(focusedPath);
+  }
+
+  function handleUnsplitPane(): void {
+    const result = unsplitPane(layoutTree, asPath(focusedPath));
+    if (!result) return;
+    layoutTree = result.layout;
+    // Parent split removed, so focused path shortens to the parent's path
+    focusedPath = focusedPath.slice(0, -1);
+    focusTerminalAtPath(focusedPath);
   }
 
   // Reset search when focus changes

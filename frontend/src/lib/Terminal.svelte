@@ -6,7 +6,7 @@
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import { WebglAddon } from "@xterm/addon-webgl";
   import { EventsOn, EventsEmit } from "../../wailsjs/runtime/runtime";
-  import { AttachSession } from "../../wailsjs/go/main/App";
+  import { AttachSession, GetSessionHistory } from "../../wailsjs/go/main/App";
   import "@xterm/xterm/css/xterm.css";
   import { getTheme } from "./config.svelte";
   import { getXtermTheme } from "./themes";
@@ -65,6 +65,11 @@
 
       fitAndRefresh();
 
+      // Replay history before subscribing to live output
+      GetSessionHistory(sessionId).then((history) => {
+        if (history) term.write(history);
+      }).catch(() => {});
+
       const inputDisposable = term.onData((data: string) => {
         EventsEmit("terminal-input", sessionId, data);
       });
@@ -90,9 +95,23 @@
         }, 50);
       });
       resizeObserver.observe(terminalEl);
+
+      const handlePaneResize = () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          if (!currentlyVisible) return;
+          fitAndRefresh();
+          if (term.cols > 0 && term.rows > 0) {
+            EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
+          }
+        }, 50);
+      };
+      window.addEventListener("pane-resize", handlePaneResize);
+
       cleanups.push(() => {
         clearTimeout(resizeTimer);
         resizeObserver.disconnect();
+        window.removeEventListener("pane-resize", handlePaneResize);
       });
 
       EventsEmit("terminal-resize", sessionId, term.cols, term.rows);

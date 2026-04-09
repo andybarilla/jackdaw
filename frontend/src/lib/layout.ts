@@ -195,6 +195,53 @@ export function collectDiffSessionIds(node: LayoutNode): string[] {
   ];
 }
 
+function collectLeaves(node: LayoutNode): PaneContent[] {
+  if (node.type === "leaf") {
+    return node.content !== null ? [node.content] : [];
+  }
+  return [...collectLeaves(node.children[0]), ...collectLeaves(node.children[1])];
+}
+
+export function unsplitPane(
+  root: LayoutNode,
+  focusedPath: Path
+): { layout: LayoutNode; detached: PaneContent[] } | null {
+  if (focusedPath.length === 0) return null;
+
+  const parentPath = focusedPath.slice(0, -1) as Path;
+  const childIdx = focusedPath[focusedPath.length - 1];
+  const siblingIdx = childIdx === 0 ? 1 : 0;
+
+  // Get the focused leaf's subtree (just the leaf itself)
+  const focusedLeaf = getNodeAtPath(root, focusedPath);
+
+  // Get the sibling subtree to collect detached content
+  const siblingPath = [...parentPath, siblingIdx] as Path;
+  const siblingNode = getNodeAtPath(root, siblingPath);
+  const detached = collectLeaves(siblingNode);
+
+  // Replace the parent split with the focused leaf
+  const layout = replaceNodeAtPath(root, parentPath, focusedLeaf);
+
+  return { layout, detached };
+}
+
+function getNodeAtPath(node: LayoutNode, path: Path): LayoutNode {
+  if (path.length === 0) return node;
+  if (node.type !== "split") throw new Error("Path leads through a non-split node");
+  const [head, ...tail] = path;
+  return getNodeAtPath(node.children[head], tail as Path);
+}
+
+function replaceNodeAtPath(node: LayoutNode, path: Path, replacement: LayoutNode): LayoutNode {
+  if (path.length === 0) return replacement;
+  if (node.type !== "split") throw new Error("Path leads through a non-split node");
+  const [head, ...tail] = path;
+  const newChildren: [LayoutNode, LayoutNode] = [node.children[0], node.children[1]];
+  newChildren[head] = replaceNodeAtPath(newChildren[head], tail as Path, replacement);
+  return { ...node, children: newChildren };
+}
+
 export function collectTerminalIds(node: LayoutNode): string[] {
   if (node.type === "leaf") {
     return node.content?.type === "terminal" ? [node.content.id] : [];
