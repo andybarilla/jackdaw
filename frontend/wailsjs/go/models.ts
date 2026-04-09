@@ -19,7 +19,8 @@ export namespace config {
 	    terminal_font_size?: number;
 	    ui_font_family?: string;
 	    ui_font_size?: number;
-	
+	    shell_commands?: {name: string; command: string; work_dir?: string}[];
+
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
 	    }
@@ -44,6 +45,7 @@ export namespace config {
 	        this.terminal_font_size = source["terminal_font_size"];
 	        this.ui_font_family = source["ui_font_family"];
 	        this.ui_font_size = source["ui_font_size"];
+	        this.shell_commands = source["shell_commands"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

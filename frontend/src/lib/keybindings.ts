@@ -16,7 +16,8 @@ export type Action =
   | "pane.unsplit"
   | "tab.next"
   | "tab.prev"
-  | "app.openSettings";
+  | "app.openSettings"
+  | "commandPalette.open";
 
 export interface ParsedBinding {
   key: string;
@@ -46,6 +47,7 @@ export const DEFAULT_KEYMAP: Keymap = {
   "tab.next": "Ctrl+PageDown",
   "tab.prev": "Ctrl+PageUp",
   "app.openSettings": "Ctrl+,",
+  "commandPalette.open": "Ctrl+Shift+P",
 };
 
 // Map binding key strings to physical key codes (event.code values).

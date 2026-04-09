@@ -53,6 +53,7 @@
     "pane.unsplit": "Unsplit Pane",
     "tab.next": "Next Tab",
     "tab.prev": "Previous Tab",
+    "commandPalette.open": "Command Palette",
   };
 
   function handleCaptureKeydown(e: KeyboardEvent): void {

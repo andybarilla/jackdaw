@@ -9,6 +9,12 @@ import (
 	"github.com/andybarilla/jackdaw/internal/workspace"
 )
 
+type ShellCommand struct {
+	Name    string `json:"name"`
+	Command string `json:"command"`
+	WorkDir string `json:"work_dir,omitempty"`
+}
+
 type Config struct {
 	Theme                string            `json:"theme"`
 	Keybindings          map[string]string `json:"keybindings"`
@@ -28,6 +34,7 @@ type Config struct {
 	TerminalFontSize         int              `json:"terminal_font_size,omitempty"`
 	UIFontFamily             string           `json:"ui_font_family,omitempty"`
 	UIFontSize               int              `json:"ui_font_size,omitempty"`
+	ShellCommands            []ShellCommand   `json:"shell_commands,omitempty"`
 }
 
 func Defaults() *Config {

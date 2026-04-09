@@ -3,6 +3,7 @@ import type { SearchAddon } from "@xterm/addon-search";
 export interface TerminalApi {
   searchAddon: SearchAddon;
   focus: () => void;
+  send: (data: string) => void;
 }
 
 export interface TerminalInfo {
@@ -75,6 +76,12 @@ export interface DashboardSession {
 export interface Workspace {
   id: string;
   name: string;
+}
+
+export interface ShellCommand {
+  name: string;
+  command: string;
+  work_dir?: string;
 }
 
 export interface AppNotification {
