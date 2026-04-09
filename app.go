@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +17,11 @@ import (
 	"github.com/andybarilla/jackdaw/internal/worktree"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+type RecentDir struct {
+	Path     string    `json:"path"`
+	LastUsed time.Time `json:"last_used"`
+}
 
 type App struct {
 	ctx             context.Context
@@ -28,6 +35,7 @@ type App struct {
 	errorDetectors        map[string]*notification.ErrorDetector
 	errorDetectionEnabled bool
 	dashTicker      *time.Ticker
+	recentDirsPath  string
 }
 
 func NewApp() *App {
@@ -57,6 +65,7 @@ func NewApp() *App {
 		patternMatchers:       make(map[string]*notification.PatternMatcher),
 		errorDetectors:        make(map[string]*notification.ErrorDetector),
 		errorDetectionEnabled: cfg.ErrorDetectionEnabled,
+		recentDirsPath:  filepath.Join(jackdawDir, "recent_dirs.json"),
 	}
 }
 
@@ -217,6 +226,7 @@ func (a *App) PickDirectory() (string, error) {
 
 func (a *App) CreateSession(workDir string, worktreeEnabled bool, branchName string) (*session.SessionInfo, error) {
 	workDir = expandHome(workDir)
+	a.addRecentDir(workDir)
 	id := fmt.Sprintf("%d", time.Now().UnixNano())
 
 	var env []string
@@ -435,6 +445,40 @@ func (a *App) GetConfig() (*config.Config, error) {
 
 func (a *App) SetConfig(cfg *config.Config) error {
 	return config.Save(a.configPath, cfg)
+}
+
+func (a *App) GetRecentDirs() []RecentDir {
+	data, err := os.ReadFile(a.recentDirsPath)
+	if err != nil {
+		return []RecentDir{}
+	}
+	var dirs []RecentDir
+	if err := json.Unmarshal(data, &dirs); err != nil {
+		return []RecentDir{}
+	}
+	return dirs
+}
+
+func (a *App) addRecentDir(path string) {
+	dirs := a.GetRecentDirs()
+	filtered := make([]RecentDir, 0, len(dirs))
+	for _, d := range dirs {
+		if d.Path != path {
+			filtered = append(filtered, d)
+		}
+	}
+	dirs = append([]RecentDir{{Path: path, LastUsed: time.Now().UTC()}}, filtered...)
+	if len(dirs) > 20 {
+		dirs = dirs[:20]
+	}
+	sort.SliceStable(dirs, func(i, j int) bool {
+		return dirs[i].LastUsed.After(dirs[j].LastUsed)
+	})
+	data, err := json.Marshal(dirs)
+	if err != nil {
+		return
+	}
+	os.WriteFile(a.recentDirsPath, data, 0600) //nolint:errcheck
 }
 
 func mustUserHome() string {

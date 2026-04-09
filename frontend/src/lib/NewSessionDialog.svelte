@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { PickDirectory, IsGitRepo } from "../../wailsjs/go/main/App";
+  import { PickDirectory, IsGitRepo, GetRecentDirs } from "../../wailsjs/go/main/App";
+  import { onMount } from "svelte";
 
   interface Props {
     onSubmit: (workDir: string, worktreeEnabled: boolean, branchName: string) => void;
@@ -12,6 +13,23 @@
   let worktreeEnabled = $state(false);
   let branchName = $state("");
   let checkingGit = $state(false);
+  let recentDirs: { path: string; last_used: string }[] = $state([]);
+
+  let filteredDirs = $derived.by(() => {
+    const trimmed = workDir.trim().toLowerCase();
+    if (!trimmed) return recentDirs;
+    return recentDirs.filter(
+      (d) => d.path.toLowerCase().startsWith(trimmed) && d.path !== workDir
+    );
+  });
+
+  onMount(async () => {
+    try {
+      recentDirs = await GetRecentDirs();
+    } catch {
+      recentDirs = [];
+    }
+  });
 
   function generateBranchName(dir: string): string {
     const basename = dir.split("/").pop() || "project";
@@ -83,6 +101,18 @@
         <button type="button" class="browse" onclick={handleBrowse}>Browse</button>
       </div>
     </label>
+
+    {#if filteredDirs.length > 0}
+      <div class="recent-dirs">
+        {#each filteredDirs as dir}
+          <button
+            type="button"
+            class="recent-dir"
+            onclick={() => { workDir = dir.path; }}
+          >{dir.path}</button>
+        {/each}
+      </div>
+    {/if}
 
     {#if isGitRepo}
       <label class="checkbox-label">
@@ -185,6 +215,31 @@
   .branch-input {
     width: 100%;
     margin-top: 6px;
+  }
+
+  .recent-dirs {
+    max-height: 160px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .recent-dir {
+    background: none;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 10px;
+    text-align: left;
+    color: var(--text-secondary);
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 0.923rem;
+    cursor: pointer;
+  }
+
+  .recent-dir:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .actions {

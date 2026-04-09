@@ -34,6 +34,10 @@ export function GetFileDiff(arg1, arg2) {
   return window['go']['main']['App']['GetFileDiff'](arg1, arg2);
 }
 
+export function GetRecentDirs() {
+  return window['go']['main']['App']['GetRecentDirs']();
+}
+
 export function GetSessionDiff(arg1) {
   return window['go']['main']['App']['GetSessionDiff'](arg1);
 }
