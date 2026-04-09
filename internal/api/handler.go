@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 )
+
+// timeNow is used by handlers; overridable in tests.
+var timeNow = time.Now
 
 // handlerFunc processes a request and returns response data, or nil for streaming handlers.
 type handlerFunc func(s *Server, params json.RawMessage, conn net.Conn) (interface{}, error)
