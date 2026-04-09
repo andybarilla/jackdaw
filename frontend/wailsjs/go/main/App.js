@@ -26,6 +26,10 @@ export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
+export function GetDashboardData() {
+  return window['go']['main']['App']['GetDashboardData']();
+}
+
 export function GetFileDiff(arg1, arg2) {
   return window['go']['main']['App']['GetFileDiff'](arg1, arg2);
 }

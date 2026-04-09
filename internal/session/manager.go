@@ -46,6 +46,17 @@ type WorktreeOptions struct {
 	WorktreeRoot string
 }
 
+type DashboardSession struct {
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	WorkDir         string    `json:"work_dir"`
+	Status          Status    `json:"status"`
+	StartedAt       time.Time `json:"started_at"`
+	LastLine        string    `json:"last_line"`
+	WorktreeEnabled bool      `json:"worktree_enabled,omitempty"`
+	BranchName      string    `json:"branch_name,omitempty"`
+}
+
 type Manager struct {
 	sessions        map[string]*Session
 	sessionInfo     map[string]*SessionInfo
@@ -236,6 +247,29 @@ func (m *Manager) List() []SessionInfo {
 	result := make([]SessionInfo, 0, len(m.sessionInfo))
 	for _, info := range m.sessionInfo {
 		result = append(result, *info)
+	}
+	return result
+}
+
+func (m *Manager) DashboardData() []DashboardSession {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]DashboardSession, 0, len(m.sessionInfo))
+	for id, info := range m.sessionInfo {
+		var lastLine string
+		if tracker, ok := m.statusTrackers[id]; ok {
+			lastLine = tracker.LastLine()
+		}
+		result = append(result, DashboardSession{
+			ID:              info.ID,
+			Name:            info.Name,
+			WorkDir:         info.WorkDir,
+			Status:          info.Status,
+			StartedAt:       info.StartedAt,
+			LastLine:        lastLine,
+			WorktreeEnabled: info.WorktreeEnabled,
+			BranchName:      info.BranchName,
+		})
 	}
 	return result
 }

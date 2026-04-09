@@ -56,6 +56,51 @@ export namespace main {
 
 export namespace session {
 	
+	export class DashboardSession {
+	    id: string;
+	    name: string;
+	    work_dir: string;
+	    status: string;
+	    // Go type: time
+	    started_at: any;
+	    last_line: string;
+	    worktree_enabled?: boolean;
+	    branch_name?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DashboardSession(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.work_dir = source["work_dir"];
+	        this.status = source["status"];
+	        this.started_at = this.convertValues(source["started_at"], null);
+	        this.last_line = source["last_line"];
+	        this.worktree_enabled = source["worktree_enabled"];
+	        this.branch_name = source["branch_name"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SessionInfo {
 	    id: string;
 	    name: string;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  type PaneChoice = "terminal" | "session";
+  type PaneChoice = "terminal" | "session" | "dashboard";
 
   interface Props {
     onSelect: (choice: PaneChoice) => void;
@@ -16,6 +16,9 @@
     </button>
     <button class="picker-btn session" onclick={() => onSelect("session")}>
       Claude
+    </button>
+    <button class="picker-btn dashboard" onclick={() => onSelect("dashboard")}>
+      Dashboard
     </button>
   </div>
 </div>
@@ -66,5 +69,14 @@
 
   .picker-btn.session:hover {
     background: color-mix(in srgb, var(--success) 10%, transparent);
+  }
+
+  .picker-btn.dashboard {
+    color: var(--text-primary);
+    border-color: var(--border);
+  }
+
+  .picker-btn.dashboard:hover {
+    background: color-mix(in srgb, var(--text-primary) 10%, transparent);
   }
 </style>

@@ -13,6 +13,8 @@ import {
   collectSessionIds,
   collectTerminalIds,
   collectDiffSessionIds,
+  findLeafByDashboard,
+  collectDashboardPanes,
   collectLeaves,
   addTab,
   removeTab,
@@ -39,6 +41,12 @@ const terminalLeaf = (id: string, workDir = "/tmp"): LayoutNode => ({
 const diffLeaf = (id: string): LayoutNode => ({
   type: "leaf",
   contents: [{ type: "diff", sessionId: id }],
+  activeIndex: 0,
+});
+
+const dashboardLeaf = (): LayoutNode => ({
+  type: "leaf",
+  contents: [{ type: "dashboard" }],
   activeIndex: 0,
 });
 
@@ -481,6 +489,61 @@ describe("collectDiffSessionIds", () => {
       { type: "session", sessionId: "s2" },
     );
     expect(collectDiffSessionIds(root)).toEqual(["s1"]);
+  });
+});
+
+describe("findLeafByDashboard", () => {
+  it("finds dashboard in leaf", () => {
+    const root = dashboardLeaf();
+    expect(findLeafByDashboard(root)).toEqual({ path: [], tabIndex: 0 });
+  });
+
+  it("returns null when absent", () => {
+    expect(findLeafByDashboard(sessionLeaf("s1"))).toBeNull();
+  });
+
+  it("finds in nested split", () => {
+    const root: LayoutNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      children: [sessionLeaf("s1"), dashboardLeaf()],
+    };
+    expect(findLeafByDashboard(root)).toEqual({ path: [1], tabIndex: 0 });
+  });
+
+  it("finds dashboard in multi-tab leaf", () => {
+    const root = multiTabLeaf(
+      { type: "session", sessionId: "s1" },
+      { type: "dashboard" },
+    );
+    expect(findLeafByDashboard(root)).toEqual({ path: [], tabIndex: 1 });
+  });
+});
+
+describe("collectDashboardPanes", () => {
+  it("counts 0 when none", () => {
+    expect(collectDashboardPanes(sessionLeaf("s1"))).toBe(0);
+  });
+
+  it("counts correctly with multiple", () => {
+    const root: LayoutNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      children: [
+        dashboardLeaf(),
+        multiTabLeaf(
+          { type: "session", sessionId: "s1" },
+          { type: "dashboard" },
+        ),
+      ],
+    };
+    expect(collectDashboardPanes(root)).toBe(2);
+  });
+
+  it("counts 1 for single dashboard", () => {
+    expect(collectDashboardPanes(dashboardLeaf())).toBe(1);
   });
 });
 

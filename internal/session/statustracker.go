@@ -16,6 +16,7 @@ var promptPattern = regexp.MustCompile(`(?m)^\s*❯`)
 type StatusTracker struct {
 	mu        sync.Mutex
 	status    Status
+	lastLine  string
 	onChange  func(Status)
 	idleTimer *time.Timer
 	idleDelay time.Duration
@@ -35,11 +36,35 @@ func (st *StatusTracker) Status() Status {
 	return st.status
 }
 
+func (st *StatusTracker) LastLine() string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.lastLine
+}
+
 func (st *StatusTracker) HandleOutput(data []byte) {
 	cleaned := ansiPattern.ReplaceAll(data, nil)
 
 	st.mu.Lock()
 	defer st.mu.Unlock()
+
+	// Extract last non-empty, non-prompt line for dashboard display.
+	lines := bytes.Split(cleaned, []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := bytes.TrimRight(lines[i], "\r ")
+		if len(line) == 0 {
+			continue
+		}
+		if promptPattern.Match(line) {
+			continue
+		}
+		s := string(line)
+		if len(s) > 200 {
+			s = s[:200]
+		}
+		st.lastLine = s
+		break
+	}
 
 	if st.isTerminal() {
 		return

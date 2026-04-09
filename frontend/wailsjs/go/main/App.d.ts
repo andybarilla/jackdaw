@@ -18,6 +18,8 @@ export function DismissNotification(arg1:string):Promise<void>;
 
 export function GetConfig():Promise<config.Config>;
 
+export function GetDashboardData():Promise<Array<session.DashboardSession>>;
+
 export function GetFileDiff(arg1:string,arg2:string):Promise<worktree.FileDiff>;
 
 export function GetSessionDiff(arg1:string):Promise<Array<worktree.FileDiff>>;

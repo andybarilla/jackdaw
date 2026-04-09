@@ -26,6 +26,7 @@
       const s = sessions.find((s) => s.id === content.sessionId);
       return `Diff: ${s?.name || content.sessionId.slice(0, 8)}`;
     }
+    if (content.type === "dashboard") return "Dashboard";
     return "Unknown";
   }
 

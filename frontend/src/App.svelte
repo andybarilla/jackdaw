@@ -27,6 +27,7 @@
     findLeafBySessionId,
     findLeafByTerminalId,
     findLeafByDiffSessionId,
+    findLeafByDashboard,
     collectSessionIds,
     collectTerminalIds,
     collectDiffSessionIds,
@@ -179,6 +180,7 @@
       const content = getFocusedContent();
       if (content?.type === "session") openDiffForSession(content.sessionId);
     },
+    "session.dashboard": () => openDashboard(),
     "app.toggleSidebar": () => (sidebarVisible = !sidebarVisible),
     "terminal.search": () => {
       const content = getFocusedContent();
@@ -325,6 +327,13 @@
             cleaned = removeTab(cleaned, found.path, found.tabIndex);
             found = findLeafByDiffSessionId(cleaned, dsid);
           }
+        }
+
+        // Dashboard panes don't survive restart
+        let dashFound = findLeafByDashboard(cleaned);
+        while (dashFound) {
+          cleaned = removeTab(cleaned, dashFound.path, dashFound.tabIndex);
+          dashFound = findLeafByDashboard(cleaned);
         }
 
         layoutTree = cleaned;
@@ -545,10 +554,32 @@
     });
   }
 
+  function openDashboard(): void {
+    const existing = findLeafByDashboard(layoutTree);
+    if (existing) {
+      focusedPath = existing.path as number[];
+      layoutTree = setActiveTab(layoutTree, existing.path, existing.tabIndex);
+      return;
+    }
+    layoutTree = addTab(layoutTree, asPath(focusedPath), { type: "dashboard" });
+  }
+
   async function handleQuickPick(
     path: number[],
-    choice: "terminal" | "session",
+    choice: "terminal" | "session" | "dashboard",
   ): Promise<void> {
+    if (choice === "dashboard") {
+      const existing = findLeafByDashboard(layoutTree);
+      if (existing) {
+        focusedPath = existing.path as number[];
+        layoutTree = setActiveTab(layoutTree, existing.path, existing.tabIndex);
+      } else {
+        layoutTree = addTab(layoutTree, asPath(path), { type: "dashboard" });
+        focusedPath = path;
+      }
+      return;
+    }
+
     if (choice === "session") {
       pendingQuickPickPath = path;
       showNewDialog = true;
@@ -608,6 +639,7 @@
       onKill={handleKill}
       onRename={handleRename}
       onViewDiff={openDiffForSession}
+      onDashboard={openDashboard}
     />
   {/if}
 
@@ -620,6 +652,7 @@
       {terminalApis}
       {sessions}
       onMerge={handleMergeSession}
+      onSelectSession={handleSidebarSelect}
       onFocus={(path) => {
         focusedPath = path;
         focusTerminalAtPath(path);
