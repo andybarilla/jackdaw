@@ -1,6 +1,7 @@
 import { GetConfig, SetConfig } from "../../wailsjs/go/main/App";
 import { findTheme, applyTheme, type Theme } from "./themes";
 import { DEFAULT_KEYMAP, type Keymap } from "./keybindings";
+import type { ShellCommand } from "./types";
 
 let currentTheme = $state<Theme>(findTheme("whattheflock"));
 let keymap = $state<Keymap>({ ...DEFAULT_KEYMAP });
@@ -18,6 +19,7 @@ let uiFontFamily = $state(
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
 );
 let uiFontSize = $state(13);
+let shellCommands = $state<ShellCommand[]>([]);
 
 export function getTheme(): Theme {
   return currentTheme;
@@ -75,6 +77,10 @@ export function getUIFontSize(): number {
   return uiFontSize;
 }
 
+export function getShellCommands(): ShellCommand[] {
+  return shellCommands;
+}
+
 function applyUIFonts(): void {
   document.documentElement.style.setProperty("--ui-font-family", uiFontFamily);
   document.documentElement.style.setProperty(
@@ -102,6 +108,7 @@ export async function loadConfig(): Promise<void> {
     cfg.ui_font_family ||
     "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   uiFontSize = cfg.ui_font_size || 13;
+  shellCommands = cfg.shell_commands || [];
   applyTheme(currentTheme);
   applyUIFonts();
 }

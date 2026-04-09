@@ -139,7 +139,7 @@
         });
       }
 
-      onReady?.({ searchAddon, focus: () => term.focus() });
+      onReady?.({ searchAddon, focus: () => term.focus(), send: (data: string) => wsConn?.send(data) });
     } else {
       // Already opened, just becoming visible again — double-rAF for layout settle
       rafId = requestAnimationFrame(() => {

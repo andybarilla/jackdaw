@@ -59,8 +59,9 @@
   import SplitPane from "./lib/SplitPane.svelte";
   import NewSessionDialog from "./lib/NewSessionDialog.svelte";
   import WorktreeCleanupDialog from "./lib/WorktreeCleanupDialog.svelte";
-  import { getKeymap, getToastDuration, getAutoRemoveKilledSessions } from "./lib/config.svelte";
+  import { getKeymap, getToastDuration, getAutoRemoveKilledSessions, getShellCommands } from "./lib/config.svelte";
   import { matchKeybinding } from "./lib/keybindings";
+  import CommandPalette from "./lib/CommandPalette.svelte";
 
   let workspaces = $state<Workspace[]>([]);
   let activeWorkspaceId = $state("default");
@@ -71,6 +72,7 @@
   let sidebarVisible = $state(true);
   let sidebarWidth = $state(280);
   let searchVisible = $state(false);
+  let showCommandPalette = $state(false);
   let terminalApis = $state<Record<string, TerminalApi>>({});
   let cleanups: Array<() => void> = [];
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -228,6 +230,7 @@
       }
       layoutTree = addTab(layoutTree, asPath(focusedPath), { type: "settings" });
     },
+    "commandPalette.open": () => (showCommandPalette = !showCommandPalette),
   };
 
   function handleGlobalKeydown(event: KeyboardEvent): void {
@@ -766,6 +769,30 @@
     await MoveSessionToWorkspace(sessionId, workspaceId);
   }
 
+  function getActiveSessionWorkDir(): string | undefined {
+    const content = getFocusedContent();
+    if (content?.type === "session") {
+      const s = sessions.find((sess) => sess.id === content.sessionId);
+      return s?.work_dir;
+    }
+    if (content?.type === "terminal") return content.workDir;
+    return undefined;
+  }
+
+  function handleExecuteShellCommand(command: string): void {
+    const content = getFocusedContent();
+    if (!content) {
+      addNotification({ sessionID: "", sessionName: "", type: "error_detected", message: "No active terminal to send command to", timestamp: new Date().toISOString() });
+      return;
+    }
+    const id = content.type === "session" ? content.sessionId : content.type === "terminal" ? content.id : null;
+    if (!id || !terminalApis[id]) {
+      addNotification({ sessionID: "", sessionName: "", type: "error_detected", message: "No active terminal to send command to", timestamp: new Date().toISOString() });
+      return;
+    }
+    terminalApis[id].send(command + "\r");
+  }
+
   function openDiffForSession(sessionId: string): void {
     // If diff already open, focus it
     const existingDiff = findLeafByDiffSessionId(layoutTree, sessionId);
@@ -970,6 +997,18 @@
   {/if}
 
   <ToastContainer toastDuration={getToastDuration()} onGoToSession={handleGoToSession} />
+
+  {#if showCommandPalette}
+    <CommandPalette
+      actions={Object.keys(actions).map((id) => ({ id, label: id }))}
+      keymap={getKeymap()}
+      shellCommands={getShellCommands()}
+      activeSessionWorkDir={getActiveSessionWorkDir()}
+      onExecuteShellCommand={handleExecuteShellCommand}
+      onExecuteAction={(id) => actions[id]?.()}
+      onClose={() => (showCommandPalette = false)}
+    />
+  {/if}
 
   {#if worktreeCleanup}
     <WorktreeCleanupDialog
