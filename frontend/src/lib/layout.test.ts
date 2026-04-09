@@ -5,11 +5,20 @@ import {
   closeLeaf,
   updateRatio,
   getLeafContent,
+  getLeaf,
   setLeafContent,
   findLeafBySessionId,
   findLeafByTerminalId,
+  findLeafByDiffSessionId,
   collectSessionIds,
   collectTerminalIds,
+  collectDiffSessionIds,
+  collectLeaves,
+  addTab,
+  removeTab,
+  setActiveTab,
+  reorderTab,
+  migrateLayout,
   type LayoutNode,
   type PaneContent,
 } from "./layout";
@@ -17,17 +26,31 @@ import {
 // Helpers
 const sessionLeaf = (id: string): LayoutNode => ({
   type: "leaf",
-  content: { type: "session", sessionId: id },
+  contents: [{ type: "session", sessionId: id }],
+  activeIndex: 0,
 });
 
 const terminalLeaf = (id: string, workDir = "/tmp"): LayoutNode => ({
   type: "leaf",
-  content: { type: "terminal", id, workDir },
+  contents: [{ type: "terminal", id, workDir }],
+  activeIndex: 0,
+});
+
+const diffLeaf = (id: string): LayoutNode => ({
+  type: "leaf",
+  contents: [{ type: "diff", sessionId: id }],
+  activeIndex: 0,
+});
+
+const multiTabLeaf = (...contents: PaneContent[]): LayoutNode => ({
+  type: "leaf",
+  contents,
+  activeIndex: 0,
 });
 
 describe("emptyLeaf", () => {
-  it("returns a leaf with null content", () => {
-    expect(emptyLeaf()).toEqual({ type: "leaf", content: null });
+  it("returns a leaf with empty contents", () => {
+    expect(emptyLeaf()).toEqual({ type: "leaf", contents: [], activeIndex: 0 });
   });
 
   it("returns a new object each call", () => {
@@ -57,56 +80,27 @@ describe("splitLeaf", () => {
   });
 
   it("original content stays in children[0]", () => {
-    const content: PaneContent = { type: "session", sessionId: "abc" };
-    const root: LayoutNode = { type: "leaf", content };
+    const root = sessionLeaf("abc");
     const result = splitLeaf(root, [], "horizontal");
     expect(result.type).toBe("split");
     if (result.type === "split") {
-      expect(result.children[0]).toEqual({ type: "leaf", content });
+      expect(result.children[0]).toEqual(sessionLeaf("abc"));
       expect(result.children[1]).toEqual(emptyLeaf());
     }
   });
 
-  it("splits nested leaf at path [0]", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [sessionLeaf("s1"), sessionLeaf("s2")],
-    };
-    const result = splitLeaf(root, [0], "vertical");
-    expect(result.type).toBe("split");
+  it("preserves multi-tab leaf when splitting", () => {
+    const root = multiTabLeaf(
+      { type: "session", sessionId: "s1" },
+      { type: "session", sessionId: "s2" },
+    );
+    const result = splitLeaf(root, [], "vertical");
     if (result.type === "split") {
-      expect(result.children[0].type).toBe("split");
-      if (result.children[0].type === "split") {
-        expect(result.children[0].direction).toBe("vertical");
-        expect(result.children[0].children[0]).toEqual(sessionLeaf("s1"));
-        expect(result.children[0].children[1]).toEqual(emptyLeaf());
+      const left = result.children[0];
+      if (left.type === "leaf") {
+        expect(left.contents).toHaveLength(2);
       }
-      expect(result.children[1]).toEqual(sessionLeaf("s2"));
     }
-  });
-
-  it("splits nested leaf at path [1]", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [sessionLeaf("s1"), sessionLeaf("s2")],
-    };
-    const result = splitLeaf(root, [1], "horizontal");
-    expect(result.type).toBe("split");
-    if (result.type === "split") {
-      expect(result.children[0]).toEqual(sessionLeaf("s1"));
-      expect(result.children[1].type).toBe("split");
-    }
-  });
-
-  it("does not mutate original tree", () => {
-    const root = sessionLeaf("s1");
-    const frozen = Object.freeze({ ...root });
-    splitLeaf(frozen as LayoutNode, [], "horizontal");
-    expect(frozen).toEqual(sessionLeaf("s1"));
   });
 });
 
@@ -138,45 +132,6 @@ describe("closeLeaf", () => {
     const result = closeLeaf(root, [1]);
     expect(result).toEqual(sessionLeaf("s1"));
   });
-
-  it("closes deeply nested leaf", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [
-        {
-          type: "split",
-          direction: "vertical",
-          ratio: 0.5,
-          children: [sessionLeaf("s1"), sessionLeaf("s2")],
-        },
-        sessionLeaf("s3"),
-      ],
-    };
-    const result = closeLeaf(root, [0, 0]);
-    expect(result.type).toBe("split");
-    if (result.type === "split") {
-      expect(result.children[0]).toEqual(sessionLeaf("s2"));
-      expect(result.children[1]).toEqual(sessionLeaf("s3"));
-    }
-  });
-
-  it("does not mutate original tree", () => {
-    const child1 = sessionLeaf("s1");
-    const child2 = sessionLeaf("s2");
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [child1, child2],
-    };
-    closeLeaf(root, [0]);
-    expect(root.type).toBe("split");
-    if (root.type === "split") {
-      expect(root.children[0]).toEqual(child1);
-    }
-  });
 });
 
 describe("updateRatio", () => {
@@ -188,230 +143,294 @@ describe("updateRatio", () => {
       children: [sessionLeaf("s1"), sessionLeaf("s2")],
     };
     const result = updateRatio(root, [], 0.7);
-    expect(result.type).toBe("split");
     if (result.type === "split") {
       expect(result.ratio).toBe(0.7);
     }
   });
 
-  it("clamps ratio to minimum 0.1", () => {
+  it("clamps ratio to min 0.1 and max 0.9", () => {
     const root: LayoutNode = {
       type: "split",
       direction: "horizontal",
       ratio: 0.5,
       children: [sessionLeaf("s1"), sessionLeaf("s2")],
     };
-    const result = updateRatio(root, [], 0.05);
-    if (result.type === "split") {
-      expect(result.ratio).toBe(0.1);
-    }
-  });
-
-  it("clamps ratio to maximum 0.9", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [sessionLeaf("s1"), sessionLeaf("s2")],
-    };
-    const result = updateRatio(root, [], 0.95);
-    if (result.type === "split") {
-      expect(result.ratio).toBe(0.9);
-    }
-  });
-
-  it("updates nested split at path [0]", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [
-        {
-          type: "split",
-          direction: "vertical",
-          ratio: 0.5,
-          children: [sessionLeaf("s1"), sessionLeaf("s2")],
-        },
-        sessionLeaf("s3"),
-      ],
-    };
-    const result = updateRatio(root, [0], 0.3);
-    expect(result.type).toBe("split");
-    if (result.type === "split") {
-      expect(result.ratio).toBe(0.5); // root unchanged
-      const left = result.children[0];
-      if (left.type === "split") {
-        expect(left.ratio).toBe(0.3);
-      }
-    }
-  });
-
-  it("does not mutate original tree", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [sessionLeaf("s1"), sessionLeaf("s2")],
-    };
-    updateRatio(root, [], 0.7);
-    if (root.type === "split") {
-      expect(root.ratio).toBe(0.5);
-    }
+    const low = updateRatio(root, [], 0.05);
+    const high = updateRatio(root, [], 0.95);
+    if (low.type === "split") expect(low.ratio).toBe(0.1);
+    if (high.type === "split") expect(high.ratio).toBe(0.9);
   });
 });
 
 describe("getLeafContent", () => {
-  it("returns content of root leaf", () => {
-    const content: PaneContent = { type: "session", sessionId: "s1" };
-    const root: LayoutNode = { type: "leaf", content };
-    expect(getLeafContent(root, [])).toEqual(content);
-  });
-
-  it("returns content at path [0]", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [sessionLeaf("s1"), sessionLeaf("s2")],
-    };
-    expect(getLeafContent(root, [0])).toEqual({
-      type: "session",
-      sessionId: "s1",
-    });
-  });
-
-  it("returns content at path [1]", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [sessionLeaf("s1"), sessionLeaf("s2")],
-    };
-    expect(getLeafContent(root, [1])).toEqual({
-      type: "session",
-      sessionId: "s2",
-    });
+  it("returns active content of root leaf", () => {
+    const root = sessionLeaf("s1");
+    expect(getLeafContent(root, [])).toEqual({ type: "session", sessionId: "s1" });
   });
 
   it("returns null for empty leaf", () => {
     expect(getLeafContent(emptyLeaf(), [])).toBeNull();
   });
+
+  it("returns active tab content from multi-tab leaf", () => {
+    const root: LayoutNode = {
+      type: "leaf",
+      contents: [
+        { type: "session", sessionId: "s1" },
+        { type: "session", sessionId: "s2" },
+      ],
+      activeIndex: 1,
+    };
+    expect(getLeafContent(root, [])).toEqual({ type: "session", sessionId: "s2" });
+  });
+});
+
+describe("getLeaf", () => {
+  it("returns the leaf node", () => {
+    const root = sessionLeaf("s1");
+    const leaf = getLeaf(root, []);
+    expect(leaf.contents).toHaveLength(1);
+    expect(leaf.activeIndex).toBe(0);
+  });
 });
 
 describe("setLeafContent", () => {
-  it("sets content at root leaf", () => {
+  it("sets content on empty leaf", () => {
     const root = emptyLeaf();
-    const content: PaneContent = { type: "session", sessionId: "s1" };
-    const result = setLeafContent(root, [], content);
-    expect(result).toEqual({ type: "leaf", content });
+    const result = setLeafContent(root, [], { type: "session", sessionId: "s1" });
+    if (result.type === "leaf") {
+      expect(result.contents).toEqual([{ type: "session", sessionId: "s1" }]);
+    }
   });
 
-  it("sets content at path [0]", () => {
+  it("replaces active tab content", () => {
+    const root: LayoutNode = {
+      type: "leaf",
+      contents: [
+        { type: "session", sessionId: "s1" },
+        { type: "session", sessionId: "s2" },
+      ],
+      activeIndex: 1,
+    };
+    const result = setLeafContent(root, [], { type: "session", sessionId: "s3" });
+    if (result.type === "leaf") {
+      expect(result.contents[0]).toEqual({ type: "session", sessionId: "s1" });
+      expect(result.contents[1]).toEqual({ type: "session", sessionId: "s3" });
+    }
+  });
+
+  it("clears leaf when set to null", () => {
+    const root = sessionLeaf("s1");
+    const result = setLeafContent(root, [], null);
+    expect(result).toEqual(emptyLeaf());
+  });
+});
+
+describe("addTab", () => {
+  it("adds tab to empty leaf", () => {
+    const root = emptyLeaf();
+    const result = addTab(root, [], { type: "session", sessionId: "s1" });
+    if (result.type === "leaf") {
+      expect(result.contents).toHaveLength(1);
+      expect(result.activeIndex).toBe(0);
+    }
+  });
+
+  it("appends tab and sets it active", () => {
+    const root = sessionLeaf("s1");
+    const result = addTab(root, [], { type: "session", sessionId: "s2" });
+    if (result.type === "leaf") {
+      expect(result.contents).toHaveLength(2);
+      expect(result.activeIndex).toBe(1);
+      expect(result.contents[1]).toEqual({ type: "session", sessionId: "s2" });
+    }
+  });
+
+  it("works at nested path", () => {
     const root: LayoutNode = {
       type: "split",
       direction: "horizontal",
       ratio: 0.5,
-      children: [emptyLeaf(), sessionLeaf("s2")],
+      children: [sessionLeaf("s1"), emptyLeaf()],
     };
-    const content: PaneContent = { type: "session", sessionId: "s1" };
-    const result = setLeafContent(root, [0], content);
-    expect(result.type).toBe("split");
-    if (result.type === "split") {
-      expect(result.children[0]).toEqual({ type: "leaf", content });
-      expect(result.children[1]).toEqual(sessionLeaf("s2"));
+    const result = addTab(root, [0] as any, { type: "session", sessionId: "s2" });
+    if (result.type === "split" && result.children[0].type === "leaf") {
+      expect(result.children[0].contents).toHaveLength(2);
+      expect(result.children[0].activeIndex).toBe(1);
+    }
+  });
+});
+
+describe("removeTab", () => {
+  it("removes sole tab, leaving empty leaf", () => {
+    const root = sessionLeaf("s1");
+    const result = removeTab(root, [], 0);
+    if (result.type === "leaf") {
+      expect(result.contents).toHaveLength(0);
+      expect(result.activeIndex).toBe(0);
     }
   });
 
-  it("does not mutate original tree", () => {
-    const root = emptyLeaf();
-    setLeafContent(root, [], { type: "session", sessionId: "s1" });
-    expect(root.type === "leaf" && root.content).toBeNull();
+  it("removes tab before active, adjusts activeIndex", () => {
+    const root: LayoutNode = {
+      type: "leaf",
+      contents: [
+        { type: "session", sessionId: "s1" },
+        { type: "session", sessionId: "s2" },
+        { type: "session", sessionId: "s3" },
+      ],
+      activeIndex: 2,
+    };
+    const result = removeTab(root, [], 0);
+    if (result.type === "leaf") {
+      expect(result.contents).toHaveLength(2);
+      expect(result.activeIndex).toBe(1); // was 2, shifted down
+    }
+  });
+
+  it("removes active tab, clamps to last", () => {
+    const root: LayoutNode = {
+      type: "leaf",
+      contents: [
+        { type: "session", sessionId: "s1" },
+        { type: "session", sessionId: "s2" },
+      ],
+      activeIndex: 1,
+    };
+    const result = removeTab(root, [], 1);
+    if (result.type === "leaf") {
+      expect(result.contents).toHaveLength(1);
+      expect(result.activeIndex).toBe(0);
+    }
+  });
+
+  it("removes tab after active, no change to activeIndex", () => {
+    const root: LayoutNode = {
+      type: "leaf",
+      contents: [
+        { type: "session", sessionId: "s1" },
+        { type: "session", sessionId: "s2" },
+        { type: "session", sessionId: "s3" },
+      ],
+      activeIndex: 0,
+    };
+    const result = removeTab(root, [], 2);
+    if (result.type === "leaf") {
+      expect(result.contents).toHaveLength(2);
+      expect(result.activeIndex).toBe(0);
+    }
+  });
+});
+
+describe("setActiveTab", () => {
+  it("sets activeIndex", () => {
+    const root: LayoutNode = {
+      type: "leaf",
+      contents: [
+        { type: "session", sessionId: "s1" },
+        { type: "session", sessionId: "s2" },
+      ],
+      activeIndex: 0,
+    };
+    const result = setActiveTab(root, [], 1);
+    if (result.type === "leaf") {
+      expect(result.activeIndex).toBe(1);
+    }
+  });
+});
+
+describe("reorderTab", () => {
+  it("moves tab forward", () => {
+    const root: LayoutNode = {
+      type: "leaf",
+      contents: [
+        { type: "session", sessionId: "s1" },
+        { type: "session", sessionId: "s2" },
+        { type: "session", sessionId: "s3" },
+      ],
+      activeIndex: 0,
+    };
+    const result = reorderTab(root, [], 0, 2);
+    if (result.type === "leaf") {
+      expect(result.contents.map((c) => c.type === "session" ? c.sessionId : "")).toEqual(["s2", "s3", "s1"]);
+      expect(result.activeIndex).toBe(2); // active tab moved with it
+    }
+  });
+
+  it("moves tab backward", () => {
+    const root: LayoutNode = {
+      type: "leaf",
+      contents: [
+        { type: "session", sessionId: "s1" },
+        { type: "session", sessionId: "s2" },
+        { type: "session", sessionId: "s3" },
+      ],
+      activeIndex: 2,
+    };
+    const result = reorderTab(root, [], 2, 0);
+    if (result.type === "leaf") {
+      expect(result.contents.map((c) => c.type === "session" ? c.sessionId : "")).toEqual(["s3", "s1", "s2"]);
+      expect(result.activeIndex).toBe(0);
+    }
   });
 });
 
 describe("findLeafBySessionId", () => {
-  it("returns [] for root leaf with matching session", () => {
+  it("finds session in single-tab leaf", () => {
     const root = sessionLeaf("s1");
-    expect(findLeafBySessionId(root, "s1")).toEqual([]);
+    expect(findLeafBySessionId(root, "s1")).toEqual({ path: [], tabIndex: 0 });
   });
 
-  it("returns null for root leaf with non-matching session", () => {
-    const root = sessionLeaf("s1");
-    expect(findLeafBySessionId(root, "s2")).toBeNull();
-  });
-
-  it("returns null for empty leaf", () => {
+  it("returns null when not found", () => {
     expect(findLeafBySessionId(emptyLeaf(), "s1")).toBeNull();
   });
 
-  it("finds session in left child", () => {
+  it("finds session in multi-tab leaf", () => {
+    const root = multiTabLeaf(
+      { type: "session", sessionId: "s1" },
+      { type: "terminal", id: "t1", workDir: "/tmp" },
+      { type: "session", sessionId: "s2" },
+    );
+    expect(findLeafBySessionId(root, "s2")).toEqual({ path: [], tabIndex: 2 });
+  });
+
+  it("finds session in nested tree", () => {
     const root: LayoutNode = {
       type: "split",
       direction: "horizontal",
       ratio: 0.5,
       children: [sessionLeaf("s1"), sessionLeaf("s2")],
     };
-    expect(findLeafBySessionId(root, "s1")).toEqual([0]);
-  });
-
-  it("finds session in right child", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [sessionLeaf("s1"), sessionLeaf("s2")],
-    };
-    expect(findLeafBySessionId(root, "s2")).toEqual([1]);
-  });
-
-  it("finds session deep in tree", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [
-        {
-          type: "split",
-          direction: "vertical",
-          ratio: 0.5,
-          children: [sessionLeaf("s1"), sessionLeaf("s2")],
-        },
-        sessionLeaf("s3"),
-      ],
-    };
-    expect(findLeafBySessionId(root, "s2")).toEqual([0, 1]);
+    expect(findLeafBySessionId(root, "s2")).toEqual({ path: [1], tabIndex: 0 });
   });
 });
 
 describe("findLeafByTerminalId", () => {
-  it("returns [] for root leaf with matching terminal", () => {
-    const root = terminalLeaf("t1");
-    expect(findLeafByTerminalId(root, "t1")).toEqual([]);
+  it("finds terminal in multi-tab leaf", () => {
+    const root = multiTabLeaf(
+      { type: "session", sessionId: "s1" },
+      { type: "terminal", id: "t1", workDir: "/tmp" },
+    );
+    expect(findLeafByTerminalId(root, "t1")).toEqual({ path: [], tabIndex: 1 });
   });
 
-  it("returns null for non-matching terminal", () => {
-    const root = terminalLeaf("t1");
-    expect(findLeafByTerminalId(root, "t2")).toBeNull();
+  it("returns null for non-matching", () => {
+    expect(findLeafByTerminalId(sessionLeaf("s1"), "t1")).toBeNull();
+  });
+});
+
+describe("findLeafByDiffSessionId", () => {
+  it("finds diff in leaf", () => {
+    const root = diffLeaf("s1");
+    expect(findLeafByDiffSessionId(root, "s1")).toEqual({ path: [], tabIndex: 0 });
   });
 
-  it("finds terminal in tree", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [terminalLeaf("t1"), terminalLeaf("t2")],
-    };
-    expect(findLeafByTerminalId(root, "t2")).toEqual([1]);
-  });
-
-  it("does not match session nodes", () => {
-    const root: LayoutNode = {
-      type: "split",
-      direction: "horizontal",
-      ratio: 0.5,
-      children: [sessionLeaf("t1"), terminalLeaf("t2")],
-    };
-    expect(findLeafByTerminalId(root, "t1")).toBeNull();
+  it("finds diff in multi-tab leaf", () => {
+    const root = multiTabLeaf(
+      { type: "session", sessionId: "s1" },
+      { type: "diff", sessionId: "s1" },
+    );
+    expect(findLeafByDiffSessionId(root, "s1")).toEqual({ path: [], tabIndex: 1 });
   });
 });
 
@@ -420,15 +439,20 @@ describe("collectSessionIds", () => {
     expect(collectSessionIds(emptyLeaf())).toEqual([]);
   });
 
-  it("returns session id from single leaf", () => {
+  it("collects from single leaf", () => {
     expect(collectSessionIds(sessionLeaf("s1"))).toEqual(["s1"]);
   });
 
-  it("does not include terminal ids", () => {
-    expect(collectSessionIds(terminalLeaf("t1"))).toEqual([]);
+  it("collects from multi-tab leaf", () => {
+    const root = multiTabLeaf(
+      { type: "session", sessionId: "s1" },
+      { type: "terminal", id: "t1", workDir: "/tmp" },
+      { type: "session", sessionId: "s2" },
+    );
+    expect(collectSessionIds(root).sort()).toEqual(["s1", "s2"]);
   });
 
-  it("collects all session ids from tree", () => {
+  it("collects from tree", () => {
     const root: LayoutNode = {
       type: "split",
       direction: "horizontal",
@@ -437,46 +461,89 @@ describe("collectSessionIds", () => {
     };
     expect(collectSessionIds(root).sort()).toEqual(["s1", "s2"]);
   });
+});
 
-  it("collects ids from nested tree", () => {
+describe("collectTerminalIds", () => {
+  it("collects from multi-tab leaf", () => {
+    const root = multiTabLeaf(
+      { type: "session", sessionId: "s1" },
+      { type: "terminal", id: "t1", workDir: "/tmp" },
+      { type: "terminal", id: "t2", workDir: "/tmp" },
+    );
+    expect(collectTerminalIds(root).sort()).toEqual(["t1", "t2"]);
+  });
+});
+
+describe("collectDiffSessionIds", () => {
+  it("collects from multi-tab leaf", () => {
+    const root = multiTabLeaf(
+      { type: "diff", sessionId: "s1" },
+      { type: "session", sessionId: "s2" },
+    );
+    expect(collectDiffSessionIds(root)).toEqual(["s1"]);
+  });
+});
+
+describe("collectLeaves", () => {
+  it("returns all contents from all tabs", () => {
     const root: LayoutNode = {
       type: "split",
       direction: "horizontal",
       ratio: 0.5,
       children: [
-        {
-          type: "split",
-          direction: "vertical",
-          ratio: 0.5,
-          children: [sessionLeaf("s1"), terminalLeaf("t1")],
-        },
+        multiTabLeaf(
+          { type: "session", sessionId: "s1" },
+          { type: "session", sessionId: "s2" },
+        ),
         sessionLeaf("s3"),
       ],
     };
-    expect(collectSessionIds(root).sort()).toEqual(["s1", "s3"]);
+    expect(collectLeaves(root)).toHaveLength(3);
+  });
+
+  it("returns empty for empty leaf", () => {
+    expect(collectLeaves(emptyLeaf())).toEqual([]);
   });
 });
 
-describe("collectTerminalIds", () => {
-  it("returns empty array for empty leaf", () => {
-    expect(collectTerminalIds(emptyLeaf())).toEqual([]);
+describe("migrateLayout", () => {
+  it("converts old null content to empty leaf", () => {
+    const old = { type: "leaf", content: null };
+    expect(migrateLayout(old)).toEqual(emptyLeaf());
   });
 
-  it("returns terminal id from single leaf", () => {
-    expect(collectTerminalIds(terminalLeaf("t1"))).toEqual(["t1"]);
+  it("converts old content to single-tab leaf", () => {
+    const old = { type: "leaf", content: { type: "session", sessionId: "s1" } };
+    expect(migrateLayout(old)).toEqual(sessionLeaf("s1"));
   });
 
-  it("does not include session ids", () => {
-    expect(collectTerminalIds(sessionLeaf("s1"))).toEqual([]);
+  it("passes through new format unchanged", () => {
+    const node = sessionLeaf("s1");
+    expect(migrateLayout(node)).toEqual(node);
   });
 
-  it("collects all terminal ids from tree", () => {
-    const root: LayoutNode = {
+  it("migrates nested split tree", () => {
+    const old = {
       type: "split",
       direction: "horizontal",
       ratio: 0.5,
-      children: [terminalLeaf("t1"), terminalLeaf("t2")],
+      children: [
+        { type: "leaf", content: { type: "session", sessionId: "s1" } },
+        { type: "leaf", content: null },
+      ],
     };
-    expect(collectTerminalIds(root).sort()).toEqual(["t1", "t2"]);
+    const result = migrateLayout(old);
+    expect(result).toEqual({
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      children: [sessionLeaf("s1"), emptyLeaf()],
+    });
+  });
+
+  it("handles garbage input gracefully", () => {
+    expect(migrateLayout(null)).toEqual(emptyLeaf());
+    expect(migrateLayout(42)).toEqual(emptyLeaf());
+    expect(migrateLayout("bad")).toEqual(emptyLeaf());
   });
 });

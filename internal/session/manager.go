@@ -423,6 +423,23 @@ func (m *Manager) StartRecoveredReadLoops() {
 	}
 }
 
+func (m *Manager) GetSessionHistory(id string) ([]byte, error) {
+	historyPath := filepath.Join(m.historyDir, id+".log")
+	data, err := os.ReadFile(historyPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	// Cap at 256KB to avoid sending huge payloads
+	const maxSize = 256 * 1024
+	if len(data) > maxSize {
+		data = data[len(data)-maxSize:]
+	}
+	return data, nil
+}
+
 func (m *Manager) notifyUpdate() {
 	m.mu.RLock()
 	fn := m.onUpdate

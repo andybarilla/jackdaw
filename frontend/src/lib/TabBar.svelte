@@ -1,0 +1,154 @@
+<script lang="ts">
+  import type { PaneContent } from "./layout";
+  import type { SessionInfo } from "./types";
+
+  interface Props {
+    contents: PaneContent[];
+    activeIndex: number;
+    sessions: SessionInfo[];
+    onSelect: (index: number) => void;
+    onClose: (index: number) => void;
+    onReorder: (fromIndex: number, toIndex: number) => void;
+  }
+
+  let { contents, activeIndex, sessions, onSelect, onClose, onReorder }: Props = $props();
+
+  let dragFrom: number | null = $state(null);
+  let dragOver: number | null = $state(null);
+
+  function getLabel(content: PaneContent): string {
+    if (content.type === "session") {
+      const s = sessions.find((s) => s.id === content.sessionId);
+      return s?.name || content.sessionId.slice(0, 8);
+    }
+    if (content.type === "terminal") return "Terminal";
+    if (content.type === "diff") {
+      const s = sessions.find((s) => s.id === content.sessionId);
+      return `Diff: ${s?.name || content.sessionId.slice(0, 8)}`;
+    }
+    return "Unknown";
+  }
+
+  function handleDragStart(e: DragEvent, index: number): void {
+    dragFrom = index;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+    }
+  }
+
+  function handleDragOver(e: DragEvent, index: number): void {
+    e.preventDefault();
+    dragOver = index;
+  }
+
+  function handleDrop(e: DragEvent, index: number): void {
+    e.preventDefault();
+    if (dragFrom !== null && dragFrom !== index) {
+      onReorder(dragFrom, index);
+    }
+    dragFrom = null;
+    dragOver = null;
+  }
+
+  function handleDragEnd(): void {
+    dragFrom = null;
+    dragOver = null;
+  }
+</script>
+
+<div class="tab-bar">
+  {#each contents as content, i}
+    <button
+      class="tab"
+      class:active={i === activeIndex}
+      class:drag-over={i === dragOver && dragFrom !== null && dragFrom !== i}
+      draggable="true"
+      ondragstart={(e) => handleDragStart(e, i)}
+      ondragover={(e) => handleDragOver(e, i)}
+      ondrop={(e) => handleDrop(e, i)}
+      ondragend={handleDragEnd}
+      onclick={() => onSelect(i)}
+    >
+      <span class="tab-label">{getLabel(content)}</span>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <span
+        class="tab-close"
+        role="button"
+        tabindex="-1"
+        onclick={(e: MouseEvent) => { e.stopPropagation(); onClose(i); }}
+      >&times;</span>
+    </button>
+  {/each}
+</div>
+
+<style>
+  .tab-bar {
+    display: flex;
+    height: 28px;
+    min-height: 28px;
+    background: var(--bg-secondary, #1e1e1e);
+    border-bottom: 1px solid var(--border, #333);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .tab-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    height: 100%;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--text-secondary, #888);
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    min-width: 0;
+    max-width: 160px;
+    flex-shrink: 0;
+  }
+
+  .tab:hover {
+    color: var(--text-primary, #ccc);
+    background: var(--bg-hover, #2a2a2a);
+  }
+
+  .tab.active {
+    color: var(--text-primary, #ccc);
+    border-bottom-color: var(--accent, #007acc);
+  }
+
+  .tab.drag-over {
+    border-left: 2px solid var(--accent, #007acc);
+  }
+
+  .tab-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tab-close {
+    opacity: 0;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .tab:hover .tab-close {
+    opacity: 0.6;
+  }
+
+  .tab-close:hover {
+    opacity: 1 !important;
+    background: var(--bg-hover, #333);
+  }
+</style>

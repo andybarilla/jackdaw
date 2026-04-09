@@ -12,7 +12,10 @@ export type Action =
   | "pane.focusUp"
   | "pane.focusDown"
   | "pane.focusLeft"
-  | "pane.focusRight";
+  | "pane.focusRight"
+  | "pane.unsplit"
+  | "tab.next"
+  | "tab.prev";
 
 export interface ParsedBinding {
   key: string;
@@ -38,6 +41,9 @@ export const DEFAULT_KEYMAP: Keymap = {
   "pane.focusDown": "Ctrl+Shift+ArrowDown",
   "pane.focusLeft": "Ctrl+Shift+ArrowLeft",
   "pane.focusRight": "Ctrl+Shift+ArrowRight",
+  "pane.unsplit": "Ctrl+Shift+j",
+  "tab.next": "Alt+Shift+]",
+  "tab.prev": "Alt+Shift+[",
 };
 
 export function parseBinding(binding: string): ParsedBinding {

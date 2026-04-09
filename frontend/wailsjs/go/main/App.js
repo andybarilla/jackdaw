@@ -34,6 +34,10 @@ export function GetSessionDiff(arg1) {
   return window['go']['main']['App']['GetSessionDiff'](arg1);
 }
 
+export function GetSessionHistory(arg1) {
+  return window['go']['main']['App']['GetSessionHistory'](arg1);
+}
+
 export function GetWorktreeStatus(arg1) {
   return window['go']['main']['App']['GetWorktreeStatus'](arg1);
 }

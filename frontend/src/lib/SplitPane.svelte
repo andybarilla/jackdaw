@@ -1,9 +1,10 @@
 <script lang="ts">
-  import type { LayoutNode, PaneContent } from "./layout";
+  import type { LayoutNode } from "./layout";
   import type { TerminalApi, SessionInfo } from "./types";
   import PaneContainer from "./PaneContainer.svelte";
   import DragDivider from "./DragDivider.svelte";
   import SplitPane from "./SplitPane.svelte";
+  import type { PaneContent } from "./layout";
 
   interface Props {
     node: LayoutNode;
@@ -17,6 +18,9 @@
     onQuickPick: (path: number[], choice: "terminal" | "session") => void;
     onTerminalReady: (id: string, api: TerminalApi) => void;
     onMerge?: (sessionId: string) => void;
+    onTabSelect: (path: number[], index: number) => void;
+    onTabClose: (path: number[], index: number) => void;
+    onTabReorder: (path: number[], fromIndex: number, toIndex: number) => void;
   }
 
   let {
@@ -31,6 +35,9 @@
     onQuickPick,
     onTerminalReady,
     onMerge,
+    onTabSelect,
+    onTabClose,
+    onTabReorder,
   }: Props = $props();
 
   function isFocused(leafPath: number[]): boolean {
@@ -38,16 +45,18 @@
     return leafPath.every((v, i) => v === focusedPath[i]);
   }
 
-  function getContentId(content: PaneContent): string | null {
-    if (content === null) return null;
+  function getActiveContentId(contents: PaneContent[], activeIndex: number): string | null {
+    const content = contents[activeIndex];
+    if (!content) return null;
     return content.type === "session" ? content.sessionId : content.type === "terminal" ? content.id : null;
   }
 </script>
 
 {#if node.type === "leaf"}
-  {@const contentId = getContentId(node.content)}
+  {@const contentId = getActiveContentId(node.contents, node.activeIndex)}
   <PaneContainer
-    content={node.content}
+    contents={node.contents}
+    activeIndex={node.activeIndex}
     focused={isFocused(path)}
     searchVisible={searchVisible && isFocused(path)}
     terminalApi={contentId ? terminalApis[contentId] ?? null : null}
@@ -58,6 +67,9 @@
       if (contentId) onTerminalReady(contentId, api);
     }}
     {onMerge}
+    onTabSelect={(index) => onTabSelect(path, index)}
+    onTabClose={(index) => onTabClose(path, index)}
+    onTabReorder={(from, to) => onTabReorder(path, from, to)}
   />
 {:else}
   <div
@@ -83,6 +95,9 @@
         {onQuickPick}
         {onTerminalReady}
         {onMerge}
+        {onTabSelect}
+        {onTabClose}
+        {onTabReorder}
       />
     </div>
 
@@ -109,6 +124,9 @@
         {onQuickPick}
         {onTerminalReady}
         {onMerge}
+        {onTabSelect}
+        {onTabClose}
+        {onTabReorder}
       />
     </div>
   </div>

@@ -15,7 +15,7 @@
     CleanupWorktree,
     MergeSession,
   } from "../wailsjs/go/main/App";
-  import type { LayoutNode, PaneContent, Path } from "./lib/layout";
+  import type { LayoutNode, PaneContent, Path, FindResult } from "./lib/layout";
   import {
     emptyLeaf,
     splitLeaf,
@@ -23,12 +23,19 @@
     updateRatio,
     setLeafContent,
     getLeafContent,
+    getLeaf,
     findLeafBySessionId,
     findLeafByTerminalId,
     findLeafByDiffSessionId,
     collectSessionIds,
     collectTerminalIds,
     collectDiffSessionIds,
+    addTab,
+    removeTab,
+    setActiveTab,
+    reorderTab,
+    unsplitPane,
+    migrateLayout,
   } from "./lib/layout";
   import type { SessionInfo, TerminalApi, AppNotification, WorktreeStatus } from "./lib/types";
   import { addNotification, dismissNotification } from "./lib/notifications.svelte";
@@ -95,7 +102,7 @@
     }
   }
 
-  function getFocusedContent(): PaneContent {
+  function getFocusedContent(): PaneContent | null {
     try {
       return getLeafContent(layoutTree, asPath(focusedPath));
     } catch {
@@ -104,7 +111,6 @@
   }
 
   function getWorkDirFromSiblingPane(): string {
-    // Try to find a sibling pane's workdir
     if (focusedPath.length > 0) {
       const siblingPath = [...focusedPath];
       siblingPath[siblingPath.length - 1] = siblingPath[siblingPath.length - 1] === 0 ? 1 : 0;
@@ -123,6 +129,18 @@
     return "~";
   }
 
+  function cycleTab(delta: number): void {
+    try {
+      const leaf = getLeaf(layoutTree, asPath(focusedPath));
+      if (leaf.contents.length < 2) return;
+      const next = (leaf.activeIndex + delta + leaf.contents.length) % leaf.contents.length;
+      layoutTree = setActiveTab(layoutTree, asPath(focusedPath), next);
+      focusTerminalAtPath(focusedPath);
+    } catch {
+      // ignore
+    }
+  }
+
   const actions: Record<string, () => void> = {
     "session.new": () => (showNewDialog = true),
     "session.kill": () => {
@@ -136,10 +154,11 @@
       const currentIdx = currentId ? sessions.findIndex((s) => s.id === currentId) : -1;
       const nextIdx = (currentIdx + 1) % sessions.length;
       const nextSession = sessions[nextIdx];
-      const path = findLeafBySessionId(layoutTree, nextSession.id);
-      if (path) {
-        focusedPath = path;
-        focusTerminalAtPath(path);
+      const found = findLeafBySessionId(layoutTree, nextSession.id);
+      if (found) {
+        focusedPath = found.path as number[];
+        layoutTree = setActiveTab(layoutTree, found.path, found.tabIndex);
+        focusTerminalAtPath(found.path as number[]);
       }
     },
     "session.prev": () => {
@@ -149,10 +168,11 @@
       const currentIdx = currentId ? sessions.findIndex((s) => s.id === currentId) : -1;
       const prevIdx = (currentIdx - 1 + sessions.length) % sessions.length;
       const prevSession = sessions[prevIdx];
-      const path = findLeafBySessionId(layoutTree, prevSession.id);
-      if (path) {
-        focusedPath = path;
-        focusTerminalAtPath(path);
+      const found = findLeafBySessionId(layoutTree, prevSession.id);
+      if (found) {
+        focusedPath = found.path as number[];
+        layoutTree = setActiveTab(layoutTree, found.path, found.tabIndex);
+        focusTerminalAtPath(found.path as number[]);
       }
     },
     "session.viewDiff": () => {
@@ -173,10 +193,13 @@
       focusedPath = [...focusedPath, 1];
     },
     "pane.close": () => handleClosePane(),
+    "pane.unsplit": () => handleUnsplitPane(),
     "pane.focusUp": () => cycleFocus(-1),
     "pane.focusDown": () => cycleFocus(1),
     "pane.focusLeft": () => cycleFocus(-1),
     "pane.focusRight": () => cycleFocus(1),
+    "tab.next": () => cycleTab(1),
+    "tab.prev": () => cycleTab(-1),
   };
 
   function handleGlobalKeydown(event: KeyboardEvent): void {
@@ -211,10 +234,30 @@
         try { await KillTerminal(content.id); } catch { /* may already be dead */ }
         delete terminalApis[content.id];
       }
-      // diff panes just close — nothing to kill
     }
 
-    collapsePane(focusedPath);
+    // Remove active tab
+    try {
+      const leaf = getLeaf(layoutTree, asPath(focusedPath));
+      if (leaf.contents.length <= 1) {
+        // Last tab or empty — collapse pane
+        collapsePane(focusedPath);
+      } else {
+        // Remove just the active tab
+        layoutTree = removeTab(layoutTree, asPath(focusedPath), leaf.activeIndex);
+        focusTerminalAtPath(focusedPath);
+      }
+    } catch {
+      collapsePane(focusedPath);
+    }
+  }
+
+  function handleUnsplitPane(): void {
+    const result = unsplitPane(layoutTree, asPath(focusedPath));
+    if (!result) return;
+    layoutTree = result.layout;
+    focusedPath = focusedPath.slice(0, -1);
+    focusTerminalAtPath(focusedPath);
   }
 
   // Reset search when focus changes
@@ -230,7 +273,6 @@
     saveTimer = setTimeout(async () => {
       try {
         const cfg = await GetConfig();
-        // layout is json.RawMessage in Go — assign the raw object
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (cfg as any).layout = layoutTree;
         await SetConfig(cfg);
@@ -249,18 +291,20 @@
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rawLayout = (cfg as any).layout;
       if (rawLayout && typeof rawLayout === "object" && rawLayout !== null && "type" in rawLayout) {
-        layoutTree = rawLayout as LayoutNode;
+        // Migrate from old format if needed
+        layoutTree = migrateLayout(rawLayout);
 
-        // Clean up stale sessions and terminals
+        // Clean up stale sessions
         const layoutSessionIds = collectSessionIds(layoutTree);
         const liveSessionIds = new Set(sessions.map((s) => s.id));
 
         let cleaned = layoutTree;
         for (const sid of layoutSessionIds) {
           if (!liveSessionIds.has(sid)) {
-            const path = findLeafBySessionId(cleaned, sid);
-            if (path) {
-              cleaned = setLeafContent(cleaned, path, null);
+            let found = findLeafBySessionId(cleaned, sid);
+            while (found) {
+              cleaned = removeTab(cleaned, found.path, found.tabIndex);
+              found = findLeafBySessionId(cleaned, sid);
             }
           }
         }
@@ -268,16 +312,18 @@
         // Terminals and diff panes don't survive restart — clear them
         const termIds = collectTerminalIds(cleaned);
         for (const tid of termIds) {
-          const tpath = findLeafByTerminalId(cleaned, tid);
-          if (tpath) {
-            cleaned = setLeafContent(cleaned, tpath, null);
+          let found = findLeafByTerminalId(cleaned, tid);
+          while (found) {
+            cleaned = removeTab(cleaned, found.path, found.tabIndex);
+            found = findLeafByTerminalId(cleaned, tid);
           }
         }
         const diffSids = collectDiffSessionIds(cleaned);
         for (const dsid of diffSids) {
-          const dpath = findLeafByDiffSessionId(cleaned, dsid);
-          if (dpath) {
-            cleaned = setLeafContent(cleaned, dpath, null);
+          let found = findLeafByDiffSessionId(cleaned, dsid);
+          while (found) {
+            cleaned = removeTab(cleaned, found.path, found.tabIndex);
+            found = findLeafByDiffSessionId(cleaned, dsid);
           }
         }
 
@@ -295,11 +341,11 @@
       const newSessions = (updated || []) as SessionInfo[];
       sessions = newSessions;
 
-      // Collapse panes for exited sessions
+      // Remove tabs for exited sessions
       for (const s of newSessions) {
         if (s.status === "exited") {
-          const path = findLeafBySessionId(layoutTree, s.id);
-          if (path) {
+          const found = findLeafBySessionId(layoutTree, s.id);
+          if (found) {
             if (s.worktree_enabled && s.worktree_path) {
               GetWorktreeStatus(s.id).then((status) => {
                 worktreeCleanup = {
@@ -320,7 +366,7 @@
               });
             }
             delete terminalApis[s.id];
-            collapsePane(path);
+            layoutTree = removeTab(layoutTree, found.path, found.tabIndex);
           }
         }
       }
@@ -329,10 +375,10 @@
 
     const cancelTermExit = EventsOn("terminal-exited", (id: unknown) => {
       if (typeof id !== "string") return;
-      const path = findLeafByTerminalId(layoutTree, id);
-      if (path) {
+      const found = findLeafByTerminalId(layoutTree, id);
+      if (found) {
         delete terminalApis[id];
-        collapsePane(path);
+        layoutTree = removeTab(layoutTree, found.path, found.tabIndex);
       }
     });
     cleanups.push(cancelTermExit);
@@ -364,22 +410,18 @@
     const info = await CreateSession(workDir, worktreeEnabled, branchName);
 
     if (pendingQuickPickPath) {
-      layoutTree = setLeafContent(layoutTree, asPath(pendingQuickPickPath), {
+      layoutTree = addTab(layoutTree, asPath(pendingQuickPickPath), {
         type: "session",
         sessionId: info.id,
       });
       focusedPath = pendingQuickPickPath;
       pendingQuickPickPath = null;
     } else {
-      // Assign to focused pane only if it's empty
-      const content = getFocusedContent();
-      if (content === null) {
-        layoutTree = setLeafContent(layoutTree, asPath(focusedPath), {
-          type: "session",
-          sessionId: info.id,
-        });
-      }
-      // Otherwise session is created but unassigned — visible in sidebar
+      // Add as tab in focused pane
+      layoutTree = addTab(layoutTree, asPath(focusedPath), {
+        type: "session",
+        sessionId: info.id,
+      });
     }
     requestAnimationFrame(() => terminalApis[info.id]?.focus());
   }
@@ -387,10 +429,9 @@
   async function handleKill(id: string): Promise<void> {
     await KillSession(id);
     delete terminalApis[id];
-    // Clear the pane content
-    const path = findLeafBySessionId(layoutTree, id);
-    if (path) {
-      layoutTree = setLeafContent(layoutTree, asPath(path), null);
+    const found = findLeafBySessionId(layoutTree, id);
+    if (found) {
+      layoutTree = removeTab(layoutTree, found.path, found.tabIndex);
     }
   }
 
@@ -403,16 +444,17 @@
     dismissNotification(id);
     DismissNotification(id);
 
-    // If session already in a pane, focus that pane
-    const existingPath = findLeafBySessionId(layoutTree, id);
-    if (existingPath) {
-      focusedPath = existingPath;
-      focusTerminalAtPath(existingPath);
+    // If session already in any tab, focus that pane and switch to it
+    const found = findLeafBySessionId(layoutTree, id);
+    if (found) {
+      focusedPath = found.path as number[];
+      layoutTree = setActiveTab(layoutTree, found.path, found.tabIndex);
+      focusTerminalAtPath(found.path as number[]);
       return;
     }
 
-    // Assign session to the focused pane (replacing any existing content)
-    layoutTree = setLeafContent(layoutTree, asPath(focusedPath), {
+    // Add as new tab in focused pane
+    layoutTree = addTab(layoutTree, asPath(focusedPath), {
       type: "session",
       sessionId: id,
     });
@@ -447,8 +489,10 @@
           timestamp: new Date().toISOString(),
         });
         worktreeCleanup = null;
-        const diffPath = findLeafByDiffSessionId(layoutTree, sessionId);
-        if (diffPath) collapsePane(diffPath);
+        const diffFound = findLeafByDiffSessionId(layoutTree, sessionId);
+        if (diffFound) {
+          layoutTree = removeTab(layoutTree, diffFound.path, diffFound.tabIndex);
+        }
       } else {
         addNotification({
           sessionID: sessionId,
@@ -475,30 +519,30 @@
   }
 
   function openDiffForSession(sessionId: string): void {
-    // If diff pane already open for this session, focus it
+    // If diff already open, focus it
     const existingDiff = findLeafByDiffSessionId(layoutTree, sessionId);
     if (existingDiff) {
-      focusedPath = existingDiff;
+      focusedPath = existingDiff.path as number[];
+      layoutTree = setActiveTab(layoutTree, existingDiff.path, existingDiff.tabIndex);
       return;
     }
 
-    // Find the session's pane and split it to show diff alongside
-    const sessionPath = findLeafBySessionId(layoutTree, sessionId);
-    if (sessionPath) {
-      layoutTree = splitLeaf(layoutTree, asPath(sessionPath), "vertical");
-      const diffPath = [...sessionPath, 1];
-      layoutTree = setLeafContent(layoutTree, asPath(diffPath), {
+    // If session is in any tab, add diff as new tab in same pane
+    const sessionFound = findLeafBySessionId(layoutTree, sessionId);
+    if (sessionFound) {
+      layoutTree = addTab(layoutTree, sessionFound.path, {
         type: "diff",
         sessionId,
       });
-      focusedPath = diffPath;
-    } else {
-      // Session not in any pane — put diff in focused pane
-      layoutTree = setLeafContent(layoutTree, asPath(focusedPath), {
-        type: "diff",
-        sessionId,
-      });
+      focusedPath = sessionFound.path as number[];
+      return;
     }
+
+    // Session not in any pane — add diff as tab in focused pane
+    layoutTree = addTab(layoutTree, asPath(focusedPath), {
+      type: "diff",
+      sessionId,
+    });
   }
 
   async function handleQuickPick(
@@ -514,13 +558,41 @@
     // Terminal choice
     const workDir = getWorkDirFromSiblingPane();
     const info = await CreateTerminal(workDir);
-    layoutTree = setLeafContent(layoutTree, asPath(path), {
+    layoutTree = addTab(layoutTree, asPath(path), {
       type: "terminal",
       id: info.id,
       workDir: info.work_dir,
     });
     focusedPath = path;
     requestAnimationFrame(() => terminalApis[info.id]?.focus());
+  }
+
+  function handleTabSelect(path: number[], index: number): void {
+    layoutTree = setActiveTab(layoutTree, asPath(path), index);
+    focusedPath = path;
+    focusTerminalAtPath(path);
+  }
+
+  async function handleTabClose(path: number[], index: number): Promise<void> {
+    try {
+      const leaf = getLeaf(layoutTree, asPath(path));
+      const content = leaf.contents[index];
+      if (content) {
+        // Terminal tabs have no sidebar presence — kill the process
+        if (content.type === "terminal") {
+          try { await KillTerminal(content.id); } catch { /* may already be dead */ }
+          delete terminalApis[content.id];
+        }
+        // Session and diff tabs just detach (session stays in sidebar)
+      }
+      layoutTree = removeTab(layoutTree, asPath(path), index);
+    } catch {
+      // ignore
+    }
+  }
+
+  function handleTabReorder(path: number[], fromIndex: number, toIndex: number): void {
+    layoutTree = reorderTab(layoutTree, asPath(path), fromIndex, toIndex);
   }
 </script>
 
@@ -559,6 +631,9 @@
       onTerminalReady={(id, api) => {
         terminalApis[id] = api;
       }}
+      onTabSelect={handleTabSelect}
+      onTabClose={handleTabClose}
+      onTabReorder={handleTabReorder}
     />
   </div>
 

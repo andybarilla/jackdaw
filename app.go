@@ -264,6 +264,14 @@ func (a *App) CreateSession(workDir string, worktreeEnabled bool, branchName str
 	return info, nil
 }
 
+func (a *App) GetSessionHistory(sessionID string) (string, error) {
+	data, err := a.manager.GetSessionHistory(sessionID)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 func (a *App) DismissNotification(sessionID string) {
 	a.notifSvc.Dismiss(sessionID)
 }
