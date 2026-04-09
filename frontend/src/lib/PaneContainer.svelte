@@ -59,11 +59,13 @@
       onMerge={onMerge && content.sessionId ? () => onMerge(content.sessionId) : undefined}
     />
   {:else if contentId}
-    <Terminal
-      sessionId={contentId}
-      visible={true}
-      onReady={onTerminalReady}
-    />
+    {#key contentId}
+      <Terminal
+        sessionId={contentId}
+        visible={true}
+        onReady={onTerminalReady}
+      />
+    {/key}
     {#if searchVisible && terminalApi}
       <SearchBar
         searchAddon={terminalApi.searchAddon}

@@ -7,6 +7,7 @@
   let { direction, onRatioChange }: Props = $props();
   let dragging = $state(false);
   let ghostOffset = $state<number | null>(null);
+  let ghostPosition = $state<number | null>(null);
   let dividerEl: HTMLDivElement;
 
   function handlePointerDown(event: PointerEvent): void {
@@ -22,8 +23,10 @@
     function handlePointerMove(e: PointerEvent): void {
       if (direction === "vertical") {
         ghostOffset = e.clientX - rect.left;
+        ghostPosition = e.clientX;
       } else {
         ghostOffset = e.clientY - rect.top;
+        ghostPosition = e.clientY;
       }
     }
 
@@ -35,9 +38,13 @@
         const total = direction === "vertical" ? rect.width : rect.height;
         if (total > 0) {
           onRatioChange(ghostOffset / total);
+          requestAnimationFrame(() => {
+            window.dispatchEvent(new Event("pane-resize"));
+          });
         }
       }
       ghostOffset = null;
+      ghostPosition = null;
 
       dividerEl.removeEventListener("pointermove", handlePointerMove);
       dividerEl.removeEventListener("pointerup", handlePointerUp);
@@ -49,6 +56,9 @@
 
   function handleDblClick(): void {
     onRatioChange(0.5);
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("pane-resize"));
+    });
   }
 </script>
 
@@ -63,12 +73,12 @@
   role="separator"
   aria-orientation={direction}
 >
-  {#if dragging && ghostOffset !== null}
+  {#if dragging && ghostPosition !== null}
     <div
       class="ghost"
       style={direction === "vertical"
-        ? `left: ${ghostOffset}px; top: 0; bottom: 0; width: 2px;`
-        : `top: ${ghostOffset}px; left: 0; right: 0; height: 2px;`}
+        ? `left: ${ghostPosition}px; top: 0; bottom: 0; width: 2px;`
+        : `top: ${ghostPosition}px; left: 0; right: 0; height: 2px;`}
     ></div>
   {/if}
 </div>

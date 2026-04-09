@@ -22,6 +22,8 @@ export function GetFileDiff(arg1:string,arg2:string):Promise<worktree.FileDiff>;
 
 export function GetSessionDiff(arg1:string):Promise<Array<worktree.FileDiff>>;
 
+export function GetSessionHistory(arg1:string):Promise<string>;
+
 export function GetWorktreeStatus(arg1:string):Promise<main.WorktreeStatusResult>;
 
 export function IsGitRepo(arg1:string):Promise<boolean>;
