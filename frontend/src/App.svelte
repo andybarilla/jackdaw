@@ -37,6 +37,8 @@
     unsplitPane,
     migrateLayout,
     moveTab,
+    collapseEmptyLeaves,
+    replaceNodeAtPath,
   } from "./lib/layout";
   import type { SessionInfo, TerminalApi, AppNotification, WorktreeStatus } from "./lib/types";
   import { addNotification, dismissNotification } from "./lib/notifications.svelte";
@@ -318,15 +320,29 @@
           }
         }
 
-        // Terminals and diff panes don't survive restart — clear them
+        // Restore terminal panes by spawning fresh shells with the same workDir
         const termIds = collectTerminalIds(cleaned);
         for (const tid of termIds) {
-          let found = findLeafByTerminalId(cleaned, tid);
-          while (found) {
+          const found = findLeafByTerminalId(cleaned, tid);
+          if (!found) continue;
+          const leaf = getLeaf(cleaned, found.path);
+          const tab = leaf.contents[found.tabIndex];
+          if (tab.type !== "terminal") continue;
+          try {
+            const info = await CreateTerminal(tab.workDir);
+            const newContents = [...leaf.contents];
+            newContents[found.tabIndex] = { type: "terminal", id: info.id, workDir: info.work_dir };
+            cleaned = replaceNodeAtPath(cleaned, found.path, {
+              type: "leaf",
+              contents: newContents,
+              activeIndex: leaf.activeIndex,
+            });
+          } catch {
             cleaned = removeTab(cleaned, found.path, found.tabIndex);
-            found = findLeafByTerminalId(cleaned, tid);
           }
         }
+
+        // Diff panes don't survive restart — clear them
         const diffSids = collectDiffSessionIds(cleaned);
         for (const dsid of diffSids) {
           let found = findLeafByDiffSessionId(cleaned, dsid);
@@ -336,11 +352,14 @@
           }
         }
 
-        layoutTree = cleaned;
+        layoutTree = collapseEmptyLeaves(cleaned);
       }
     } catch {
       // No persisted layout, use default
     }
+
+    // After layout restoration, give split panes time to settle then re-fit terminals
+    setTimeout(() => window.dispatchEvent(new Event("pane-resize")), 200);
 
     // Set initial focus
     const paths = collectLeafPaths(layoutTree);
