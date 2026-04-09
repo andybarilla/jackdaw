@@ -12,7 +12,7 @@ let worktreeRoot = $state("");
 let mergeMode = $state("squash");
 let historyMaxBytes = $state(1048576);
 let autoRemoveKilledSessions = $state(false);
-let terminalFontFamily = $state("'JetBrains Mono', 'Fira Code', monospace");
+let terminalFontFamily = $state("'JetBrains Mono NF', monospace");
 let terminalFontSize = $state(14);
 let uiFontFamily = $state(
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
@@ -96,7 +96,7 @@ export async function loadConfig(): Promise<void> {
   historyMaxBytes = cfg.history_max_bytes || 1048576;
   autoRemoveKilledSessions = cfg.auto_remove_killed_sessions ?? false;
   terminalFontFamily =
-    cfg.terminal_font_family || "'JetBrains Mono', 'Fira Code', monospace";
+    cfg.terminal_font_family || "'JetBrains Mono NF', monospace";
   terminalFontSize = cfg.terminal_font_size || 14;
   uiFontFamily =
     cfg.ui_font_family ||

@@ -20,6 +20,7 @@ export interface SessionInfo {
   pid: number;
   started_at: string;
   exit_code: number;
+  workspace_id?: string;
   worktree_enabled?: boolean;
   worktree_path?: string;
   original_dir?: string;
@@ -66,8 +67,14 @@ export interface DashboardSession {
   status: SessionInfo["status"];
   started_at: string;
   last_line: string;
+  workspace_id?: string;
   worktree_enabled?: boolean;
   branch_name?: string;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
 }
 
 export interface AppNotification {

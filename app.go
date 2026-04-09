@@ -14,6 +14,7 @@ import (
 	"github.com/andybarilla/jackdaw/internal/notification"
 	"github.com/andybarilla/jackdaw/internal/session"
 	"github.com/andybarilla/jackdaw/internal/terminal"
+	"github.com/andybarilla/jackdaw/internal/workspace"
 	"github.com/andybarilla/jackdaw/internal/worktree"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -71,6 +72,15 @@ func NewApp() *App {
 
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// Initialize default workspace if needed
+	if cfg, err := config.Load(a.configPath); err == nil {
+		if len(cfg.Workspaces) == 0 {
+			cfg.Workspaces = []workspace.Workspace{workspace.DefaultWorkspace()}
+			cfg.ActiveWorkspaceID = "default"
+			config.Save(a.configPath, cfg) //nolint:errcheck
+		}
+	}
 
 	// Recover sessions that survived a previous shutdown
 	recovered := a.manager.Recover()
@@ -144,6 +154,13 @@ func (a *App) Startup(ctx context.Context) {
 		a.manager.SetOnOutput(id, func(data []byte) {
 			runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
 		})
+	}
+
+	// Migrate recovered sessions with no workspace to "default"
+	for _, info := range recovered {
+		if info.WorkspaceID == "" {
+			a.manager.MoveSessionToWorkspace(info.ID, "default") //nolint:errcheck
+		}
 	}
 
 	runtime.EventsOn(ctx, "terminal-input", func(data ...interface{}) {
@@ -255,7 +272,7 @@ func (a *App) CreateSession(workDir string, worktreeEnabled bool, branchName str
 		if ed, ok := a.errorDetectors[id]; ok {
 			ed.Feed(data)
 		}
-	}, wtOpts)
+	}, wtOpts, cfg.ActiveWorkspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -437,6 +454,145 @@ func (a *App) RemoveSession(id string) {
 
 func (a *App) RenameSession(id string, name string) error {
 	return a.manager.Rename(id, name)
+}
+
+func (a *App) GetWorkspaces() ([]workspace.Workspace, error) {
+	cfg, err := config.Load(a.configPath)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.Workspaces, nil
+}
+
+func (a *App) GetActiveWorkspaceID() (string, error) {
+	cfg, err := config.Load(a.configPath)
+	if err != nil {
+		return "", err
+	}
+	return cfg.ActiveWorkspaceID, nil
+}
+
+func (a *App) CreateWorkspace(name string) (*workspace.Workspace, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("workspace name cannot be empty")
+	}
+	cfg, err := config.Load(a.configPath)
+	if err != nil {
+		return nil, err
+	}
+	ws := workspace.Workspace{
+		ID:   workspace.GenerateID(),
+		Name: name,
+	}
+	cfg.Workspaces = append(cfg.Workspaces, ws)
+	if err := config.Save(a.configPath, cfg); err != nil {
+		return nil, err
+	}
+	return &ws, nil
+}
+
+func (a *App) RenameWorkspace(id string, name string) error {
+	if id == "default" {
+		return fmt.Errorf("cannot rename the Default workspace")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("workspace name cannot be empty")
+	}
+	cfg, err := config.Load(a.configPath)
+	if err != nil {
+		return err
+	}
+	for i := range cfg.Workspaces {
+		if cfg.Workspaces[i].ID == id {
+			cfg.Workspaces[i].Name = name
+			return config.Save(a.configPath, cfg)
+		}
+	}
+	return fmt.Errorf("workspace %q not found", id)
+}
+
+func (a *App) DeleteWorkspace(id string, moveSessionsToDefault bool) error {
+	if id == "default" {
+		return fmt.Errorf("cannot delete the Default workspace")
+	}
+	cfg, err := config.Load(a.configPath)
+	if err != nil {
+		return err
+	}
+
+	found := false
+	for _, ws := range cfg.Workspaces {
+		if ws.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("workspace %q not found", id)
+	}
+
+	// Handle sessions in this workspace
+	for _, s := range a.manager.List() {
+		if s.WorkspaceID == id {
+			if moveSessionsToDefault {
+				a.manager.MoveSessionToWorkspace(s.ID, "default") //nolint:errcheck
+			} else {
+				a.KillSession(s.ID) //nolint:errcheck
+			}
+		}
+	}
+
+	// Remove workspace from config
+	filtered := make([]workspace.Workspace, 0, len(cfg.Workspaces)-1)
+	for _, ws := range cfg.Workspaces {
+		if ws.ID != id {
+			filtered = append(filtered, ws)
+		}
+	}
+	cfg.Workspaces = filtered
+
+	if cfg.ActiveWorkspaceID == id {
+		cfg.ActiveWorkspaceID = "default"
+	}
+
+	if err := config.Save(a.configPath, cfg); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "sessions-updated", a.manager.List())
+	return nil
+}
+
+func (a *App) SetActiveWorkspace(id string) error {
+	cfg, err := config.Load(a.configPath)
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, ws := range cfg.Workspaces {
+		if ws.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("workspace %q not found", id)
+	}
+	cfg.ActiveWorkspaceID = id
+	if err := config.Save(a.configPath, cfg); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "workspace-changed", id)
+	return nil
+}
+
+func (a *App) MoveSessionToWorkspace(sessionID, workspaceID string) error {
+	if err := a.manager.MoveSessionToWorkspace(sessionID, workspaceID); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "sessions-updated", a.manager.List())
+	return nil
 }
 
 func (a *App) GetConfig() (*config.Config, error) {

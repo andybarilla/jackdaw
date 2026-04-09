@@ -34,6 +34,7 @@ type SessionInfo struct {
 	PID       int       `json:"pid"`
 	StartedAt time.Time `json:"started_at"`
 	ExitCode  int       `json:"exit_code"`
+	WorkspaceID string   `json:"workspace_id,omitempty"`
 	WorktreeEnabled bool      `json:"worktree_enabled,omitempty"`
 	WorktreePath    string    `json:"worktree_path,omitempty"`
 	OriginalDir     string    `json:"original_dir,omitempty"`
@@ -54,6 +55,7 @@ type DashboardSession struct {
 	Status          Status    `json:"status"`
 	StartedAt       time.Time `json:"started_at"`
 	LastLine        string    `json:"last_line"`
+	WorkspaceID     string    `json:"workspace_id,omitempty"`
 	WorktreeEnabled bool      `json:"worktree_enabled,omitempty"`
 	BranchName      string    `json:"branch_name,omitempty"`
 }
@@ -129,7 +131,7 @@ func (m *Manager) generateName(workDir string) string {
 	}
 }
 
-func (m *Manager) Create(id string, workDir string, command string, args []string, env []string, onOutput func([]byte), wtOpts WorktreeOptions) (*SessionInfo, error) {
+func (m *Manager) Create(id string, workDir string, command string, args []string, env []string, onOutput func([]byte), wtOpts WorktreeOptions, workspaceID string) (*SessionInfo, error) {
 	if id == "" {
 		id = fmt.Sprintf("%d", time.Now().UnixNano())
 	}
@@ -174,6 +176,7 @@ func (m *Manager) Create(id string, workDir string, command string, args []strin
 		Status:          StatusWorking,
 		PID:             s.PID(),
 		StartedAt:       s.StartedAt,
+		WorkspaceID:     workspaceID,
 		WorktreeEnabled: wtOpts.Enabled,
 		WorktreePath:    wtPath,
 		OriginalDir:     originalDir,
@@ -216,6 +219,7 @@ func (m *Manager) Create(id string, workDir string, command string, args []strin
 		StartedAt:       s.StartedAt,
 		Name:            name,
 		HistoryPath:     historyPath,
+		WorkspaceID:     workspaceID,
 		WorktreeEnabled: wtOpts.Enabled,
 		WorktreePath:    wtPath,
 		OriginalDir:     originalDir,
@@ -283,6 +287,7 @@ func (m *Manager) DashboardData() []DashboardSession {
 			Status:          s.info.Status,
 			StartedAt:       s.info.StartedAt,
 			LastLine:        lastLine,
+			WorkspaceID:     s.info.WorkspaceID,
 			WorktreeEnabled: s.info.WorktreeEnabled,
 			BranchName:      s.info.BranchName,
 		})
@@ -380,6 +385,32 @@ func (m *Manager) Rename(id string, name string) error {
 	return nil
 }
 
+func (m *Manager) MoveSessionToWorkspace(sessionID, workspaceID string) error {
+	m.mu.Lock()
+	info, ok := m.sessionInfo[sessionID]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	info.WorkspaceID = workspaceID
+	m.mu.Unlock()
+
+	mfPath := filepath.Join(m.manifestDir, sessionID+".json")
+	mf, err := manifest.Read(mfPath)
+	if err != nil {
+		return fmt.Errorf("read manifest: %w", err)
+	}
+	if mf != nil {
+		mf.WorkspaceID = workspaceID
+		if err := manifest.Write(mfPath, mf); err != nil {
+			return fmt.Errorf("write manifest: %w", err)
+		}
+	}
+
+	m.notifyUpdate()
+	return nil
+}
+
 func (m *Manager) WriteToSession(id string, data []byte) error {
 	m.mu.RLock()
 	s, ok := m.sessions[id]
@@ -455,6 +486,7 @@ func (m *Manager) Recover() []SessionInfo {
 			Status:          StatusWorking,
 			PID:             mf.PID,
 			StartedAt:       mf.StartedAt,
+			WorkspaceID:     mf.WorkspaceID,
 			WorktreeEnabled: mf.WorktreeEnabled,
 			WorktreePath:    mf.WorktreePath,
 			OriginalDir:     mf.OriginalDir,

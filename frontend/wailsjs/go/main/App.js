@@ -18,8 +18,20 @@ export function CreateTerminal(arg1) {
   return window['go']['main']['App']['CreateTerminal'](arg1);
 }
 
+export function CreateWorkspace(arg1) {
+  return window['go']['main']['App']['CreateWorkspace'](arg1);
+}
+
+export function DeleteWorkspace(arg1, arg2) {
+  return window['go']['main']['App']['DeleteWorkspace'](arg1, arg2);
+}
+
 export function DismissNotification(arg1) {
   return window['go']['main']['App']['DismissNotification'](arg1);
+}
+
+export function GetActiveWorkspaceID() {
+  return window['go']['main']['App']['GetActiveWorkspaceID']();
 }
 
 export function GetConfig() {
@@ -46,6 +58,10 @@ export function GetSessionHistory(arg1) {
   return window['go']['main']['App']['GetSessionHistory'](arg1);
 }
 
+export function GetWorkspaces() {
+  return window['go']['main']['App']['GetWorkspaces']();
+}
+
 export function GetWorktreeStatus(arg1) {
   return window['go']['main']['App']['GetWorktreeStatus'](arg1);
 }
@@ -70,6 +86,10 @@ export function MergeSession(arg1) {
   return window['go']['main']['App']['MergeSession'](arg1);
 }
 
+export function MoveSessionToWorkspace(arg1, arg2) {
+  return window['go']['main']['App']['MoveSessionToWorkspace'](arg1, arg2);
+}
+
 export function PickDirectory() {
   return window['go']['main']['App']['PickDirectory']();
 }
@@ -82,8 +102,16 @@ export function RenameSession(arg1, arg2) {
   return window['go']['main']['App']['RenameSession'](arg1, arg2);
 }
 
+export function RenameWorkspace(arg1, arg2) {
+  return window['go']['main']['App']['RenameWorkspace'](arg1, arg2);
+}
+
 export function RespondToNotification(arg1, arg2) {
   return window['go']['main']['App']['RespondToNotification'](arg1, arg2);
+}
+
+export function SetActiveWorkspace(arg1) {
+  return window['go']['main']['App']['SetActiveWorkspace'](arg1);
 }
 
 export function SetConfig(arg1) {

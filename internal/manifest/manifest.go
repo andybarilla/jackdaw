@@ -20,6 +20,7 @@ type Manifest struct {
 	StartedAt  time.Time `json:"started_at"`
 	Name        string    `json:"name,omitempty"`
 	HistoryPath string    `json:"history_path,omitempty"`
+	WorkspaceID     string `json:"workspace_id,omitempty"`
 	WorktreeEnabled bool   `json:"worktree_enabled,omitempty"`
 	WorktreePath    string `json:"worktree_path,omitempty"`
 	OriginalDir     string `json:"original_dir,omitempty"`

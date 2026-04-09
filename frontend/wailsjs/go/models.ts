@@ -12,6 +12,8 @@ export namespace config {
 	    worktree_root?: string;
 	    merge_mode?: string;
 	    auto_remove_killed_sessions: boolean;
+	    workspaces?: workspace.Workspace[];
+	    active_workspace_id?: string;
 	    terminal_font_family?: string;
 	    terminal_font_size?: number;
 	    ui_font_family?: string;
@@ -34,11 +36,31 @@ export namespace config {
 	        this.worktree_root = source["worktree_root"];
 	        this.merge_mode = source["merge_mode"];
 	        this.auto_remove_killed_sessions = source["auto_remove_killed_sessions"];
+	        this.workspaces = this.convertValues(source["workspaces"], workspace.Workspace);
+	        this.active_workspace_id = source["active_workspace_id"];
 	        this.terminal_font_family = source["terminal_font_family"];
 	        this.terminal_font_size = source["terminal_font_size"];
 	        this.ui_font_family = source["ui_font_family"];
 	        this.ui_font_size = source["ui_font_size"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
@@ -107,6 +129,7 @@ export namespace session {
 	    // Go type: time
 	    started_at: any;
 	    last_line: string;
+	    workspace_id?: string;
 	    worktree_enabled?: boolean;
 	    branch_name?: string;
 	
@@ -122,6 +145,7 @@ export namespace session {
 	        this.status = source["status"];
 	        this.started_at = this.convertValues(source["started_at"], null);
 	        this.last_line = source["last_line"];
+	        this.workspace_id = source["workspace_id"];
 	        this.worktree_enabled = source["worktree_enabled"];
 	        this.branch_name = source["branch_name"];
 	    }
@@ -154,6 +178,7 @@ export namespace session {
 	    // Go type: time
 	    started_at: any;
 	    exit_code: number;
+	    workspace_id?: string;
 	    worktree_enabled?: boolean;
 	    worktree_path?: string;
 	    original_dir?: string;
@@ -174,6 +199,7 @@ export namespace session {
 	        this.pid = source["pid"];
 	        this.started_at = this.convertValues(source["started_at"], null);
 	        this.exit_code = source["exit_code"];
+	        this.workspace_id = source["workspace_id"];
 	        this.worktree_enabled = source["worktree_enabled"];
 	        this.worktree_path = source["worktree_path"];
 	        this.original_dir = source["original_dir"];
@@ -218,6 +244,25 @@ export namespace terminal {
 	        this.id = source["id"];
 	        this.work_dir = source["work_dir"];
 	        this.pid = source["pid"];
+	    }
+	}
+
+}
+
+export namespace workspace {
+	
+	export class Workspace {
+	    id: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Workspace(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
 	    }
 	}
 

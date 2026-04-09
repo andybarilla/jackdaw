@@ -14,6 +14,7 @@
     searchVisible: boolean;
     terminalApis: Record<string, TerminalApi>;
     sessions?: SessionInfo[];
+    activeWorkspaceId?: string;
     onFocus: (path: number[]) => void;
     onRatioChange: (path: number[], ratio: number) => void;
     onQuickPick: (path: number[], choice: "terminal" | "session") => void;
@@ -35,6 +36,7 @@
     searchVisible,
     terminalApis,
     sessions,
+    activeWorkspaceId,
     onFocus,
     onRatioChange,
     onQuickPick,
@@ -70,6 +72,7 @@
     searchVisible={searchVisible && isFocused(path)}
     terminalApi={contentId ? terminalApis[contentId] ?? null : null}
     {sessions}
+    {activeWorkspaceId}
     panePath={path}
     onFocus={() => onFocus(path)}
     onQuickPick={(choice) => onQuickPick(path, choice)}
@@ -104,6 +107,7 @@
         {searchVisible}
         {terminalApis}
         {sessions}
+        {activeWorkspaceId}
         {onFocus}
         {onRatioChange}
         {onQuickPick}
@@ -137,6 +141,7 @@
         {searchVisible}
         {terminalApis}
         {sessions}
+        {activeWorkspaceId}
         {onFocus}
         {onRatioChange}
         {onQuickPick}

@@ -18,6 +18,7 @@
     searchVisible: boolean;
     terminalApi: TerminalApi | null;
     sessions?: SessionInfo[];
+    activeWorkspaceId?: string;
     panePath: number[];
     onFocus: () => void;
     onQuickPick: (choice: "terminal" | "session") => void;
@@ -39,6 +40,7 @@
     searchVisible,
     terminalApi,
     sessions,
+    activeWorkspaceId,
     panePath,
     onFocus,
     onQuickPick,
@@ -52,6 +54,22 @@
     onTabReorder,
     onTabDrop,
   }: Props = $props();
+
+  // Filter tabs to only show sessions in the active workspace
+  function isInWorkspace(c: PaneContent): boolean {
+    if (!activeWorkspaceId || !sessions) return true;
+    if (c.type !== "session" && c.type !== "diff") return true;
+    const s = sessions.find(s => s.id === c.sessionId);
+    if (!s) return true;
+    return s.workspace_id === activeWorkspaceId || (!s.workspace_id && activeWorkspaceId === "default");
+  }
+
+  // Map from filtered index to original index
+  let visibleIndices = $derived(
+    contents.map((c, i) => ({ content: c, originalIndex: i })).filter(x => isInWorkspace(x.content))
+  );
+  let visibleContents = $derived(visibleIndices.map(x => x.content));
+  let visibleActiveIndex = $derived(visibleIndices.findIndex(x => x.originalIndex === activeIndex));
 
   let content = $derived(contents[activeIndex] ?? null);
 
@@ -144,15 +162,15 @@
   ondragleave={handlePaneDragLeave}
   ondrop={handlePaneDrop}
 >
-  {#if contents.length >= 1 && sessions}
+  {#if visibleContents.length >= 1 && sessions}
     <TabBar
-      {contents}
-      {activeIndex}
+      contents={visibleContents}
+      activeIndex={visibleActiveIndex >= 0 ? visibleActiveIndex : 0}
       sessions={sessions}
       {panePath}
-      onSelect={onTabSelect}
-      onClose={onTabClose}
-      onReorder={onTabReorder}
+      onSelect={(i) => onTabSelect(visibleIndices[i].originalIndex)}
+      onClose={(i) => onTabClose(visibleIndices[i].originalIndex)}
+      onReorder={(from, to) => onTabReorder(visibleIndices[from].originalIndex, visibleIndices[to].originalIndex)}
       onCrossDropTab={handleCrossDropOnTabBar}
     />
   {/if}
