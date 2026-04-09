@@ -15,17 +15,12 @@ const (
 )
 
 func WriteFrame(w io.Writer, typ FrameType, payload []byte) error {
-	header := make([]byte, 5)
-	header[0] = byte(typ)
-	binary.BigEndian.PutUint32(header[1:5], uint32(len(payload)))
-	if _, err := w.Write(header); err != nil {
-		return err
-	}
-	if len(payload) > 0 {
-		_, err := w.Write(payload)
-		return err
-	}
-	return nil
+	frame := make([]byte, 5+len(payload))
+	frame[0] = byte(typ)
+	binary.BigEndian.PutUint32(frame[1:5], uint32(len(payload)))
+	copy(frame[5:], payload)
+	_, err := w.Write(frame)
+	return err
 }
 
 func ReadFrame(r io.Reader) (FrameType, []byte, error) {

@@ -37,6 +37,8 @@ export function GetSessionDiff(arg1:string):Promise<Array<worktree.FileDiff>>;
 
 export function GetSessionHistory(arg1:string):Promise<string>;
 
+export function GetWSPort():Promise<number>;
+
 export function GetWorkspaces():Promise<Array<workspace.Workspace>>;
 
 export function GetWorktreeStatus(arg1:string):Promise<main.WorktreeStatusResult>;
@@ -61,8 +63,12 @@ export function RenameSession(arg1:string,arg2:string):Promise<void>;
 
 export function RenameWorkspace(arg1:string,arg2:string):Promise<void>;
 
+export function ResizeSession(arg1:string,arg2:number,arg3:number):Promise<void>;
+
 export function RespondToNotification(arg1:string,arg2:string):Promise<void>;
 
 export function SetActiveWorkspace(arg1:string):Promise<void>;
 
 export function SetConfig(arg1:config.Config):Promise<void>;
+
+export function WriteToSession(arg1:string,arg2:Array<number>):Promise<void>;

@@ -62,6 +62,10 @@ export function GetSessionHistory(arg1) {
   return window['go']['main']['App']['GetSessionHistory'](arg1);
 }
 
+export function GetWSPort() {
+  return window['go']['main']['App']['GetWSPort']();
+}
+
 export function GetWorkspaces() {
   return window['go']['main']['App']['GetWorkspaces']();
 }
@@ -110,6 +114,10 @@ export function RenameWorkspace(arg1, arg2) {
   return window['go']['main']['App']['RenameWorkspace'](arg1, arg2);
 }
 
+export function ResizeSession(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResizeSession'](arg1, arg2, arg3);
+}
+
 export function RespondToNotification(arg1, arg2) {
   return window['go']['main']['App']['RespondToNotification'](arg1, arg2);
 }
@@ -120,4 +128,8 @@ export function SetActiveWorkspace(arg1) {
 
 export function SetConfig(arg1) {
   return window['go']['main']['App']['SetConfig'](arg1);
+}
+
+export function WriteToSession(arg1, arg2) {
+  return window['go']['main']['App']['WriteToSession'](arg1, arg2);
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/andybarilla/jackdaw/internal/terminal"
 	"github.com/andybarilla/jackdaw/internal/workspace"
 	"github.com/andybarilla/jackdaw/internal/worktree"
+	"github.com/andybarilla/jackdaw/internal/wsserver"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -36,9 +37,11 @@ type App struct {
 	patternMatchers map[string]*notification.PatternMatcher
 	errorDetectors        map[string]*notification.ErrorDetector
 	errorDetectionEnabled bool
+	notifCh               chan notifWork
 	dashTicker      *time.Ticker
 	recentDirsPath  string
 	proxyServer     *proxy.Server
+	wsServer        *wsserver.Server
 }
 
 func NewApp() *App {
@@ -72,6 +75,30 @@ func NewApp() *App {
 	}
 }
 
+type notifWork struct {
+	sessionID string
+	data      []byte
+}
+
+func (a *App) startNotifWorker() {
+	a.notifCh = make(chan notifWork, 256)
+	go func() {
+		for w := range a.notifCh {
+			if tracker := a.manager.StatusTracker(w.sessionID); tracker != nil {
+				tracker.HandleOutput(w.data)
+			}
+			if pm, ok := a.patternMatchers[w.sessionID]; ok {
+				if a.hookListener == nil || !a.hookListener.HasSession(w.sessionID) {
+					pm.Feed(w.data)
+				}
+			}
+			if ed, ok := a.errorDetectors[w.sessionID]; ok {
+				ed.Feed(w.data)
+			}
+		}
+	}()
+}
+
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 
@@ -103,6 +130,14 @@ func (a *App) Startup(ctx context.Context) {
 	if ps, err := proxy.Start(); err == nil {
 		a.proxyServer = ps
 	}
+
+	// Start WebSocket server for terminal I/O
+	if ws, err := wsserver.New(a); err == nil {
+		a.wsServer = ws
+	}
+
+	// Start async notification processing worker
+	a.startNotifWorker()
 
 	// Track window focus state — frontend emits this via document.hasFocus()
 	windowFocused := true
@@ -159,7 +194,9 @@ func (a *App) Startup(ctx context.Context) {
 	for _, info := range recovered {
 		id := info.ID
 		a.manager.SetOnOutput(id, func(data []byte) {
-			runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
+			if a.wsServer != nil {
+				a.wsServer.SendOutput(id, data)
+			}
 		})
 	}
 
@@ -170,35 +207,12 @@ func (a *App) Startup(ctx context.Context) {
 		}
 	}
 
-	runtime.EventsOn(ctx, "terminal-input", func(data ...interface{}) {
-		if len(data) < 2 {
-			return
-		}
-		id, _ := data[0].(string)
-		input, _ := data[1].(string)
-		if err := a.manager.WriteToSession(id, []byte(input)); err != nil {
-			a.termManager.Write(id, []byte(input))
-		} else {
-			if tracker := a.manager.StatusTracker(id); tracker != nil {
-				tracker.HandleInput()
-			}
-		}
-	})
-
-	runtime.EventsOn(ctx, "terminal-resize", func(data ...interface{}) {
-		if len(data) < 3 {
-			return
-		}
-		id, _ := data[0].(string)
-		cols, _ := data[1].(float64)
-		rows, _ := data[2].(float64)
-		if err := a.manager.ResizeSession(id, uint16(cols), uint16(rows)); err != nil {
-			a.termManager.Resize(id, uint16(cols), uint16(rows))
-		}
-	})
 }
 
 func (a *App) Shutdown(ctx context.Context) {
+	if a.notifCh != nil {
+		close(a.notifCh)
+	}
 	if a.dashTicker != nil {
 		a.dashTicker.Stop()
 	}
@@ -208,8 +222,37 @@ func (a *App) Shutdown(ctx context.Context) {
 	if a.proxyServer != nil {
 		a.proxyServer.Close()
 	}
+	if a.wsServer != nil {
+		a.wsServer.Close()
+	}
 	a.notifSvc.Close()
 	a.termManager.CloseAll()
+}
+
+// WriteToSession implements wsserver.SessionWriter for WebSocket input routing.
+func (a *App) WriteToSession(id string, data []byte) error {
+	if err := a.manager.WriteToSession(id, data); err != nil {
+		return a.termManager.Write(id, data)
+	}
+	if tracker := a.manager.StatusTracker(id); tracker != nil {
+		tracker.HandleInput()
+	}
+	return nil
+}
+
+// ResizeSession implements wsserver.SessionWriter for WebSocket resize routing.
+func (a *App) ResizeSession(id string, cols, rows uint16) error {
+	if err := a.manager.ResizeSession(id, cols, rows); err != nil {
+		return a.termManager.Resize(id, cols, rows)
+	}
+	return nil
+}
+
+func (a *App) GetWSPort() int {
+	if a.wsServer == nil {
+		return 0
+	}
+	return a.wsServer.Port()
 }
 
 func (a *App) GetProxyBaseURL() string {
@@ -227,7 +270,9 @@ func (a *App) CreateTerminal(workDir string) (*terminal.TerminalInfo, error) {
 	}
 
 	a.termManager.StartReadLoop(info.ID, func(data []byte) {
-		runtime.EventsEmit(a.ctx, "terminal-output-"+info.ID, string(data))
+		if a.wsServer != nil {
+			a.wsServer.SendOutput(info.ID, data)
+		}
 	}, func() {
 		runtime.EventsEmit(a.ctx, "terminal-exited", info.ID)
 	})
@@ -277,17 +322,17 @@ func (a *App) CreateSession(workDir string, worktreeEnabled bool, branchName str
 	}
 
 	info, err := a.manager.Create(id, workDir, "claude", nil, env, func(data []byte) {
-		runtime.EventsEmit(a.ctx, "terminal-output-"+id, string(data))
-		if tracker := a.manager.StatusTracker(id); tracker != nil {
-			tracker.HandleOutput(data)
+		// Send output via WebSocket (hot path — no blocking)
+		if a.wsServer != nil {
+			a.wsServer.SendOutput(id, data)
 		}
-		if pm, ok := a.patternMatchers[id]; ok {
-			if a.hookListener == nil || !a.hookListener.HasSession(id) {
-				pm.Feed(data)
-			}
-		}
-		if ed, ok := a.errorDetectors[id]; ok {
-			ed.Feed(data)
+		// Notification processing happens async to avoid blocking the read loop
+		dataCopy := make([]byte, len(data))
+		copy(dataCopy, data)
+		select {
+		case a.notifCh <- notifWork{sessionID: id, data: dataCopy}:
+		default:
+			// Drop notification work if channel is full — output delivery is more important
 		}
 	}, wtOpts, cfg.ActiveWorkspaceID)
 	if err != nil {
