@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andybarilla/jackdaw/internal/api"
 	"github.com/andybarilla/jackdaw/internal/config"
 	"github.com/andybarilla/jackdaw/internal/notification"
 	"github.com/andybarilla/jackdaw/internal/proxy"
@@ -42,6 +43,7 @@ type App struct {
 	recentDirsPath  string
 	proxyServer     *proxy.Server
 	wsServer        *wsserver.Server
+	apiServer       *api.Server
 }
 
 func NewApp() *App {
@@ -136,6 +138,17 @@ func (a *App) Startup(ctx context.Context) {
 		a.wsServer = ws
 	}
 
+	// Start API server on Unix socket
+	home := mustUserHome()
+	apiSockPath := filepath.Join(home, ".jackdaw", "api.sock")
+	apiSrv := api.New(a.manager, apiSockPath)
+	apiSrv.CreateFunc = a.apiCreateSession
+	if err := apiSrv.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "api server: %v\n", err)
+	} else {
+		a.apiServer = apiSrv
+	}
+
 	// Start async notification processing worker
 	a.startNotifWorker()
 
@@ -210,6 +223,9 @@ func (a *App) Startup(ctx context.Context) {
 }
 
 func (a *App) Shutdown(ctx context.Context) {
+	if a.apiServer != nil {
+		a.apiServer.Stop()
+	}
 	if a.notifCh != nil {
 		close(a.notifCh)
 	}
@@ -337,6 +353,69 @@ func (a *App) CreateSession(workDir string, worktreeEnabled bool, branchName str
 	}, wtOpts, cfg.ActiveWorkspaceID)
 	if err != nil {
 		return nil, err
+	}
+
+	pm := notification.NewPatternMatcher(a.notifSvc, info.ID, info.Name)
+	pm.OnMatch = func() {
+		if tracker := a.manager.StatusTracker(info.ID); tracker != nil {
+			tracker.HandlePermissionPrompt()
+		}
+	}
+	a.patternMatchers[info.ID] = pm
+
+	if a.errorDetectionEnabled {
+		ed := notification.NewErrorDetector(a.notifSvc, info.ID, info.Name)
+		ed.OnError = func() {
+			if tracker := a.manager.StatusTracker(info.ID); tracker != nil {
+				tracker.HandleError()
+			}
+		}
+		a.errorDetectors[info.ID] = ed
+	}
+
+	if a.hookListener != nil {
+		a.hookListener.RegisterSession(info.ID, info.Name)
+	}
+
+	a.manager.StartSessionReadLoop(info.ID)
+	return info, nil
+}
+
+// apiCreateSession is the CreateFunc for the API server. It reuses the same
+// session creation logic as App.CreateSession (hooks, notifications, WebSocket
+// output) but without worktree support or recent-dir tracking.
+func (a *App) apiCreateSession(workDir, command string, args []string, name, workspaceID string) (*session.SessionInfo, error) {
+	id := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	var env []string
+	if a.hookListener != nil {
+		hookURL := fmt.Sprintf("http://%s/notify/%s", a.hookListener.Addr(), id)
+		env = append(env, session.BuildClaudeHookEnv(hookURL))
+	}
+
+	if workspaceID == "" {
+		cfg, _ := config.Load(a.configPath)
+		workspaceID = cfg.ActiveWorkspaceID
+	}
+
+	info, err := a.manager.Create(id, workDir, command, args, env, func(data []byte) {
+		if a.wsServer != nil {
+			a.wsServer.SendOutput(id, data)
+		}
+		dataCopy := make([]byte, len(data))
+		copy(dataCopy, data)
+		select {
+		case a.notifCh <- notifWork{sessionID: id, data: dataCopy}:
+		default:
+		}
+	}, session.WorktreeOptions{}, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	if name != "" {
+		a.manager.Rename(info.ID, name)
+		info.Name = name
 	}
 
 	pm := notification.NewPatternMatcher(a.notifSvc, info.ID, info.Name)
