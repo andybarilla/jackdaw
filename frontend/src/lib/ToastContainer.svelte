@@ -40,8 +40,8 @@
     }
   });
 
-  function handleDismiss(sessionID: string): void {
-    if (hoveredToasts.has(sessionID)) return;
+  function handleDismiss(sessionID: string, force = false): void {
+    if (!force && hoveredToasts.has(sessionID)) return;
     dismissNotification(sessionID);
     DismissNotification(sessionID);
     if (sessionID in visibleToasts) {
@@ -53,7 +53,7 @@
 
   function handleGoTo(sessionID: string): void {
     onGoToSession(sessionID);
-    handleDismiss(sessionID);
+    handleDismiss(sessionID, true);
   }
 
   async function handleRespond(sessionID: string, response: string): Promise<void> {
@@ -114,7 +114,7 @@
           <button class="toast-btn goto" onclick={() => handleGoTo(notif.sessionID)}>Go to session</button>
         {:else}
           <button class="toast-btn go" onclick={() => handleGoTo(notif.sessionID)}>Go to session</button>
-          <button class="toast-btn dismiss" onclick={() => handleDismiss(notif.sessionID)}>Dismiss</button>
+          <button class="toast-btn dismiss" onclick={() => handleDismiss(notif.sessionID, true)}>Dismiss</button>
         {/if}
       </div>
     </div>
