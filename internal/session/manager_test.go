@@ -284,8 +284,15 @@ func TestManagerKillCleansUpHistoryFile(t *testing.T) {
 
 	m.Kill("kill-history")
 
+	if _, err := os.Stat(historyPath); os.IsNotExist(err) {
+		t.Error("history file should be preserved after Kill")
+	}
+
+	// Remove should delete history
+	m.Remove("kill-history")
+
 	if _, err := os.Stat(historyPath); !os.IsNotExist(err) {
-		t.Error("history file should be deleted after Kill")
+		t.Error("history file should be deleted after Remove")
 	}
 }
 

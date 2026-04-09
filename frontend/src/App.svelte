@@ -5,6 +5,7 @@
     CreateSession,
     ListSessions,
     KillSession,
+    RemoveSession,
     RenameSession,
     CreateTerminal,
     KillTerminal,
@@ -48,7 +49,7 @@
   import SplitPane from "./lib/SplitPane.svelte";
   import NewSessionDialog from "./lib/NewSessionDialog.svelte";
   import WorktreeCleanupDialog from "./lib/WorktreeCleanupDialog.svelte";
-  import { getKeymap, getToastDuration } from "./lib/config.svelte";
+  import { getKeymap, getToastDuration, getAutoRemoveKilledSessions } from "./lib/config.svelte";
   import { matchKeybinding } from "./lib/keybindings";
 
   let sessions = $state<SessionInfo[]>([]);
@@ -386,32 +387,28 @@
       const newSessions = (updated || []) as SessionInfo[];
       sessions = newSessions;
 
-      // Remove tabs for exited sessions
+      // Show worktree cleanup dialog for exited worktree sessions
       for (const s of newSessions) {
-        if (s.status === "exited") {
+        if (s.status === "exited" && s.worktree_enabled && s.worktree_path) {
           const found = findLeafBySessionId(layoutTree, s.id);
           if (found) {
-            if (s.worktree_enabled && s.worktree_path) {
-              GetWorktreeStatus(s.id).then((status) => {
-                worktreeCleanup = {
-                  sessionId: s.id,
-                  sessionName: s.name,
-                  branchName: s.branch_name || "",
-                  baseBranch: s.base_branch || "main",
-                  status,
-                };
-              }).catch(() => {
-                worktreeCleanup = {
-                  sessionId: s.id,
-                  sessionName: s.name,
-                  branchName: s.branch_name || "",
-                  baseBranch: s.base_branch || "main",
-                  status: null,
-                };
-              });
-            }
-            delete terminalApis[s.id];
-            layoutTree = removeTab(layoutTree, found.path, found.tabIndex);
+            GetWorktreeStatus(s.id).then((status) => {
+              worktreeCleanup = {
+                sessionId: s.id,
+                sessionName: s.name,
+                branchName: s.branch_name || "",
+                baseBranch: s.base_branch || "main",
+                status,
+              };
+            }).catch(() => {
+              worktreeCleanup = {
+                sessionId: s.id,
+                sessionName: s.name,
+                branchName: s.branch_name || "",
+                baseBranch: s.base_branch || "main",
+                status: null,
+              };
+            });
           }
         }
       }
@@ -473,11 +470,49 @@
 
   async function handleKill(id: string): Promise<void> {
     await KillSession(id);
+    if (getAutoRemoveKilledSessions()) {
+      await handleRemoveSession(id);
+    }
+  }
+
+  async function handleRemoveSession(id: string): Promise<void> {
     delete terminalApis[id];
     const found = findLeafBySessionId(layoutTree, id);
     if (found) {
       layoutTree = removeTab(layoutTree, found.path, found.tabIndex);
     }
+    await RemoveSession(id);
+  }
+
+  async function handleRestartSession(id: string): Promise<void> {
+    const session = sessions.find((s) => s.id === id);
+    if (!session) return;
+    const workDir = session.original_dir || session.work_dir;
+
+    // Create new session in same workDir
+    const info = await CreateSession(workDir, false, "");
+
+    // Replace tab in layout
+    const found = findLeafBySessionId(layoutTree, id);
+    if (found) {
+      layoutTree = removeTab(layoutTree, found.path, found.tabIndex);
+      layoutTree = addTab(layoutTree, found.path, {
+        type: "session",
+        sessionId: info.id,
+      });
+      focusedPath = found.path as number[];
+    } else {
+      layoutTree = addTab(layoutTree, asPath(focusedPath), {
+        type: "session",
+        sessionId: info.id,
+      });
+    }
+
+    // Clean up old session
+    delete terminalApis[id];
+    await RemoveSession(id);
+
+    requestAnimationFrame(() => terminalApis[info.id]?.focus());
   }
 
   async function handleRename(id: string, name: string): Promise<void> {
@@ -698,6 +733,8 @@
       {sessions}
       onMerge={handleMergeSession}
       onSelectSession={handleSidebarSelect}
+      onRemoveSession={handleRemoveSession}
+      onRestartSession={handleRestartSession}
       onFocus={(path) => {
         focusedPath = path;
         focusTerminalAtPath(path);

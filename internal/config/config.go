@@ -18,6 +18,7 @@ type Config struct {
 	ErrorDetectionEnabled   bool              `json:"error_detection_enabled"`
 	WorktreeRoot            string            `json:"worktree_root,omitempty"`
 	MergeMode               string            `json:"merge_mode,omitempty"` // "squash" (default) or "merge"
+	AutoRemoveKilledSessions bool             `json:"auto_remove_killed_sessions"`
 }
 
 func Defaults() *Config {

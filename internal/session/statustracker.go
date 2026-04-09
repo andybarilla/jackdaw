@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,7 +17,7 @@ var promptPattern = regexp.MustCompile(`(?m)^\s*❯`)
 type StatusTracker struct {
 	mu        sync.Mutex
 	status    Status
-	lastLine  string
+	lastLine  atomic.Value // string; lock-free reads avoid deadlock with DashboardData
 	onChange  func(Status)
 	idleTimer *time.Timer
 	idleDelay time.Duration
@@ -37,9 +38,8 @@ func (st *StatusTracker) Status() Status {
 }
 
 func (st *StatusTracker) LastLine() string {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	return st.lastLine
+	v, _ := st.lastLine.Load().(string)
+	return v
 }
 
 func (st *StatusTracker) HandleOutput(data []byte) {
@@ -62,7 +62,7 @@ func (st *StatusTracker) HandleOutput(data []byte) {
 		if len(s) > 200 {
 			s = s[:200]
 		}
-		st.lastLine = s
+		st.lastLine.Store(s)
 		break
 	}
 

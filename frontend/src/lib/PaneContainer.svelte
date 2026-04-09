@@ -8,6 +8,7 @@
   import QuickPicker from "./QuickPicker.svelte";
   import DiffViewer from "./DiffViewer.svelte";
   import SettingsEditor from "./SettingsEditor.svelte";
+  import DeadSessionBanner from "./DeadSessionBanner.svelte";
   import TabBar from "./TabBar.svelte";
 
   interface Props {
@@ -23,6 +24,8 @@
     onTerminalReady: (api: TerminalApi) => void;
     onMerge?: (sessionId: string) => void;
     onSelectSession?: (id: string) => void;
+    onRemoveSession?: (id: string) => void;
+    onRestartSession?: (id: string) => void;
     onTabSelect: (index: number) => void;
     onTabClose: (index: number) => void;
     onTabReorder: (fromIndex: number, toIndex: number) => void;
@@ -42,6 +45,8 @@
     onTerminalReady,
     onMerge,
     onSelectSession,
+    onRemoveSession,
+    onRestartSession,
     onTabSelect,
     onTabClose,
     onTabReorder,
@@ -49,6 +54,17 @@
   }: Props = $props();
 
   let content = $derived(contents[activeIndex] ?? null);
+
+  let activeSession = $derived(
+    content?.type === "session" && sessions
+      ? sessions.find((s) => s.id === content.sessionId) ?? null
+      : null,
+  );
+
+  let isDead = $derived(
+    activeSession != null &&
+      (activeSession.status === "exited" || activeSession.status === "stopped"),
+  );
 
   let contentId = $derived(
     content === null
@@ -158,6 +174,7 @@
         <Terminal
           sessionId={contentId}
           visible={true}
+          readonly={isDead}
           onReady={onTerminalReady}
         />
       {/key}
@@ -167,6 +184,14 @@
           onClose={() => {
             terminalApi?.focus();
           }}
+        />
+      {/if}
+      {#if isDead && activeSession && content?.type === "session"}
+        <DeadSessionBanner
+          status={activeSession.status as "exited" | "stopped"}
+          exitCode={activeSession.exit_code}
+          onRemove={() => onRemoveSession?.(content.sessionId)}
+          onRestart={() => onRestartSession?.(content.sessionId)}
         />
       {/if}
     {/if}

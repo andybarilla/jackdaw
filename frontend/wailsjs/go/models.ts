@@ -11,6 +11,7 @@ export namespace config {
 	    error_detection_enabled: boolean;
 	    worktree_root?: string;
 	    merge_mode?: string;
+	    auto_remove_killed_sessions: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -28,6 +29,7 @@ export namespace config {
 	        this.error_detection_enabled = source["error_detection_enabled"];
 	        this.worktree_root = source["worktree_root"];
 	        this.merge_mode = source["merge_mode"];
+	        this.auto_remove_killed_sessions = source["auto_remove_killed_sessions"];
 	    }
 	}
 

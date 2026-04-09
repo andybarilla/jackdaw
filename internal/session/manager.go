@@ -253,23 +253,38 @@ func (m *Manager) List() []SessionInfo {
 }
 
 func (m *Manager) DashboardData() []DashboardSession {
+	// Snapshot session info and tracker references under m.mu, but do NOT call
+	// tracker methods while holding m.mu — that would invert the lock order
+	// (m.mu → st.mu) vs onChange callbacks (st.mu → m.mu) and deadlock.
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make([]DashboardSession, 0, len(m.sessionInfo))
+	type snapshot struct {
+		info    SessionInfo
+		tracker *StatusTracker
+	}
+	snaps := make([]snapshot, 0, len(m.sessionInfo))
 	for id, info := range m.sessionInfo {
+		snaps = append(snaps, snapshot{
+			info:    *info,
+			tracker: m.statusTrackers[id],
+		})
+	}
+	m.mu.RUnlock()
+
+	result := make([]DashboardSession, 0, len(snaps))
+	for _, s := range snaps {
 		var lastLine string
-		if tracker, ok := m.statusTrackers[id]; ok {
-			lastLine = tracker.LastLine()
+		if s.tracker != nil {
+			lastLine = s.tracker.LastLine()
 		}
 		result = append(result, DashboardSession{
-			ID:              info.ID,
-			Name:            info.Name,
-			WorkDir:         info.WorkDir,
-			Status:          info.Status,
-			StartedAt:       info.StartedAt,
+			ID:              s.info.ID,
+			Name:            s.info.Name,
+			WorkDir:         s.info.WorkDir,
+			Status:          s.info.Status,
+			StartedAt:       s.info.StartedAt,
 			LastLine:        lastLine,
-			WorktreeEnabled: info.WorktreeEnabled,
-			BranchName:      info.BranchName,
+			WorktreeEnabled: s.info.WorktreeEnabled,
+			BranchName:      s.info.BranchName,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -288,24 +303,49 @@ func (m *Manager) Kill(id string) error {
 
 	err := s.Close()
 
-	m.mu.Lock()
-	if tracker, ok := m.statusTrackers[id]; ok {
+	// Read tracker before taking write lock — HandleStop triggers onChange
+	// which also needs m.mu, so calling it under Lock would deadlock.
+	m.mu.RLock()
+	tracker, hasTracker := m.statusTrackers[id]
+	m.mu.RUnlock()
+
+	if hasTracker {
 		tracker.HandleStop()
-		delete(m.statusTrackers, id)
-	} else if si, ok := m.sessionInfo[id]; ok {
-		si.Status = StatusStopped
+	}
+
+	m.mu.Lock()
+	delete(m.statusTrackers, id)
+	if !hasTracker {
+		if si, ok := m.sessionInfo[id]; ok {
+			si.Status = StatusStopped
+		}
 	}
 	m.mu.Unlock()
 
 	manifestPath := filepath.Join(m.manifestDir, id+".json")
-	mf, _ := manifest.Read(manifestPath)
-	if mf != nil && mf.HistoryPath != "" {
-		os.Remove(mf.HistoryPath)
-	}
 	manifest.Remove(manifestPath)
 	m.notifyUpdate()
 
 	return err
+}
+
+func (m *Manager) Remove(id string) {
+	// Delete history file
+	historyPath := filepath.Join(m.historyDir, id+".log")
+	os.Remove(historyPath)
+
+	// Remove manifest
+	manifestPath := filepath.Join(m.manifestDir, id+".json")
+	manifest.Remove(manifestPath)
+
+	// Remove from maps
+	m.mu.Lock()
+	delete(m.sessions, id)
+	delete(m.sessionInfo, id)
+	delete(m.statusTrackers, id)
+	m.mu.Unlock()
+
+	m.notifyUpdate()
 }
 
 func (m *Manager) Rename(id string, name string) error {
