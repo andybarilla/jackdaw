@@ -5,9 +5,11 @@
   import SearchBar from "./SearchBar.svelte";
   import QuickPicker from "./QuickPicker.svelte";
   import DiffViewer from "./DiffViewer.svelte";
+  import TabBar from "./TabBar.svelte";
 
   interface Props {
-    content: PaneContent;
+    contents: PaneContent[];
+    activeIndex: number;
     focused: boolean;
     searchVisible: boolean;
     terminalApi: TerminalApi | null;
@@ -16,10 +18,14 @@
     onQuickPick: (choice: "terminal" | "session") => void;
     onTerminalReady: (api: TerminalApi) => void;
     onMerge?: (sessionId: string) => void;
+    onTabSelect: (index: number) => void;
+    onTabClose: (index: number) => void;
+    onTabReorder: (fromIndex: number, toIndex: number) => void;
   }
 
   let {
-    content,
+    contents,
+    activeIndex,
     focused,
     searchVisible,
     terminalApi,
@@ -28,7 +34,12 @@
     onQuickPick,
     onTerminalReady,
     onMerge,
+    onTabSelect,
+    onTabClose,
+    onTabReorder,
   }: Props = $props();
+
+  let content = $derived(contents[activeIndex] ?? null);
 
   let contentId = $derived(
     content === null
@@ -49,32 +60,45 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="pane-container" class:focused onclick={onFocus}>
-  {#if content === null}
-    <QuickPicker onSelect={onQuickPick} />
-  {:else if content.type === "diff"}
-    <DiffViewer
-      sessionId={content.sessionId}
-      worktreeEnabled={diffSession?.worktree_enabled}
-      baseBranch={diffSession?.base_branch}
-      onMerge={onMerge && content.sessionId ? () => onMerge(content.sessionId) : undefined}
+  {#if contents.length >= 2 && sessions}
+    <TabBar
+      {contents}
+      {activeIndex}
+      sessions={sessions}
+      onSelect={onTabSelect}
+      onClose={onTabClose}
+      onReorder={onTabReorder}
     />
-  {:else if contentId}
-    {#key contentId}
-      <Terminal
-        sessionId={contentId}
-        visible={true}
-        onReady={onTerminalReady}
-      />
-    {/key}
-    {#if searchVisible && terminalApi}
-      <SearchBar
-        searchAddon={terminalApi.searchAddon}
-        onClose={() => {
-          terminalApi?.focus();
-        }}
-      />
-    {/if}
   {/if}
+
+  <div class="pane-content">
+    {#if content === null}
+      <QuickPicker onSelect={onQuickPick} />
+    {:else if content.type === "diff"}
+      <DiffViewer
+        sessionId={content.sessionId}
+        worktreeEnabled={diffSession?.worktree_enabled}
+        baseBranch={diffSession?.base_branch}
+        onMerge={onMerge && content.sessionId ? () => onMerge(content.sessionId) : undefined}
+      />
+    {:else if contentId}
+      {#key contentId}
+        <Terminal
+          sessionId={contentId}
+          visible={true}
+          onReady={onTerminalReady}
+        />
+      {/key}
+      {#if searchVisible && terminalApi}
+        <SearchBar
+          searchAddon={terminalApi.searchAddon}
+          onClose={() => {
+            terminalApi?.focus();
+          }}
+        />
+      {/if}
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -85,9 +109,18 @@
     border: 1px solid transparent;
     box-sizing: border-box;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   .pane-container.focused {
     border-color: var(--accent);
+  }
+
+  .pane-content {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
   }
 </style>
