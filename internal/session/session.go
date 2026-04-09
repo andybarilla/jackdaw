@@ -35,15 +35,19 @@ type Session struct {
 	Args       []string
 	StartedAt  time.Time
 	SocketPath string
-	OnOutput   func(data []byte)
+	OnOutput   func(data []byte) // convenience: primary subscriber (sub ID 0)
 	OnExit     func(exitCode int)
 
-	relayCmd     *exec.Cmd
-	client       *relay.Client
-	pid          int
-	mu           sync.Mutex
-	exitDone     chan struct{}
-	readStarted  bool
+	relayCmd    *exec.Cmd
+	client      *relay.Client
+	pid         int
+	mu          sync.Mutex
+	exitDone    chan struct{}
+	readStarted bool
+
+	outputMu   sync.RWMutex
+	outputSubs map[int]func([]byte)
+	nextSubID  int
 }
 
 func New(id string, workDir string, command string, args []string, socketDir string, historyPath string, historyMax int64, env []string) (*Session, error) {
@@ -126,6 +130,42 @@ func (s *Session) PID() int {
 	return s.pid
 }
 
+// AddOutputSub registers a subscriber for output data. Returns a subscriber ID
+// that can be passed to RemoveOutputSub.
+func (s *Session) AddOutputSub(fn func([]byte)) int {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	if s.outputSubs == nil {
+		s.outputSubs = make(map[int]func([]byte))
+	}
+	id := s.nextSubID
+	s.nextSubID++
+	s.outputSubs[id] = fn
+	return id
+}
+
+// RemoveOutputSub removes a previously registered output subscriber.
+func (s *Session) RemoveOutputSub(id int) {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	delete(s.outputSubs, id)
+}
+
+// dispatchOutput fans out output data to all registered subscribers and the
+// legacy OnOutput callback.
+func (s *Session) dispatchOutput(data []byte) {
+	// Legacy single-callback path
+	if s.OnOutput != nil {
+		s.OnOutput(data)
+	}
+
+	s.outputMu.RLock()
+	defer s.outputMu.RUnlock()
+	for _, fn := range s.outputSubs {
+		fn(data)
+	}
+}
+
 func (s *Session) StartReadLoop() {
 	s.mu.Lock()
 	if s.readStarted {
@@ -136,9 +176,7 @@ func (s *Session) StartReadLoop() {
 	s.mu.Unlock()
 
 	s.client.OnOutput = func(data []byte) {
-		if s.OnOutput != nil {
-			s.OnOutput(data)
-		}
+		s.dispatchOutput(data)
 	}
 	s.client.OnReplayEnd = func() {}
 	s.client.StartReadLoop()

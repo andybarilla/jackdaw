@@ -148,6 +148,95 @@ func TestSessionResize(t *testing.T) {
 	}
 }
 
+func TestOutputFanOut(t *testing.T) {
+	sockPath, srv := startTestRelay(t, "echo", []string{"fanout test"})
+	defer srv.Close()
+
+	s, err := Reconnect("test-fanout", sockPath, "/tmp", "echo", srv.PID(), time.Now())
+	if err != nil {
+		t.Fatalf("Reconnect: %v", err)
+	}
+	defer s.Close()
+
+	var out1, out2 strings.Builder
+	var mu1, mu2 sync.Mutex
+
+	// Primary subscriber via OnOutput
+	s.OnOutput = func(data []byte) {
+		mu1.Lock()
+		out1.Write(data)
+		mu1.Unlock()
+	}
+
+	// Secondary subscriber via AddOutputSub
+	subID := s.AddOutputSub(func(data []byte) {
+		mu2.Lock()
+		out2.Write(data)
+		mu2.Unlock()
+	})
+
+	s.StartReadLoop()
+
+	deadline := time.After(5 * time.Second)
+	for {
+		time.Sleep(100 * time.Millisecond)
+		mu1.Lock()
+		got1 := out1.String()
+		mu1.Unlock()
+		mu2.Lock()
+		got2 := out2.String()
+		mu2.Unlock()
+		if strings.Contains(got1, "fanout test") && strings.Contains(got2, "fanout test") {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out; out1=%q out2=%q", got1, got2)
+		default:
+		}
+	}
+
+	// Remove secondary subscriber, verify it stops receiving
+	s.RemoveOutputSub(subID)
+}
+
+func TestOutputFanOutRemove(t *testing.T) {
+	s := &Session{ID: "test-remove"}
+	var received1, received2 []string
+	var mu sync.Mutex
+
+	s.AddOutputSub(func(data []byte) {
+		mu.Lock()
+		received1 = append(received1, string(data))
+		mu.Unlock()
+	})
+	sub2 := s.AddOutputSub(func(data []byte) {
+		mu.Lock()
+		received2 = append(received2, string(data))
+		mu.Unlock()
+	})
+
+	s.dispatchOutput([]byte("first"))
+
+	mu.Lock()
+	if len(received1) != 1 || len(received2) != 1 {
+		t.Fatalf("both should have received: r1=%d r2=%d", len(received1), len(received2))
+	}
+	mu.Unlock()
+
+	s.RemoveOutputSub(sub2)
+	s.dispatchOutput([]byte("second"))
+
+	mu.Lock()
+	if len(received1) != 2 {
+		t.Fatalf("sub1 should have 2, got %d", len(received1))
+	}
+	if len(received2) != 1 {
+		t.Fatalf("sub2 should still have 1 after removal, got %d", len(received2))
+	}
+	mu.Unlock()
+}
+
 func TestSessionClose(t *testing.T) {
 	sockPath, srv := startTestRelay(t, "cat", nil)
 	defer srv.Close()

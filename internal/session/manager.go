@@ -637,6 +637,43 @@ func (m *Manager) Recover() []SessionInfo {
 	return recovered
 }
 
+// SubscribeOutput subscribes to live output from a session. Returns a channel
+// that receives output chunks and an unsubscribe function. The channel is
+// buffered; slow consumers will lose data rather than block the output path.
+func (m *Manager) SubscribeOutput(id string) (<-chan []byte, func(), error) {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, nil, fmt.Errorf("session %q not found", id)
+	}
+
+	ch := make(chan []byte, 256)
+	subID := s.AddOutputSub(func(data []byte) {
+		cp := make([]byte, len(data))
+		copy(cp, data)
+		select {
+		case ch <- cp:
+		default:
+			// Drop if consumer is too slow
+		}
+	})
+
+	unsub := func() {
+		s.RemoveOutputSub(subID)
+		// Drain channel so any goroutine blocked on it can proceed
+		for {
+			select {
+			case <-ch:
+			default:
+				return
+			}
+		}
+	}
+
+	return ch, unsub, nil
+}
+
 func (m *Manager) StartSessionReadLoop(id string) {
 	m.mu.RLock()
 	s, ok := m.sessions[id]
