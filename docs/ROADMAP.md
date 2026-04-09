@@ -14,11 +14,10 @@
 - **Error detection** — Pattern-match terminal output to detect errors, failures, or anomalies in background sessions
 - **Git worktree isolation per session** — Each session gets its own worktree so parallel agents don't clobber each other
 - **Built-in diff viewer** — Show file changes per session without leaving the app
-
-## Up Next
-
 - **Merge/integration workflow** — Review diffs then merge agent work back to main from within the app
 - **Agent status dashboard** — High-level view of what each agent is doing beyond raw terminal output
+
+## Up Next
 - **Embedded browser pane** — Preview localhost alongside terminals for web dev workflows
 - **Workspace templates** — Declarative config file defining sessions, directories, layout, and startup commands
 - **Lifecycle hooks** — Auto-run commands on session create/destroy (install deps, docker-compose, etc.)

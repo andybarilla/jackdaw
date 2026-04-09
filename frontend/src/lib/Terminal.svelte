@@ -23,9 +23,10 @@
     visible?: boolean;
     readonly?: boolean;
     onReady?: (api: TerminalApi) => void;
+    onOpenUrl?: (url: string) => void;
   }
 
-  let { sessionId, visible = true, readonly = false, onReady }: Props = $props();
+  let { sessionId, visible = true, readonly = false, onReady, onOpenUrl }: Props = $props();
   let terminalEl: HTMLDivElement;
   let terminal = $state<Terminal | undefined>(undefined);
   let fitAddon: FitAddon;
@@ -170,7 +171,13 @@
 
     fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon());
+    terminal.loadAddon(new WebLinksAddon((_event, url) => {
+      if (onOpenUrl) {
+        onOpenUrl(url);
+      } else {
+        window.open(url);
+      }
+    }));
     searchAddon = new SearchAddon();
     terminal.loadAddon(searchAddon);
 

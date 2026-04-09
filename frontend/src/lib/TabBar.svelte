@@ -31,6 +31,13 @@
       const s = sessions.find((s) => s.id === content.sessionId);
       return `Diff: ${s?.name || content.sessionId.slice(0, 8)}`;
     }
+    if (content.type === "browser") {
+      try {
+        return new URL(content.url).host;
+      } catch {
+        return "Browser";
+      }
+    }
     return "Unknown";
   }
 

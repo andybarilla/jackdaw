@@ -46,6 +46,10 @@ export function GetFileDiff(arg1, arg2) {
   return window['go']['main']['App']['GetFileDiff'](arg1, arg2);
 }
 
+export function GetProxyBaseURL() {
+  return window['go']['main']['App']['GetProxyBaseURL']();
+}
+
 export function GetRecentDirs() {
   return window['go']['main']['App']['GetRecentDirs']();
 }

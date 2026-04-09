@@ -20,6 +20,9 @@
     onQuickPick: (path: number[], choice: "terminal" | "session") => void;
     onTerminalReady: (id: string, api: TerminalApi) => void;
     onMerge?: (sessionId: string) => void;
+    onOpenUrl?: (url: string) => void;
+    onBrowserUrlChange?: (oldUrl: string, newUrl: string) => void;
+    proxyBaseUrl?: string;
     onSelectSession?: (id: string) => void;
     onRemoveSession?: (id: string) => void;
     onRestartSession?: (id: string) => void;
@@ -42,6 +45,9 @@
     onQuickPick,
     onTerminalReady,
     onMerge,
+    onOpenUrl,
+    onBrowserUrlChange,
+    proxyBaseUrl,
     onSelectSession,
     onRemoveSession,
     onRestartSession,
@@ -80,6 +86,9 @@
       if (contentId) onTerminalReady(contentId, api);
     }}
     {onMerge}
+    {onOpenUrl}
+    {onBrowserUrlChange}
+    {proxyBaseUrl}
     {onSelectSession}
     {onRemoveSession}
     {onRestartSession}
@@ -113,6 +122,8 @@
         {onQuickPick}
         {onTerminalReady}
         {onMerge}
+        {onOpenUrl}
+        {onBrowserUrlChange}
         {onSelectSession}
         {onRemoveSession}
         {onRestartSession}
@@ -147,6 +158,8 @@
         {onQuickPick}
         {onTerminalReady}
         {onMerge}
+        {onOpenUrl}
+        {onBrowserUrlChange}
         {onSelectSession}
         {onRemoveSession}
         {onRestartSession}

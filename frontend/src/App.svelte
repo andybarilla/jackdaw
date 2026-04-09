@@ -22,6 +22,7 @@
     DeleteWorkspace,
     RenameWorkspace,
     MoveSessionToWorkspace,
+    GetProxyBaseURL,
   } from "../wailsjs/go/main/App";
   import type { LayoutNode, PaneContent, Path, FindResult, DropZone, TabDragData } from "./lib/layout";
   import {
@@ -39,6 +40,8 @@
     collectSessionIds,
     collectTerminalIds,
     collectDiffSessionIds,
+    findBrowser,
+    collectBrowserPanes,
     addTab,
     removeTab,
     setActiveTab,
@@ -72,6 +75,7 @@
   let cleanups: Array<() => void> = [];
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingQuickPickPath: number[] | null = null;
+  let proxyBaseUrl = $state("");
   let worktreeCleanup = $state<{
     sessionId: string;
     sessionName: string;
@@ -325,6 +329,13 @@
   onMount(async () => {
     sessions = ((await ListSessions()) || []) as SessionInfo[];
 
+    // Get proxy base URL for embedded browser panes
+    try {
+      proxyBaseUrl = await GetProxyBaseURL();
+    } catch {
+      // Proxy not available
+    }
+
     // Load workspaces
     try {
       workspaces = ((await GetWorkspaces()) || []) as Workspace[];
@@ -410,6 +421,16 @@
         while (settingsFound) {
           cleaned = removeTab(cleaned, settingsFound.path, settingsFound.tabIndex);
           settingsFound = findSettings(cleaned);
+        }
+
+        // Browser panes don't survive restart
+        const browserUrls = collectBrowserPanes(cleaned);
+        for (const burl of browserUrls) {
+          let found = findBrowser(cleaned, burl);
+          while (found) {
+            cleaned = removeTab(cleaned, found.path, found.tabIndex);
+            found = findBrowser(cleaned, burl);
+          }
         }
 
         layoutTree = collapseEmptyLeaves(cleaned);
@@ -699,6 +720,14 @@
           restored = removeTab(restored, settingsFound.path, settingsFound.tabIndex);
           settingsFound = findSettings(restored);
         }
+        const browserUrls2 = collectBrowserPanes(restored);
+        for (const burl of browserUrls2) {
+          let found = findBrowser(restored, burl);
+          while (found) {
+            restored = removeTab(restored, found.path, found.tabIndex);
+            found = findBrowser(restored, burl);
+          }
+        }
 
         layoutTree = collapseEmptyLeaves(restored);
       } else {
@@ -761,6 +790,33 @@
     layoutTree = addTab(layoutTree, asPath(focusedPath), {
       type: "diff",
       sessionId,
+    });
+  }
+
+  function openBrowserPane(url: string): void {
+    const existing = findBrowser(layoutTree, url);
+    if (existing) {
+      focusedPath = existing.path as number[];
+      layoutTree = setActiveTab(layoutTree, existing.path, existing.tabIndex);
+      return;
+    }
+
+    layoutTree = addTab(layoutTree, asPath(focusedPath), {
+      type: "browser",
+      url,
+    });
+  }
+
+  function handleBrowserUrlChange(oldUrl: string, newUrl: string): void {
+    const found = findBrowser(layoutTree, oldUrl);
+    if (!found) return;
+    const leaf = getLeaf(layoutTree, found.path);
+    const newContents = [...leaf.contents];
+    newContents[found.tabIndex] = { type: "browser", url: newUrl };
+    layoutTree = replaceNodeAtPath(layoutTree, found.path, {
+      type: "leaf",
+      contents: newContents,
+      activeIndex: leaf.activeIndex,
     });
   }
 
@@ -879,6 +935,9 @@
       {sessions}
       {activeWorkspaceId}
       onMerge={handleMergeSession}
+      onOpenUrl={openBrowserPane}
+      onBrowserUrlChange={handleBrowserUrlChange}
+      {proxyBaseUrl}
       onSelectSession={handleSidebarSelect}
       onRemoveSession={handleRemoveSession}
       onRestartSession={handleRestartSession}

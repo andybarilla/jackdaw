@@ -2,6 +2,7 @@ export type PaneContent =
   | { type: "session"; sessionId: string }
   | { type: "terminal"; id: string; workDir: string }
   | { type: "diff"; sessionId: string }
+  | { type: "browser"; url: string }
   | { type: "settings" };
 
 export type LayoutNode =
@@ -264,6 +265,39 @@ export function collectDiffSessionIds(node: LayoutNode): string[] {
   return [
     ...collectDiffSessionIds(node.children[0]),
     ...collectDiffSessionIds(node.children[1]),
+  ];
+}
+
+export function findBrowser(node: LayoutNode, url: string): FindResult | null {
+  if (node.type === "leaf") {
+    for (let i = 0; i < node.contents.length; i++) {
+      const c = node.contents[i];
+      if (c.type === "browser" && c.url === url) {
+        return { path: [], tabIndex: i };
+      }
+    }
+    return null;
+  }
+  const leftResult = findBrowser(node.children[0], url);
+  if (leftResult !== null) {
+    return { path: [0, ...leftResult.path] as Path, tabIndex: leftResult.tabIndex };
+  }
+  const rightResult = findBrowser(node.children[1], url);
+  if (rightResult !== null) {
+    return { path: [1, ...rightResult.path] as Path, tabIndex: rightResult.tabIndex };
+  }
+  return null;
+}
+
+export function collectBrowserPanes(node: LayoutNode): string[] {
+  if (node.type === "leaf") {
+    return node.contents
+      .filter((c): c is Extract<PaneContent, { type: "browser" }> => c.type === "browser")
+      .map((c) => c.url);
+  }
+  return [
+    ...collectBrowserPanes(node.children[0]),
+    ...collectBrowserPanes(node.children[1]),
   ];
 }
 
