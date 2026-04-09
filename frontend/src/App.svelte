@@ -15,6 +15,13 @@
     GetWorktreeStatus,
     CleanupWorktree,
     MergeSession,
+    GetWorkspaces,
+    GetActiveWorkspaceID,
+    CreateWorkspace,
+    SetActiveWorkspace,
+    DeleteWorkspace,
+    RenameWorkspace,
+    MoveSessionToWorkspace,
   } from "../wailsjs/go/main/App";
   import type { LayoutNode, PaneContent, Path, FindResult, DropZone, TabDragData } from "./lib/layout";
   import {
@@ -42,7 +49,7 @@
     collapseEmptyLeaves,
     replaceNodeAtPath,
   } from "./lib/layout";
-  import type { SessionInfo, TerminalApi, AppNotification, WorktreeStatus } from "./lib/types";
+  import type { SessionInfo, TerminalApi, AppNotification, WorktreeStatus, Workspace } from "./lib/types";
   import { addNotification, dismissNotification } from "./lib/notifications.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
   import ToastContainer from "./lib/ToastContainer.svelte";
@@ -52,6 +59,8 @@
   import { getKeymap, getToastDuration, getAutoRemoveKilledSessions } from "./lib/config.svelte";
   import { matchKeybinding } from "./lib/keybindings";
 
+  let workspaces = $state<Workspace[]>([]);
+  let activeWorkspaceId = $state("default");
   let sessions = $state<SessionInfo[]>([]);
   let layoutTree = $state<LayoutNode>(emptyLeaf());
   let focusedPath = $state<number[]>([]);
@@ -218,6 +227,16 @@
   };
 
   function handleGlobalKeydown(event: KeyboardEvent): void {
+    // Ctrl+1-9 switches workspaces by position
+    if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.key >= "1" && event.key <= "9") {
+      const idx = parseInt(event.key) - 1;
+      if (idx < workspaces.length) {
+        event.preventDefault();
+        handleSwitchWorkspace(workspaces[idx].id);
+        return;
+      }
+    }
+
     const action = matchKeybinding(event, getKeymap());
     if (action && actions[action]) {
       event.preventDefault();
@@ -302,6 +321,14 @@
 
   onMount(async () => {
     sessions = ((await ListSessions()) || []) as SessionInfo[];
+
+    // Load workspaces
+    try {
+      workspaces = ((await GetWorkspaces()) || []) as Workspace[];
+      activeWorkspaceId = (await GetActiveWorkspaceID()) || "default";
+    } catch {
+      // fallback
+    }
 
     // Load persisted layout
     try {
@@ -424,6 +451,11 @@
       }
     });
     cleanups.push(cancelTermExit);
+
+    const cancelWorkspaceChanged = EventsOn("workspace-changed", (id: unknown) => {
+      if (typeof id === "string") activeWorkspaceId = id;
+    });
+    cleanups.push(cancelWorkspaceChanged);
 
     const cancelNotification = EventsOn("notification-fired", (data: unknown) => {
       const notif = data as AppNotification;
@@ -598,6 +630,31 @@
     await handleMergeSession(worktreeCleanup.sessionId);
   }
 
+  async function handleSwitchWorkspace(id: string): Promise<void> {
+    await SetActiveWorkspace(id);
+    activeWorkspaceId = id;
+  }
+
+  async function handleCreateWorkspace(name: string): Promise<void> {
+    await CreateWorkspace(name);
+    workspaces = ((await GetWorkspaces()) || []) as Workspace[];
+  }
+
+  async function handleRenameWorkspace(id: string, name: string): Promise<void> {
+    await RenameWorkspace(id, name);
+    workspaces = ((await GetWorkspaces()) || []) as Workspace[];
+  }
+
+  async function handleDeleteWorkspace(id: string, moveToDefault: boolean): Promise<void> {
+    await DeleteWorkspace(id, moveToDefault);
+    workspaces = ((await GetWorkspaces()) || []) as Workspace[];
+    if (activeWorkspaceId === id) activeWorkspaceId = "default";
+  }
+
+  async function handleMoveSession(sessionId: string, workspaceId: string): Promise<void> {
+    await MoveSessionToWorkspace(sessionId, workspaceId);
+  }
+
   function openDiffForSession(sessionId: string): void {
     // If diff already open, focus it
     const existingDiff = findLeafByDiffSessionId(layoutTree, sessionId);
@@ -714,12 +771,19 @@
   {#if sidebarVisible}
     <Sidebar
       width={sidebarWidth}
+      {workspaces}
+      {activeWorkspaceId}
       onSelect={handleSidebarSelect}
       onNew={() => (showNewDialog = true)}
       onKill={handleKill}
       onRename={handleRename}
       onViewDiff={openDiffForSession}
       onResize={(w) => { sidebarWidth = w; }}
+      onSwitchWorkspace={handleSwitchWorkspace}
+      onCreateWorkspace={handleCreateWorkspace}
+      onRenameWorkspace={handleRenameWorkspace}
+      onDeleteWorkspace={handleDeleteWorkspace}
+      onMoveSession={handleMoveSession}
     />
   {/if}
 
@@ -731,6 +795,7 @@
       {searchVisible}
       {terminalApis}
       {sessions}
+      {activeWorkspaceId}
       onMerge={handleMergeSession}
       onSelectSession={handleSidebarSelect}
       onRemoveSession={handleRemoveSession}

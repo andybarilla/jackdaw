@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-var ansiPattern = regexp.MustCompile(`\x1b(?:\[[0-9;]*[a-zA-Z]|\][^\x07]*\x07)`)
+var ansiPattern = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07]*\x07)`)
 
 // promptPattern matches Claude Code's idle prompt character (U+276F) at a line start,
 // optionally preceded by whitespace.

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+
+	"github.com/andybarilla/jackdaw/internal/workspace"
 )
 
 type Config struct {
@@ -18,8 +20,10 @@ type Config struct {
 	ErrorDetectionEnabled   bool              `json:"error_detection_enabled"`
 	WorktreeRoot            string            `json:"worktree_root,omitempty"`
 	MergeMode               string            `json:"merge_mode,omitempty"` // "squash" (default) or "merge"
-	AutoRemoveKilledSessions bool             `json:"auto_remove_killed_sessions"`
-	TerminalFontFamily       string           `json:"terminal_font_family,omitempty"`
+	AutoRemoveKilledSessions bool                  `json:"auto_remove_killed_sessions"`
+	Workspaces               []workspace.Workspace `json:"workspaces,omitempty"`
+	ActiveWorkspaceID        string                `json:"active_workspace_id,omitempty"`
+	TerminalFontFamily       string                `json:"terminal_font_family,omitempty"`
 	TerminalFontSize         int              `json:"terminal_font_size,omitempty"`
 	UIFontFamily             string           `json:"ui_font_family,omitempty"`
 	UIFontSize               int              `json:"ui_font_size,omitempty"`
