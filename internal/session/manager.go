@@ -1,7 +1,9 @@
 package session
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,9 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/andybarilla/jackdaw/internal/hooks"
 	"github.com/andybarilla/jackdaw/internal/manifest"
 	"github.com/andybarilla/jackdaw/internal/worktree"
 )
+
+const hookTimeout = 30 * time.Second
 
 type Status string
 
@@ -131,6 +136,15 @@ func (m *Manager) generateName(workDir string) string {
 	}
 }
 
+func hookEnv(hook hooks.Hook, id, name, workDir string) map[string]string {
+	return map[string]string{
+		"JACKDAW_SESSION_ID":   id,
+		"JACKDAW_SESSION_NAME": name,
+		"JACKDAW_WORK_DIR":     workDir,
+		"JACKDAW_HOOK":         string(hook),
+	}
+}
+
 func (m *Manager) Create(id string, workDir string, command string, args []string, env []string, onOutput func([]byte), wtOpts WorktreeOptions, workspaceID string) (*SessionInfo, error) {
 	if id == "" {
 		id = fmt.Sprintf("%d", time.Now().UnixNano())
@@ -156,6 +170,29 @@ func (m *Manager) Create(id string, workDir string, command string, args []strin
 		workDir = wtPath
 	}
 
+	name := m.generateName(workDir)
+
+	// pre_create: run in original dir for worktree sessions, workDir otherwise
+	preCreateDir := workDir
+	if wtOpts.Enabled && originalDir != "" {
+		preCreateDir = originalDir
+	}
+	hookCfg, err := hooks.Load(preCreateDir)
+	if err != nil {
+		if wtOpts.Enabled && wtPath != "" {
+			worktree.Remove(originalDir, wtPath, branchName)
+		}
+		return nil, fmt.Errorf("load hooks config: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
+	defer cancel()
+	if err := hooks.Run(ctx, hooks.PreCreate, hookCfg, preCreateDir, hookEnv(hooks.PreCreate, id, name, workDir)); err != nil {
+		if wtOpts.Enabled && wtPath != "" {
+			worktree.Remove(originalDir, wtPath, branchName)
+		}
+		return nil, fmt.Errorf("pre_create hook: %w", err)
+	}
+
 	historyPath := filepath.Join(m.historyDir, id+".log")
 
 	s, err := New(id, workDir, command, args, m.socketDir, historyPath, m.historyMaxBytes, env)
@@ -165,8 +202,6 @@ func (m *Manager) Create(id string, workDir string, command string, args []strin
 		}
 		return nil, err
 	}
-
-	name := m.generateName(workDir)
 
 	info := &SessionInfo{
 		ID:              id,
@@ -232,6 +267,15 @@ func (m *Manager) Create(id string, workDir string, command string, args []strin
 		s.OnOutput = onOutput
 	}
 	m.notifyUpdate()
+
+	// post_create: async, runs in the session's workDir
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
+		defer cancel()
+		if err := hooks.Run(ctx, hooks.PostCreate, hookCfg, workDir, hookEnv(hooks.PostCreate, id, name, workDir)); err != nil {
+			log.Printf("post_create hook error for session %s: %v", id, err)
+		}
+	}()
 
 	return info, nil
 }
@@ -301,12 +345,32 @@ func (m *Manager) DashboardData() []DashboardSession {
 func (m *Manager) Kill(id string) error {
 	m.mu.RLock()
 	s, ok := m.sessions[id]
+	info := m.sessionInfo[id]
 	m.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("session %q not found", id)
 	}
 
-	err := s.Close()
+	// pre_destroy: synchronous, log errors
+	var sessionName, sessionWorkDir string
+	if info != nil {
+		sessionName = info.Name
+		sessionWorkDir = info.WorkDir
+	}
+	if sessionWorkDir != "" {
+		hookCfg, err := hooks.Load(sessionWorkDir)
+		if err != nil {
+			log.Printf("pre_destroy hook config error for session %s: %v", id, err)
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
+			if err := hooks.Run(ctx, hooks.PreDestroy, hookCfg, sessionWorkDir, hookEnv(hooks.PreDestroy, id, sessionName, sessionWorkDir)); err != nil {
+				log.Printf("pre_destroy hook error for session %s: %v", id, err)
+			}
+			cancel()
+		}
+	}
+
+	closeErr := s.Close()
 
 	// Read tracker before taking write lock — HandleStop triggers onChange
 	// which also needs m.mu, so calling it under Lock would deadlock.
@@ -331,10 +395,51 @@ func (m *Manager) Kill(id string) error {
 	manifest.Remove(manifestPath)
 	m.notifyUpdate()
 
-	return err
+	// post_destroy: async
+	if sessionWorkDir != "" {
+		go func() {
+			hookCfg, err := hooks.Load(sessionWorkDir)
+			if err != nil {
+				log.Printf("post_destroy hook config error for session %s: %v", id, err)
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
+			defer cancel()
+			if err := hooks.Run(ctx, hooks.PostDestroy, hookCfg, sessionWorkDir, hookEnv(hooks.PostDestroy, id, sessionName, sessionWorkDir)); err != nil {
+				log.Printf("post_destroy hook error for session %s: %v", id, err)
+			}
+		}()
+	}
+
+	return closeErr
 }
 
 func (m *Manager) Remove(id string) {
+	m.mu.RLock()
+	_, hasSession := m.sessions[id]
+	info := m.sessionInfo[id]
+	m.mu.RUnlock()
+
+	var sessionName, sessionWorkDir string
+	if info != nil {
+		sessionName = info.Name
+		sessionWorkDir = info.WorkDir
+	}
+
+	// pre_destroy: if session has an active PTY
+	if hasSession && sessionWorkDir != "" {
+		hookCfg, err := hooks.Load(sessionWorkDir)
+		if err != nil {
+			log.Printf("pre_destroy hook config error for session %s: %v", id, err)
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
+			if err := hooks.Run(ctx, hooks.PreDestroy, hookCfg, sessionWorkDir, hookEnv(hooks.PreDestroy, id, sessionName, sessionWorkDir)); err != nil {
+				log.Printf("pre_destroy hook error for session %s: %v", id, err)
+			}
+			cancel()
+		}
+	}
+
 	// Delete history file
 	historyPath := filepath.Join(m.historyDir, id+".log")
 	os.Remove(historyPath)
@@ -351,6 +456,22 @@ func (m *Manager) Remove(id string) {
 	m.mu.Unlock()
 
 	m.notifyUpdate()
+
+	// post_destroy: async
+	if sessionWorkDir != "" {
+		go func() {
+			hookCfg, err := hooks.Load(sessionWorkDir)
+			if err != nil {
+				log.Printf("post_destroy hook config error for session %s: %v", id, err)
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
+			defer cancel()
+			if err := hooks.Run(ctx, hooks.PostDestroy, hookCfg, sessionWorkDir, hookEnv(hooks.PostDestroy, id, sessionName, sessionWorkDir)); err != nil {
+				log.Printf("post_destroy hook error for session %s: %v", id, err)
+			}
+		}()
+	}
 }
 
 func (m *Manager) Rename(id string, name string) error {
