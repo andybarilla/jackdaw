@@ -18,15 +18,15 @@
 - **Agent status dashboard** — High-level view of what each agent is doing beyond raw terminal output
 - **Embedded browser pane** — Preview localhost alongside terminals for web dev workflows
 - **Lifecycle hooks** — Auto-run commands on session create/destroy (install deps, docker-compose, etc.)
+- **CLI/socket API** — External tools can create sessions, send input, and query status programmatically
 
 ## Up Next
-- **CLI/socket API** — External tools can create sessions, send input, and query status programmatically
 - **Port detection per session** — Detect and display listening ports per session in sidebar
 - **IDE integration** — One-click open session's working directory in VS Code/Cursor/Zed
-- **MCP server** — Expose session management to AI agents via MCP protocol
 - **Command palette** — Searchable palette for all actions and user-defined commands
 - **Create session from PR/branch URL** — Paste a PR URL, auto-setup worktree and session
 - **Workspace templates** — Declarative config file defining sessions, directories, layout, and startup commands
+- **MCP server** — Expose session management to AI agents via MCP protocol
 
 ## Workflow
 
