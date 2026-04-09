@@ -7,6 +7,7 @@
   import SearchBar from "./SearchBar.svelte";
   import QuickPicker from "./QuickPicker.svelte";
   import DiffViewer from "./DiffViewer.svelte";
+  import SettingsEditor from "./SettingsEditor.svelte";
   import TabBar from "./TabBar.svelte";
 
   interface Props {
@@ -151,7 +152,7 @@
         onMerge={onMerge && content.sessionId ? () => onMerge(content.sessionId) : undefined}
       />
     {:else if content.type === "settings"}
-      <div class="settings-placeholder" style="padding: 24px; color: var(--text-primary);">Settings (placeholder)</div>
+      <SettingsEditor />
     {:else if contentId}
       {#key contentId}
         <Terminal
