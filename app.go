@@ -37,6 +37,7 @@ type App struct {
 	patternMatchers map[string]*notification.PatternMatcher
 	errorDetectors        map[string]*notification.ErrorDetector
 	errorDetectionEnabled bool
+	notifCh               chan notifWork
 	dashTicker      *time.Ticker
 	recentDirsPath  string
 	proxyServer     *proxy.Server
@@ -72,6 +73,30 @@ func NewApp() *App {
 		errorDetectionEnabled: cfg.ErrorDetectionEnabled,
 		recentDirsPath:  filepath.Join(jackdawDir, "recent_dirs.json"),
 	}
+}
+
+type notifWork struct {
+	sessionID string
+	data      []byte
+}
+
+func (a *App) startNotifWorker() {
+	a.notifCh = make(chan notifWork, 256)
+	go func() {
+		for w := range a.notifCh {
+			if tracker := a.manager.StatusTracker(w.sessionID); tracker != nil {
+				tracker.HandleOutput(w.data)
+			}
+			if pm, ok := a.patternMatchers[w.sessionID]; ok {
+				if a.hookListener == nil || !a.hookListener.HasSession(w.sessionID) {
+					pm.Feed(w.data)
+				}
+			}
+			if ed, ok := a.errorDetectors[w.sessionID]; ok {
+				ed.Feed(w.data)
+			}
+		}
+	}()
 }
 
 func (a *App) Startup(ctx context.Context) {
@@ -110,6 +135,9 @@ func (a *App) Startup(ctx context.Context) {
 	if ws, err := wsserver.New(a); err == nil {
 		a.wsServer = ws
 	}
+
+	// Start async notification processing worker
+	a.startNotifWorker()
 
 	// Track window focus state — frontend emits this via document.hasFocus()
 	windowFocused := true
@@ -182,6 +210,9 @@ func (a *App) Startup(ctx context.Context) {
 }
 
 func (a *App) Shutdown(ctx context.Context) {
+	if a.notifCh != nil {
+		close(a.notifCh)
+	}
 	if a.dashTicker != nil {
 		a.dashTicker.Stop()
 	}
@@ -291,21 +322,17 @@ func (a *App) CreateSession(workDir string, worktreeEnabled bool, branchName str
 	}
 
 	info, err := a.manager.Create(id, workDir, "claude", nil, env, func(data []byte) {
-		// Send output via WebSocket
+		// Send output via WebSocket (hot path — no blocking)
 		if a.wsServer != nil {
 			a.wsServer.SendOutput(id, data)
 		}
-		// Async notification processing
-		if tracker := a.manager.StatusTracker(id); tracker != nil {
-			tracker.HandleOutput(data)
-		}
-		if pm, ok := a.patternMatchers[id]; ok {
-			if a.hookListener == nil || !a.hookListener.HasSession(id) {
-				pm.Feed(data)
-			}
-		}
-		if ed, ok := a.errorDetectors[id]; ok {
-			ed.Feed(data)
+		// Notification processing happens async to avoid blocking the read loop
+		dataCopy := make([]byte, len(data))
+		copy(dataCopy, data)
+		select {
+		case a.notifCh <- notifWork{sessionID: id, data: dataCopy}:
+		default:
+			// Drop notification work if channel is full — output delivery is more important
 		}
 	}, wtOpts, cfg.ActiveWorkspaceID)
 	if err != nil {

@@ -1,76 +1,47 @@
 package wsserver
 
-import (
-	"sync"
-	"time"
-)
+import "sync"
 
-const (
-	flushInterval = 2 * time.Millisecond
-	maxBufferSize = 16 * 1024 // 16KB
-)
+const sendQueueSize = 64
 
-// Coalescer buffers output and flushes on idle timeout or buffer size limit.
+// Coalescer sends output to a flush callback via a buffered channel,
+// decoupling data production from the (potentially slow) flush I/O.
 type Coalescer struct {
 	mu      sync.Mutex
-	buf     []byte
-	flush   func([]byte)
-	timer   *time.Timer
+	outCh   chan []byte
 	stopped bool
+	done    chan struct{}
 }
 
 func NewCoalescer(flush func([]byte)) *Coalescer {
-	return &Coalescer{
-		flush: flush,
+	c := &Coalescer{
+		outCh: make(chan []byte, sendQueueSize),
+		done:  make(chan struct{}),
 	}
+	go func() {
+		defer close(c.done)
+		for data := range c.outCh {
+			flush(data)
+		}
+	}()
+	return c
 }
 
 func (c *Coalescer) Write(data []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
 	if c.stopped {
 		return
 	}
-
-	c.buf = append(c.buf, data...)
-
-	if len(c.buf) >= maxBufferSize {
-		c.doFlush()
-		return
-	}
-
-	if c.timer != nil {
-		c.timer.Stop()
-	}
-	c.timer = time.AfterFunc(flushInterval, func() {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		c.doFlush()
-	})
-}
-
-// doFlush sends buffered data. Must be called with c.mu held.
-func (c *Coalescer) doFlush() {
-	if len(c.buf) == 0 {
-		return
-	}
-	out := c.buf
-	c.buf = nil
-	if c.timer != nil {
-		c.timer.Stop()
-		c.timer = nil
-	}
-	c.flush(out)
+	out := make([]byte, len(data))
+	copy(out, data)
+	c.outCh <- out
 }
 
 func (c *Coalescer) Stop() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.stopped = true
-	c.doFlush()
-	if c.timer != nil {
-		c.timer.Stop()
-		c.timer = nil
-	}
+	c.mu.Unlock()
+	close(c.outCh)
+	<-c.done
 }

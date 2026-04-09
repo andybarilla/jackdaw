@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestCoalescer_FlushOnIdle(t *testing.T) {
+func TestCoalescer_ImmediateFlush(t *testing.T) {
 	var mu sync.Mutex
 	var received []byte
 
@@ -20,7 +20,7 @@ func TestCoalescer_FlushOnIdle(t *testing.T) {
 	c.Write([]byte("hello"))
 	c.Write([]byte(" world"))
 
-	// Wait for idle flush
+	// Both writes should flush promptly
 	time.Sleep(20 * time.Millisecond)
 
 	mu.Lock()
@@ -32,7 +32,7 @@ func TestCoalescer_FlushOnIdle(t *testing.T) {
 	}
 }
 
-func TestCoalescer_FlushOnMaxBuffer(t *testing.T) {
+func TestCoalescer_LargeWrite(t *testing.T) {
 	var mu sync.Mutex
 	var flushCount int
 	var totalBytes int
@@ -45,20 +45,20 @@ func TestCoalescer_FlushOnMaxBuffer(t *testing.T) {
 	})
 	defer c.Stop()
 
-	// Write exactly maxBufferSize bytes
-	data := make([]byte, maxBufferSize)
+	data := make([]byte, 16*1024)
 	for i := range data {
 		data[i] = 'x'
 	}
 	c.Write(data)
 
-	// Should have flushed immediately
+	time.Sleep(20 * time.Millisecond)
+
 	mu.Lock()
 	if flushCount != 1 {
 		t.Errorf("expected 1 flush, got %d", flushCount)
 	}
-	if totalBytes != maxBufferSize {
-		t.Errorf("expected %d bytes, got %d", maxBufferSize, totalBytes)
+	if totalBytes != len(data) {
+		t.Errorf("expected %d bytes, got %d", len(data), totalBytes)
 	}
 	mu.Unlock()
 }
