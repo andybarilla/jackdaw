@@ -70,6 +70,10 @@ export function PickDirectory() {
   return window['go']['main']['App']['PickDirectory']();
 }
 
+export function RemoveSession(arg1) {
+  return window['go']['main']['App']['RemoveSession'](arg1);
+}
+
 export function RenameSession(arg1, arg2) {
   return window['go']['main']['App']['RenameSession'](arg1, arg2);
 }

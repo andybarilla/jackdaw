@@ -416,6 +416,15 @@ func (a *App) KillSession(id string) error {
 	return a.manager.Kill(id)
 }
 
+func (a *App) RemoveSession(id string) {
+	delete(a.patternMatchers, id)
+	delete(a.errorDetectors, id)
+	if a.hookListener != nil {
+		a.hookListener.UnregisterSession(id)
+	}
+	a.manager.Remove(id)
+}
+
 func (a *App) RenameSession(id string, name string) error {
 	return a.manager.Rename(id, name)
 }

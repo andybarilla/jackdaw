@@ -20,6 +20,8 @@
     onTerminalReady: (id: string, api: TerminalApi) => void;
     onMerge?: (sessionId: string) => void;
     onSelectSession?: (id: string) => void;
+    onRemoveSession?: (id: string) => void;
+    onRestartSession?: (id: string) => void;
     onTabSelect: (path: number[], index: number) => void;
     onTabClose: (path: number[], index: number) => void;
     onTabReorder: (path: number[], fromIndex: number, toIndex: number) => void;
@@ -39,6 +41,8 @@
     onTerminalReady,
     onMerge,
     onSelectSession,
+    onRemoveSession,
+    onRestartSession,
     onTabSelect,
     onTabClose,
     onTabReorder,
@@ -74,6 +78,8 @@
     }}
     {onMerge}
     {onSelectSession}
+    {onRemoveSession}
+    {onRestartSession}
     onTabSelect={(index) => onTabSelect(path, index)}
     onTabClose={(index) => onTabClose(path, index)}
     onTabReorder={(from, to) => onTabReorder(path, from, to)}
@@ -104,6 +110,8 @@
         {onTerminalReady}
         {onMerge}
         {onSelectSession}
+        {onRemoveSession}
+        {onRestartSession}
         {onTabSelect}
         {onTabClose}
         {onTabReorder}
@@ -135,6 +143,8 @@
         {onTerminalReady}
         {onMerge}
         {onSelectSession}
+        {onRemoveSession}
+        {onRestartSession}
         {onTabSelect}
         {onTabClose}
         {onTabReorder}

@@ -40,6 +40,8 @@ export function MergeSession(arg1:string):Promise<worktree.MergeResult>;
 
 export function PickDirectory():Promise<string>;
 
+export function RemoveSession(arg1:string):Promise<void>;
+
 export function RenameSession(arg1:string,arg2:string):Promise<void>;
 
 export function RespondToNotification(arg1:string,arg2:string):Promise<void>;

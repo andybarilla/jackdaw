@@ -59,6 +59,7 @@ describe("matchKeybinding", () => {
   it("matches a Ctrl+Shift+N event to session.new", () => {
     const event = new KeyboardEvent("keydown", {
       key: "N",
+      code: "KeyN",
       ctrlKey: true,
       shiftKey: true,
     });
@@ -69,6 +70,7 @@ describe("matchKeybinding", () => {
   it("returns null for unbound keys", () => {
     const event = new KeyboardEvent("keydown", {
       key: "z",
+      code: "KeyZ",
       ctrlKey: true,
     });
     expect(matchKeybinding(event, DEFAULT_KEYMAP)).toBeNull();
@@ -77,6 +79,7 @@ describe("matchKeybinding", () => {
   it("respects user overrides", () => {
     const event = new KeyboardEvent("keydown", {
       key: "T",
+      code: "KeyT",
       ctrlKey: true,
       shiftKey: true,
     });
@@ -88,6 +91,7 @@ describe("matchKeybinding", () => {
   it("matches Ctrl+F to terminal.search", () => {
     const event = new KeyboardEvent("keydown", {
       key: "f",
+      code: "KeyF",
       ctrlKey: true,
     });
     expect(matchKeybinding(event, DEFAULT_KEYMAP)).toBe("terminal.search");
@@ -96,9 +100,68 @@ describe("matchKeybinding", () => {
   it("does not match when modifier is missing", () => {
     const event = new KeyboardEvent("keydown", {
       key: "N",
+      code: "KeyN",
       ctrlKey: false,
       shiftKey: true,
     });
     expect(matchKeybinding(event, DEFAULT_KEYMAP)).toBeNull();
+  });
+
+  it("matches Ctrl+Shift+] even when event.key is shifted to }", () => {
+    const event = new KeyboardEvent("keydown", {
+      key: "}",
+      code: "BracketRight",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(matchKeybinding(event, DEFAULT_KEYMAP)).toBe("session.next");
+  });
+
+  it("matches Ctrl+Shift+[ even when event.key is shifted to {", () => {
+    const event = new KeyboardEvent("keydown", {
+      key: "{",
+      code: "BracketLeft",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(matchKeybinding(event, DEFAULT_KEYMAP)).toBe("session.prev");
+  });
+
+  it("matches Ctrl+PageDown for tab.next", () => {
+    const event = new KeyboardEvent("keydown", {
+      key: "PageDown",
+      code: "PageDown",
+      ctrlKey: true,
+    });
+    expect(matchKeybinding(event, DEFAULT_KEYMAP)).toBe("tab.next");
+  });
+
+  it("matches Ctrl+PageUp for tab.prev", () => {
+    const event = new KeyboardEvent("keydown", {
+      key: "PageUp",
+      code: "PageUp",
+      ctrlKey: true,
+    });
+    expect(matchKeybinding(event, DEFAULT_KEYMAP)).toBe("tab.prev");
+  });
+
+  it("matches Ctrl+Shift+X for session.kill", () => {
+    const event = new KeyboardEvent("keydown", {
+      key: "X",
+      code: "KeyX",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(matchKeybinding(event, DEFAULT_KEYMAP)).toBe("session.kill");
+  });
+
+  it("matches arrow key bindings", () => {
+    const event = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      code: "ArrowUp",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(matchKeybinding(event, DEFAULT_KEYMAP)).toBe("pane.focusUp");
   });
 });

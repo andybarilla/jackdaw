@@ -11,6 +11,7 @@
     getWorktreeRoot,
     getMergeMode,
     getHistoryMaxBytes,
+    getAutoRemoveKilledSessions,
     setTheme,
     setKeybinding,
     setToastDuration,
@@ -20,6 +21,7 @@
     setWorktreeRoot,
     setMergeMode,
     setHistoryMaxBytes,
+    setAutoRemoveKilledSessions,
   } from "./config.svelte";
 
   let capturingAction = $state<string | null>(null);
@@ -123,6 +125,15 @@
           value={getToastDuration()}
           onchange={(e) => setToastDuration(Number(e.currentTarget.value) || 5)}
         />
+      </label>
+    </section>
+
+    <!-- Sessions -->
+    <section>
+      <h2>Sessions</h2>
+      <label class="toggle-row">
+        <span>Auto-remove killed sessions</span>
+        <input type="checkbox" checked={getAutoRemoveKilledSessions()} onchange={(e) => setAutoRemoveKilledSessions(e.currentTarget.checked)} />
       </label>
     </section>
 

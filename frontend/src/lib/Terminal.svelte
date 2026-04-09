@@ -17,10 +17,11 @@
   interface Props {
     sessionId: string;
     visible?: boolean;
+    readonly?: boolean;
     onReady?: (api: TerminalApi) => void;
   }
 
-  let { sessionId, visible = true, onReady }: Props = $props();
+  let { sessionId, visible = true, readonly = false, onReady }: Props = $props();
   let terminalEl: HTMLDivElement;
   let terminal = $state<Terminal | undefined>(undefined);
   let fitAddon: FitAddon;
@@ -70,18 +71,20 @@
         if (history) term.write(history);
       }).catch(() => {});
 
-      const inputDisposable = term.onData((data: string) => {
-        EventsEmit("terminal-input", sessionId, data);
-      });
-      cleanups.push(() => inputDisposable.dispose());
+      if (!readonly) {
+        const inputDisposable = term.onData((data: string) => {
+          EventsEmit("terminal-input", sessionId, data);
+        });
+        cleanups.push(() => inputDisposable.dispose());
 
-      const cancelOutput = EventsOn(
-        `terminal-output-${sessionId}`,
-        (data: string) => {
-          term.write(data);
-        },
-      );
-      cleanups.push(cancelOutput);
+        const cancelOutput = EventsOn(
+          `terminal-output-${sessionId}`,
+          (data: string) => {
+            term.write(data);
+          },
+        );
+        cleanups.push(cancelOutput);
+      }
 
       let resizeTimer: ReturnType<typeof setTimeout>;
       const resizeObserver = new ResizeObserver(() => {
@@ -89,7 +92,7 @@
         resizeTimer = setTimeout(() => {
           if (!currentlyVisible) return;
           fitAndRefresh();
-          if (term.cols > 0 && term.rows > 0) {
+          if (!readonly && term.cols > 0 && term.rows > 0) {
             EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
           }
         }, 50);
@@ -101,7 +104,7 @@
         resizeTimer = setTimeout(() => {
           if (!currentlyVisible) return;
           fitAndRefresh();
-          if (term.cols > 0 && term.rows > 0) {
+          if (!readonly && term.cols > 0 && term.rows > 0) {
             EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
           }
         }, 50);
@@ -114,10 +117,12 @@
         window.removeEventListener("pane-resize", handlePaneResize);
       });
 
-      EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
-      AttachSession(sessionId).catch(() => {
-        // Plain terminals don't need AttachSession
-      });
+      if (!readonly) {
+        EventsEmit("terminal-resize", sessionId, term.cols, term.rows);
+        AttachSession(sessionId).catch(() => {
+          // Plain terminals don't need AttachSession
+        });
+      }
 
       onReady?.({ searchAddon, focus: () => term.focus() });
     } else {
@@ -143,7 +148,8 @@
 
   onMount(() => {
     terminal = new Terminal({
-      cursorBlink: true,
+      cursorBlink: !readonly,
+      disableStdin: readonly,
       fontSize: 14,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       theme: getXtermTheme(getTheme()),

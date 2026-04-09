@@ -11,6 +11,7 @@ let errorDetectionEnabled = $state(true);
 let worktreeRoot = $state("");
 let mergeMode = $state("squash");
 let historyMaxBytes = $state(1048576);
+let autoRemoveKilledSessions = $state(false);
 
 export function getTheme(): Theme {
   return currentTheme;
@@ -48,6 +49,10 @@ export function getHistoryMaxBytes(): number {
   return historyMaxBytes;
 }
 
+export function getAutoRemoveKilledSessions(): boolean {
+  return autoRemoveKilledSessions;
+}
+
 export async function loadConfig(): Promise<void> {
   const cfg = await GetConfig();
   currentTheme = findTheme(cfg.theme);
@@ -59,6 +64,7 @@ export async function loadConfig(): Promise<void> {
   worktreeRoot = cfg.worktree_root || "";
   mergeMode = cfg.merge_mode || "squash";
   historyMaxBytes = cfg.history_max_bytes || 1048576;
+  autoRemoveKilledSessions = cfg.auto_remove_killed_sessions ?? false;
   applyTheme(currentTheme);
 }
 
@@ -126,5 +132,12 @@ export async function setHistoryMaxBytes(v: number): Promise<void> {
   historyMaxBytes = v;
   const cfg = await GetConfig();
   cfg.history_max_bytes = v;
+  await SetConfig(cfg);
+}
+
+export async function setAutoRemoveKilledSessions(v: boolean): Promise<void> {
+  autoRemoveKilledSessions = v;
+  const cfg = await GetConfig();
+  cfg.auto_remove_killed_sessions = v;
   await SetConfig(cfg);
 }
