@@ -37,6 +37,7 @@
     unsplitPane,
     migrateLayout,
     moveTab,
+    collapseEmptyLeaves,
   } from "./lib/layout";
   import type { SessionInfo, TerminalApi, AppNotification, WorktreeStatus } from "./lib/types";
   import { addNotification, dismissNotification } from "./lib/notifications.svelte";
@@ -336,11 +337,14 @@
           }
         }
 
-        layoutTree = cleaned;
+        layoutTree = collapseEmptyLeaves(cleaned);
       }
     } catch {
       // No persisted layout, use default
     }
+
+    // After layout restoration, give split panes time to settle then re-fit terminals
+    setTimeout(() => window.dispatchEvent(new Event("pane-resize")), 200);
 
     // Set initial focus
     const paths = collectLeafPaths(layoutTree);

@@ -474,6 +474,20 @@ function adjustPathAfterClose(closedPath: Path, targetPath: Path): Path {
   return [...parentPath, ...targetPath.slice(parentPath.length + 1)] as Path;
 }
 
+/** Collapse empty leaves out of a layout tree. Splits where one child is an empty leaf
+ *  are replaced by the other child. A standalone empty leaf at the root is left as-is. */
+export function collapseEmptyLeaves(node: LayoutNode): LayoutNode {
+  if (node.type === "leaf") return node;
+  const left = collapseEmptyLeaves(node.children[0]);
+  const right = collapseEmptyLeaves(node.children[1]);
+  const leftEmpty = left.type === "leaf" && left.contents.length === 0;
+  const rightEmpty = right.type === "leaf" && right.contents.length === 0;
+  if (leftEmpty && rightEmpty) return emptyLeaf();
+  if (leftEmpty) return right;
+  if (rightEmpty) return left;
+  return { ...node, children: [left, right] };
+}
+
 /** Migrate old layout format (content: PaneContent | null) to new format (contents[], activeIndex). */
 export function migrateLayout(node: unknown): LayoutNode {
   if (typeof node !== "object" || node === null) return emptyLeaf();
