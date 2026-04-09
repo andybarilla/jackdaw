@@ -15,9 +15,10 @@
     sessions?: SessionInfo[];
     onFocus: (path: number[]) => void;
     onRatioChange: (path: number[], ratio: number) => void;
-    onQuickPick: (path: number[], choice: "terminal" | "session") => void;
+    onQuickPick: (path: number[], choice: "terminal" | "session" | "dashboard") => void;
     onTerminalReady: (id: string, api: TerminalApi) => void;
     onMerge?: (sessionId: string) => void;
+    onSelectSession?: (id: string) => void;
     onTabSelect: (path: number[], index: number) => void;
     onTabClose: (path: number[], index: number) => void;
     onTabReorder: (path: number[], fromIndex: number, toIndex: number) => void;
@@ -35,6 +36,7 @@
     onQuickPick,
     onTerminalReady,
     onMerge,
+    onSelectSession,
     onTabSelect,
     onTabClose,
     onTabReorder,
@@ -67,6 +69,7 @@
       if (contentId) onTerminalReady(contentId, api);
     }}
     {onMerge}
+    {onSelectSession}
     onTabSelect={(index) => onTabSelect(path, index)}
     onTabClose={(index) => onTabClose(path, index)}
     onTabReorder={(from, to) => onTabReorder(path, from, to)}
@@ -95,6 +98,7 @@
         {onQuickPick}
         {onTerminalReady}
         {onMerge}
+        {onSelectSession}
         {onTabSelect}
         {onTabClose}
         {onTabReorder}
@@ -124,6 +128,7 @@
         {onQuickPick}
         {onTerminalReady}
         {onMerge}
+        {onSelectSession}
         {onTabSelect}
         {onTabClose}
         {onTabReorder}

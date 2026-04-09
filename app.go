@@ -291,6 +291,10 @@ func (a *App) AttachSession(id string) {
 	a.manager.StartSessionReadLoop(id)
 }
 
+func (a *App) GetDashboardData() []session.DashboardSession {
+	return a.manager.DashboardData()
+}
+
 func (a *App) ListSessions() []session.SessionInfo {
 	return a.manager.List()
 }

@@ -5,6 +5,7 @@
   import SearchBar from "./SearchBar.svelte";
   import QuickPicker from "./QuickPicker.svelte";
   import DiffViewer from "./DiffViewer.svelte";
+  import Dashboard from "./Dashboard.svelte";
   import TabBar from "./TabBar.svelte";
 
   interface Props {
@@ -15,9 +16,10 @@
     terminalApi: TerminalApi | null;
     sessions?: SessionInfo[];
     onFocus: () => void;
-    onQuickPick: (choice: "terminal" | "session") => void;
+    onQuickPick: (choice: "terminal" | "session" | "dashboard") => void;
     onTerminalReady: (api: TerminalApi) => void;
     onMerge?: (sessionId: string) => void;
+    onSelectSession?: (id: string) => void;
     onTabSelect: (index: number) => void;
     onTabClose: (index: number) => void;
     onTabReorder: (fromIndex: number, toIndex: number) => void;
@@ -34,6 +36,7 @@
     onQuickPick,
     onTerminalReady,
     onMerge,
+    onSelectSession,
     onTabSelect,
     onTabClose,
     onTabReorder,
@@ -74,6 +77,8 @@
   <div class="pane-content">
     {#if content === null}
       <QuickPicker onSelect={onQuickPick} />
+    {:else if content.type === "dashboard"}
+      <Dashboard onSelectSession={onSelectSession ?? (() => {})} />
     {:else if content.type === "diff"}
       <DiffViewer
         sessionId={content.sessionId}

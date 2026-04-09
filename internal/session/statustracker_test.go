@@ -234,6 +234,50 @@ func TestOnChangeDoesNotFireWhenStatusUnchanged(t *testing.T) {
 	}
 }
 
+func TestLastLineBasic(t *testing.T) {
+	st := newTestTracker(nil)
+	st.HandleOutput([]byte("first line\nsecond line\nthird line\n"))
+	if st.LastLine() != "third line" {
+		t.Errorf("LastLine() = %q, want %q", st.LastLine(), "third line")
+	}
+}
+
+func TestLastLineSkipsPrompt(t *testing.T) {
+	st := newTestTracker(nil)
+	st.HandleOutput([]byte("real output\n❯ \n"))
+	if st.LastLine() != "real output" {
+		t.Errorf("LastLine() = %q, want %q", st.LastLine(), "real output")
+	}
+}
+
+func TestLastLineWithANSI(t *testing.T) {
+	st := newTestTracker(nil)
+	st.HandleOutput([]byte("\x1b[32mcolored output\x1b[0m\n"))
+	if st.LastLine() != "colored output" {
+		t.Errorf("LastLine() = %q, want %q", st.LastLine(), "colored output")
+	}
+}
+
+func TestLastLineTruncation(t *testing.T) {
+	st := newTestTracker(nil)
+	long := make([]byte, 300)
+	for i := range long {
+		long[i] = 'a'
+	}
+	st.HandleOutput(append(long, '\n'))
+	if len(st.LastLine()) != 200 {
+		t.Errorf("LastLine() length = %d, want 200", len(st.LastLine()))
+	}
+}
+
+func TestLastLineEmptyOutput(t *testing.T) {
+	st := newTestTracker(nil)
+	st.HandleOutput([]byte("   \n\n  \n"))
+	if st.LastLine() != "" {
+		t.Errorf("LastLine() = %q, want empty string", st.LastLine())
+	}
+}
+
 func TestHandleOutputWithANSI(t *testing.T) {
 	var mu sync.Mutex
 	var got Status

@@ -59,6 +59,17 @@ export interface DiffLine {
   new_line?: number;
 }
 
+export interface DashboardSession {
+  id: string;
+  name: string;
+  work_dir: string;
+  status: SessionInfo["status"];
+  started_at: string;
+  last_line: string;
+  worktree_enabled?: boolean;
+  branch_name?: string;
+}
+
 export interface AppNotification {
   sessionID: string;
   sessionName: string;

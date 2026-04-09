@@ -10,9 +10,10 @@
     onKill: (id: string) => void;
     onRename: (id: string, name: string) => void;
     onViewDiff: (id: string) => void;
+    onDashboard: () => void;
   }
 
-  let { sessions, activeSessionId, onSelect, onNew, onKill, onRename, onViewDiff }: Props =
+  let { sessions, activeSessionId, onSelect, onNew, onKill, onRename, onViewDiff, onDashboard }: Props =
     $props();
 
   let editingId = $state<string | null>(null);
@@ -58,6 +59,7 @@
 
 <aside class="sidebar">
   <button class="new-session" onclick={onNew}>+ New Session</button>
+  <button class="dashboard-btn" onclick={onDashboard}>Dashboard</button>
 
   <div class="session-list">
     {#each sessions as session (session.id)}
@@ -147,6 +149,22 @@
 
   .new-session:hover {
     opacity: 0.9;
+  }
+
+  .dashboard-btn {
+    margin: 0 12px 12px;
+    padding: 8px 12px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+
+  .dashboard-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
   }
 
   .session-list {

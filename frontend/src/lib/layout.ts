@@ -1,7 +1,8 @@
 export type PaneContent =
   | { type: "session"; sessionId: string }
   | { type: "terminal"; id: string; workDir: string }
-  | { type: "diff"; sessionId: string };
+  | { type: "diff"; sessionId: string }
+  | { type: "dashboard" };
 
 export type LayoutNode =
   | { type: "leaf"; contents: PaneContent[]; activeIndex: number }
@@ -208,6 +209,36 @@ export function findLeafByDiffSessionId(node: LayoutNode, sessionId: string): Fi
     return { path: [1, ...rightResult.path] as Path, tabIndex: rightResult.tabIndex };
   }
   return null;
+}
+
+export function findLeafByDashboard(node: LayoutNode): FindResult | null {
+  if (node.type === "leaf") {
+    for (let i = 0; i < node.contents.length; i++) {
+      if (node.contents[i].type === "dashboard") {
+        return { path: [], tabIndex: i };
+      }
+    }
+    return null;
+  }
+  const leftResult = findLeafByDashboard(node.children[0]);
+  if (leftResult !== null) {
+    return { path: [0, ...leftResult.path] as Path, tabIndex: leftResult.tabIndex };
+  }
+  const rightResult = findLeafByDashboard(node.children[1]);
+  if (rightResult !== null) {
+    return { path: [1, ...rightResult.path] as Path, tabIndex: rightResult.tabIndex };
+  }
+  return null;
+}
+
+export function collectDashboardPanes(node: LayoutNode): number {
+  if (node.type === "leaf") {
+    return node.contents.filter((c) => c.type === "dashboard").length;
+  }
+  return (
+    collectDashboardPanes(node.children[0]) +
+    collectDashboardPanes(node.children[1])
+  );
 }
 
 export function collectSessionIds(node: LayoutNode): string[] {
