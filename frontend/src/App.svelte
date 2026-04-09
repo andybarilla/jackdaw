@@ -309,9 +309,12 @@
       try {
         const cfg = await GetConfig();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (cfg as any).layout = layoutTree;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (cfg as any).sidebar_width = sidebarWidth;
+        const cfgAny = cfg as any;
+        if (!cfgAny.workspace_layouts) cfgAny.workspace_layouts = {};
+        cfgAny.workspace_layouts[activeWorkspaceId] = layoutTree;
+        cfgAny.sidebar_width = sidebarWidth;
+        // Clear legacy layout field
+        delete cfgAny.layout;
         await SetConfig(cfg);
       } catch {
         // config save failed, ignore
@@ -334,11 +337,23 @@
     try {
       const cfg = await GetConfig();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawSidebarWidth = (cfg as any).sidebar_width;
+      const cfgAny = cfg as any;
+      const rawSidebarWidth = cfgAny.sidebar_width;
       if (typeof rawSidebarWidth === "number" && rawSidebarWidth >= 180 && rawSidebarWidth <= 480) {
         sidebarWidth = rawSidebarWidth;
       }
-      const rawLayout = (cfg as any).layout;
+
+      // Migrate legacy layout → workspace_layouts
+      if (!cfgAny.workspace_layouts) cfgAny.workspace_layouts = {};
+      if (cfgAny.layout && typeof cfgAny.layout === "object" && "type" in cfgAny.layout) {
+        if (!cfgAny.workspace_layouts[activeWorkspaceId]) {
+          cfgAny.workspace_layouts[activeWorkspaceId] = cfgAny.layout;
+        }
+        delete cfgAny.layout;
+        await SetConfig(cfg);
+      }
+
+      const rawLayout = cfgAny.workspace_layouts[activeWorkspaceId];
       if (rawLayout && typeof rawLayout === "object" && rawLayout !== null && "type" in rawLayout) {
         // Migrate from old format if needed
         layoutTree = migrateLayout(rawLayout);
@@ -631,8 +646,72 @@
   }
 
   async function handleSwitchWorkspace(id: string): Promise<void> {
+    // Save current layout under old workspace
+    try {
+      const cfg = await GetConfig();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cfgAny = cfg as any;
+      if (!cfgAny.workspace_layouts) cfgAny.workspace_layouts = {};
+      cfgAny.workspace_layouts[activeWorkspaceId] = layoutTree;
+      delete cfgAny.layout;
+      await SetConfig(cfg);
+    } catch {
+      // ignore
+    }
+
     await SetActiveWorkspace(id);
     activeWorkspaceId = id;
+
+    // Load layout for new workspace
+    try {
+      const cfg = await GetConfig();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cfgAny = cfg as any;
+      const rawLayout = cfgAny.workspace_layouts?.[id];
+      if (rawLayout && typeof rawLayout === "object" && "type" in rawLayout) {
+        let restored = migrateLayout(rawLayout);
+
+        // Clean stale sessions
+        const layoutSessionIds = collectSessionIds(restored);
+        const freshSessions = ((await ListSessions()) || []) as SessionInfo[];
+        const liveSessionIds = new Set(freshSessions.map((s) => s.id));
+        for (const sid of layoutSessionIds) {
+          if (!liveSessionIds.has(sid)) {
+            let found = findLeafBySessionId(restored, sid);
+            while (found) {
+              restored = removeTab(restored, found.path, found.tabIndex);
+              found = findLeafBySessionId(restored, sid);
+            }
+          }
+        }
+
+        // Remove diff and settings tabs (ephemeral)
+        const diffSids = collectDiffSessionIds(restored);
+        for (const dsid of diffSids) {
+          let found = findLeafByDiffSessionId(restored, dsid);
+          while (found) {
+            restored = removeTab(restored, found.path, found.tabIndex);
+            found = findLeafByDiffSessionId(restored, dsid);
+          }
+        }
+        let settingsFound = findSettings(restored);
+        while (settingsFound) {
+          restored = removeTab(restored, settingsFound.path, settingsFound.tabIndex);
+          settingsFound = findSettings(restored);
+        }
+
+        layoutTree = collapseEmptyLeaves(restored);
+      } else {
+        layoutTree = emptyLeaf();
+      }
+    } catch {
+      layoutTree = emptyLeaf();
+    }
+
+    // Reset focus
+    const paths = collectLeafPaths(layoutTree);
+    focusedPath = paths[0] ?? [];
+    setTimeout(() => window.dispatchEvent(new Event("pane-resize")), 200);
   }
 
   async function handleCreateWorkspace(name: string): Promise<void> {
