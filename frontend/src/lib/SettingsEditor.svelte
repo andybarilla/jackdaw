@@ -12,6 +12,10 @@
     getMergeMode,
     getHistoryMaxBytes,
     getAutoRemoveKilledSessions,
+    getTerminalFontFamily,
+    getTerminalFontSize,
+    getUIFontFamily,
+    getUIFontSize,
     setTheme,
     setKeybinding,
     setToastDuration,
@@ -22,6 +26,10 @@
     setMergeMode,
     setHistoryMaxBytes,
     setAutoRemoveKilledSessions,
+    setTerminalFontFamily,
+    setTerminalFontSize,
+    setUIFontFamily,
+    setUIFontSize,
   } from "./config.svelte";
 
   let capturingAction = $state<string | null>(null);
@@ -99,6 +107,51 @@
           >{t.label}</button>
         {/each}
       </div>
+    </section>
+
+    <!-- Fonts -->
+    <section>
+      <h2>Fonts</h2>
+      <h3>Terminal</h3>
+      <label class="field-row">
+        <span>Font family</span>
+        <input
+          type="text"
+          value={getTerminalFontFamily()}
+          onchange={(e) => setTerminalFontFamily(e.currentTarget.value)}
+        />
+      </label>
+      <label class="field-row">
+        <span>Font size</span>
+        <input
+          type="number"
+          min="8"
+          max="32"
+          step="1"
+          value={getTerminalFontSize()}
+          onchange={(e) => setTerminalFontSize(Number(e.currentTarget.value) || 14)}
+        />
+      </label>
+      <h3>UI</h3>
+      <label class="field-row">
+        <span>Font family</span>
+        <input
+          type="text"
+          value={getUIFontFamily()}
+          onchange={(e) => setUIFontFamily(e.currentTarget.value)}
+        />
+      </label>
+      <label class="field-row">
+        <span>Font size</span>
+        <input
+          type="number"
+          min="8"
+          max="24"
+          step="1"
+          value={getUIFontSize()}
+          onchange={(e) => setUIFontSize(Number(e.currentTarget.value) || 13)}
+        />
+      </label>
     </section>
 
     <!-- Notifications -->
@@ -225,22 +278,32 @@
     height: 100%;
     overflow-y: auto;
     padding: 24px 32px;
-    max-width: 640px;
   }
 
   h1 {
-    font-size: 20px;
+    font-size: 1.538rem;
     font-weight: 600;
     margin: 0 0 24px;
   }
 
   h2 {
-    font-size: 14px;
+    font-size: 1.077rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-secondary);
     margin: 0 0 12px;
+  }
+
+  h3 {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin: 12px 0 8px;
+  }
+
+  h3:first-of-type {
+    margin-top: 0;
   }
 
   section {
@@ -265,7 +328,7 @@
     background: var(--bg-secondary);
     color: var(--text-primary);
     cursor: pointer;
-    font-size: 13px;
+    font-size: 1rem;
   }
 
   .theme-btn:hover {
@@ -281,9 +344,9 @@
   .toggle-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 1rem;
     padding: 6px 0;
-    font-size: 13px;
+    font-size: 1rem;
     cursor: pointer;
   }
 
@@ -301,25 +364,26 @@
     border-radius: 4px;
     background: var(--bg-secondary);
     color: var(--text-primary);
-    font-size: 13px;
+    font-size: 1rem;
   }
 
   .field-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 1rem;
     padding: 6px 0;
-    font-size: 13px;
+    font-size: 1rem;
   }
 
   .field-row input[type="text"] {
-    width: 240px;
+    flex: 1;
+    min-width: 0;
     padding: 4px 8px;
     border: 1px solid var(--border);
     border-radius: 4px;
     background: var(--bg-secondary);
     color: var(--text-primary);
-    font-size: 13px;
+    font-size: 1rem;
   }
 
   .radio-group {
@@ -328,7 +392,7 @@
     margin: 8px 0 0;
     display: flex;
     gap: 16px;
-    font-size: 13px;
+    font-size: 1rem;
   }
 
   .radio-group legend {
@@ -349,7 +413,7 @@
   .keybindings-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: 1rem;
   }
 
   .keybindings-table th {
@@ -369,7 +433,7 @@
     background: var(--bg-secondary);
     padding: 2px 6px;
     border-radius: 3px;
-    font-size: 12px;
+    font-size: 0.923rem;
   }
 
   .capturing {
@@ -384,7 +448,7 @@
     background: var(--bg-secondary);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 0.923rem;
   }
 
   .edit-btn:hover {

@@ -32,7 +32,7 @@
 
   .picker-label {
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 1rem;
   }
 
   .picker-options {
@@ -45,7 +45,7 @@
     border-radius: 6px;
     border: 1px solid;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 1rem;
     font-weight: 600;
     background: transparent;
   }

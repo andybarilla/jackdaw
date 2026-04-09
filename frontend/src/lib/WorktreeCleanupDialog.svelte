@@ -68,7 +68,7 @@
 
   h3 {
     margin: 0 0 12px;
-    font-size: 16px;
+    font-size: 1.231rem;
   }
 
   .session-name {
@@ -78,7 +78,7 @@
 
   .branch {
     margin: 0 0 12px;
-    font-size: 13px;
+    font-size: 1rem;
     color: var(--text-secondary);
   }
 
@@ -86,7 +86,7 @@
     background: var(--bg-tertiary);
     padding: 2px 6px;
     border-radius: 3px;
-    font-size: 12px;
+    font-size: 0.923rem;
   }
 
   .status {
@@ -94,7 +94,7 @@
     flex-direction: column;
     gap: 4px;
     margin-bottom: 16px;
-    font-size: 13px;
+    font-size: 1rem;
   }
 
   .warning {
@@ -116,7 +116,7 @@
     border-radius: 4px;
     border: none;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 1rem;
   }
 
   .keep {

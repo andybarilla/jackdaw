@@ -12,6 +12,10 @@ export namespace config {
 	    worktree_root?: string;
 	    merge_mode?: string;
 	    auto_remove_killed_sessions: boolean;
+	    terminal_font_family?: string;
+	    terminal_font_size?: number;
+	    ui_font_family?: string;
+	    ui_font_size?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -30,6 +34,10 @@ export namespace config {
 	        this.worktree_root = source["worktree_root"];
 	        this.merge_mode = source["merge_mode"];
 	        this.auto_remove_killed_sessions = source["auto_remove_killed_sessions"];
+	        this.terminal_font_family = source["terminal_font_family"];
+	        this.terminal_font_size = source["terminal_font_size"];
+	        this.ui_font_family = source["ui_font_family"];
+	        this.ui_font_size = source["ui_font_size"];
 	    }
 	}
 

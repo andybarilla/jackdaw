@@ -165,17 +165,17 @@
   }
 
   .toast-icon {
-    font-size: 14px;
+    font-size: 1.077rem;
   }
 
   .toast-title {
     font-weight: 600;
-    font-size: 13px;
+    font-size: 1rem;
     color: var(--text-primary);
   }
 
   .toast-message {
-    font-size: 12px;
+    font-size: 0.923rem;
     color: var(--text-secondary);
     margin-bottom: 8px;
   }
@@ -189,7 +189,7 @@
     padding: 4px 10px;
     border: none;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 0.923rem;
     cursor: pointer;
   }
 

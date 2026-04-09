@@ -40,7 +40,7 @@
 
   .label {
     color: var(--text-muted, #a6adc8);
-    font-size: 13px;
+    font-size: 1rem;
   }
 
   .actions {
@@ -52,7 +52,7 @@
     padding: 4px 12px;
     border: 1px solid var(--border, #313244);
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 0.923rem;
     cursor: pointer;
     background: var(--bg-tertiary, #313244);
     color: var(--text, #cdd6f4);

@@ -134,7 +134,7 @@
     border-radius: 4px;
     color: var(--text-primary);
     padding: 4px 8px;
-    font-size: 13px;
+    font-size: 1rem;
     font-family: inherit;
     width: 200px;
     outline: none;
@@ -146,7 +146,7 @@
 
   .result-count {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: 0.923rem;
     min-width: 50px;
     text-align: center;
   }
@@ -157,7 +157,7 @@
     border-radius: 4px;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 0.923rem;
     padding: 2px 6px;
     font-family: monospace;
   }
@@ -177,7 +177,7 @@
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 14px;
+    font-size: 1.077rem;
     padding: 2px 4px;
     border-radius: 4px;
   }
