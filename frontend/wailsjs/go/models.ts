@@ -4,6 +4,7 @@ export namespace config {
 	    theme: string;
 	    keybindings: Record<string, string>;
 	    layout?: number[];
+	    workspace_layouts?: Record<string, Array<number>>;
 	    history_max_bytes?: number;
 	    notifications_enabled: boolean;
 	    desktop_notifications: boolean;
@@ -28,6 +29,7 @@ export namespace config {
 	        this.theme = source["theme"];
 	        this.keybindings = source["keybindings"];
 	        this.layout = source["layout"];
+	        this.workspace_layouts = source["workspace_layouts"];
 	        this.history_max_bytes = source["history_max_bytes"];
 	        this.notifications_enabled = source["notifications_enabled"];
 	        this.desktop_notifications = source["desktop_notifications"];

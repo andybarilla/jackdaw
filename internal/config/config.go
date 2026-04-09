@@ -12,7 +12,8 @@ import (
 type Config struct {
 	Theme                string            `json:"theme"`
 	Keybindings          map[string]string `json:"keybindings"`
-	Layout               json.RawMessage   `json:"layout,omitempty"`
+	Layout               json.RawMessage            `json:"layout,omitempty"`
+	WorkspaceLayouts     map[string]json.RawMessage `json:"workspace_layouts,omitempty"`
 	HistoryMaxBytes      int               `json:"history_max_bytes,omitempty"`
 	NotificationsEnabled bool              `json:"notifications_enabled"`
 	DesktopNotifications bool              `json:"desktop_notifications"`
