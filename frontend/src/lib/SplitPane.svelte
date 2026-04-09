@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { LayoutNode } from "./layout";
+  import type { DropZone } from "./layout";
   import type { TerminalApi, SessionInfo } from "./types";
   import PaneContainer from "./PaneContainer.svelte";
   import DragDivider from "./DragDivider.svelte";
@@ -15,13 +16,14 @@
     sessions?: SessionInfo[];
     onFocus: (path: number[]) => void;
     onRatioChange: (path: number[], ratio: number) => void;
-    onQuickPick: (path: number[], choice: "terminal" | "session" | "dashboard") => void;
+    onQuickPick: (path: number[], choice: "terminal" | "session") => void;
     onTerminalReady: (id: string, api: TerminalApi) => void;
     onMerge?: (sessionId: string) => void;
     onSelectSession?: (id: string) => void;
     onTabSelect: (path: number[], index: number) => void;
     onTabClose: (path: number[], index: number) => void;
     onTabReorder: (path: number[], fromIndex: number, toIndex: number) => void;
+    onTabDrop: (path: number[], data: string, zone: DropZone, insertIndex?: number) => void;
   }
 
   let {
@@ -40,6 +42,7 @@
     onTabSelect,
     onTabClose,
     onTabReorder,
+    onTabDrop,
   }: Props = $props();
 
   function isFocused(leafPath: number[]): boolean {
@@ -63,6 +66,7 @@
     searchVisible={searchVisible && isFocused(path)}
     terminalApi={contentId ? terminalApis[contentId] ?? null : null}
     {sessions}
+    panePath={path}
     onFocus={() => onFocus(path)}
     onQuickPick={(choice) => onQuickPick(path, choice)}
     onTerminalReady={(api) => {
@@ -73,6 +77,7 @@
     onTabSelect={(index) => onTabSelect(path, index)}
     onTabClose={(index) => onTabClose(path, index)}
     onTabReorder={(from, to) => onTabReorder(path, from, to)}
+    onTabDrop={(data, zone, insertIndex) => onTabDrop(path, data, zone, insertIndex)}
   />
 {:else}
   <div
@@ -102,6 +107,7 @@
         {onTabSelect}
         {onTabClose}
         {onTabReorder}
+        {onTabDrop}
       />
     </div>
 
@@ -132,6 +138,7 @@
         {onTabSelect}
         {onTabClose}
         {onTabReorder}
+        {onTabDrop}
       />
     </div>
   </div>

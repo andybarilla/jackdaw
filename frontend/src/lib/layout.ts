@@ -1,8 +1,7 @@
 export type PaneContent =
   | { type: "session"; sessionId: string }
   | { type: "terminal"; id: string; workDir: string }
-  | { type: "diff"; sessionId: string }
-  | { type: "dashboard" };
+  | { type: "diff"; sessionId: string };
 
 export type LayoutNode =
   | { type: "leaf"; contents: PaneContent[]; activeIndex: number }
@@ -211,36 +210,6 @@ export function findLeafByDiffSessionId(node: LayoutNode, sessionId: string): Fi
   return null;
 }
 
-export function findLeafByDashboard(node: LayoutNode): FindResult | null {
-  if (node.type === "leaf") {
-    for (let i = 0; i < node.contents.length; i++) {
-      if (node.contents[i].type === "dashboard") {
-        return { path: [], tabIndex: i };
-      }
-    }
-    return null;
-  }
-  const leftResult = findLeafByDashboard(node.children[0]);
-  if (leftResult !== null) {
-    return { path: [0, ...leftResult.path] as Path, tabIndex: leftResult.tabIndex };
-  }
-  const rightResult = findLeafByDashboard(node.children[1]);
-  if (rightResult !== null) {
-    return { path: [1, ...rightResult.path] as Path, tabIndex: rightResult.tabIndex };
-  }
-  return null;
-}
-
-export function collectDashboardPanes(node: LayoutNode): number {
-  if (node.type === "leaf") {
-    return node.contents.filter((c) => c.type === "dashboard").length;
-  }
-  return (
-    collectDashboardPanes(node.children[0]) +
-    collectDashboardPanes(node.children[1])
-  );
-}
-
 export function collectSessionIds(node: LayoutNode): string[] {
   if (node.type === "leaf") {
     return node.contents
@@ -392,20 +361,117 @@ export function unsplitPane(
   return { layout, detached };
 }
 
-function getNodeAtPath(node: LayoutNode, path: Path): LayoutNode {
+export function getNodeAtPath(node: LayoutNode, path: Path): LayoutNode {
   if (path.length === 0) return node;
   if (node.type !== "split") throw new Error("Path leads through a non-split node");
   const [head, ...tail] = path;
   return getNodeAtPath(node.children[head], tail as Path);
 }
 
-function replaceNodeAtPath(node: LayoutNode, path: Path, replacement: LayoutNode): LayoutNode {
+export function replaceNodeAtPath(node: LayoutNode, path: Path, replacement: LayoutNode): LayoutNode {
   if (path.length === 0) return replacement;
   if (node.type !== "split") throw new Error("Path leads through a non-split node");
   const [head, ...tail] = path;
   const newChildren: [LayoutNode, LayoutNode] = [node.children[0], node.children[1]];
   newChildren[head] = replaceNodeAtPath(newChildren[head], tail as Path, replacement);
   return { ...node, children: newChildren };
+}
+
+/** Data carried during a cross-pane tab drag. */
+export type TabDragData = {
+  sourcePath: Path;
+  tabIndex: number;
+  content: PaneContent;
+};
+
+export type DropZone = "center" | "top" | "bottom" | "left" | "right";
+
+/** Move a tab from one leaf to another, optionally creating a split at the target. */
+export function moveTab(
+  root: LayoutNode,
+  source: { path: Path; tabIndex: number },
+  targetPath: Path,
+  zone: DropZone,
+): { layout: LayoutNode; newFocusPath: Path } {
+  const sourceLeaf = getLeaf(root, source.path);
+  const content = sourceLeaf.contents[source.tabIndex];
+
+  // Remove from source first
+  let layout = removeTab(root, source.path, source.tabIndex);
+
+  // If source leaf is now empty, collapse it — but we need to adjust target path
+  const sourceLeafAfter = getLeaf(layout, source.path);
+  let adjustedTarget = [...targetPath] as Path;
+  if (sourceLeafAfter.contents.length === 0) {
+    layout = closeLeaf(layout, source.path);
+    adjustedTarget = adjustPathAfterClose(source.path, targetPath);
+  }
+
+  if (zone === "center") {
+    layout = addTab(layout, adjustedTarget, content);
+    return { layout, newFocusPath: adjustedTarget };
+  }
+
+  // Split the target pane
+  const direction: "horizontal" | "vertical" =
+    zone === "left" || zone === "right" ? "vertical" : "horizontal";
+  layout = splitLeaf(layout, adjustedTarget, direction);
+
+  // "right" or "bottom" → content goes to child [1], "left" or "top" → content goes to child [0]
+  const contentGoesFirst = zone === "left" || zone === "top";
+  const contentChild = contentGoesFirst ? 0 : 1;
+
+  // splitLeaf puts the original content at [0] and empty at [1].
+  // If content should go to [0], we need to swap: move original to [1], put new content at [0].
+  if (contentGoesFirst) {
+    // Original content is at [0], empty is at [1]. Swap them.
+    const node = getNodeAtPath(layout, adjustedTarget);
+    if (node.type === "split") {
+      layout = replaceNodeAtPath(layout, adjustedTarget, {
+        ...node,
+        children: [node.children[1], node.children[0]],
+      });
+    }
+  }
+
+  const newFocusPath = [...adjustedTarget, contentChild] as Path;
+  layout = addTab(layout, newFocusPath, content);
+
+  return { layout, newFocusPath };
+}
+
+/** After closing a leaf at closedPath, adjust another path that may have shifted. */
+function adjustPathAfterClose(closedPath: Path, targetPath: Path): Path {
+  if (closedPath.length === 0) return targetPath;
+
+  // The parent of the closed leaf promotes the sibling.
+  // Parent path = closedPath minus last element
+  const parentPath = closedPath.slice(0, -1);
+
+  // Check if targetPath starts with parentPath
+  if (parentPath.length > targetPath.length) return targetPath;
+  for (let i = 0; i < parentPath.length; i++) {
+    if (parentPath[i] !== targetPath[i]) return targetPath;
+  }
+
+  // targetPath goes through or to the parent of the closed leaf
+  if (targetPath.length === parentPath.length) {
+    // Target IS the parent — it's now the promoted sibling
+    return targetPath;
+  }
+
+  // Target goes through parent — the parent is no longer a split, it's the surviving child
+  const closedIdx = closedPath[closedPath.length - 1];
+  const targetChildIdx = targetPath[parentPath.length];
+
+  if (targetChildIdx === closedIdx) {
+    // Target was in the closed subtree — this shouldn't happen (we already removed from source)
+    // Return parent path as fallback
+    return parentPath as Path;
+  }
+
+  // Target was in the surviving subtree — drop the parent-to-child step
+  return [...parentPath, ...targetPath.slice(parentPath.length + 1)] as Path;
 }
 
 /** Migrate old layout format (content: PaneContent | null) to new format (contents[], activeIndex). */
