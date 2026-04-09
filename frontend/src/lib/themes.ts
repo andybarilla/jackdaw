@@ -17,30 +17,68 @@ export interface ThemeColors {
   searchMatchActive: string;
 }
 
+export interface AnsiColors {
+  black: string;
+  red: string;
+  green: string;
+  yellow: string;
+  blue: string;
+  magenta: string;
+  cyan: string;
+  white: string;
+  brightBlack: string;
+  brightRed: string;
+  brightGreen: string;
+  brightYellow: string;
+  brightBlue: string;
+  brightMagenta: string;
+  brightCyan: string;
+  brightWhite: string;
+}
+
 export interface Theme {
   name: string;
   label: string;
   colors: ThemeColors;
+  ansiColors?: AnsiColors;
 }
 
 const whattheflock: Theme = {
   name: "whattheflock",
   label: "WhatTheFlock",
   colors: {
-    bgPrimary: "#000000",
-    bgSecondary: "#0a0a0a",
-    bgTertiary: "#1a1a1a",
-    textPrimary: "#d4d4d4",
-    textSecondary: "#777777",
-    textMuted: "#666666",
-    accent: "#ff2d78",
-    success: "#4ade80",
-    warning: "#fbbf24",
-    error: "#f87171",
-    border: "#222222",
-    selectionBackground: "#ff2d7840",
-    searchMatch: "#ff2d7840",
-    searchMatchActive: "#ff2d78",
+    bgPrimary: "#141218",
+    bgSecondary: "#1c1a21",
+    bgTertiary: "#2b2930",
+    textPrimary: "#e6e0e9",
+    textSecondary: "#c4bfcc",
+    textMuted: "#9d99a5",
+    accent: "#87d7ff",
+    success: "#7fff9a",
+    warning: "#ffda72",
+    error: "#ff728f",
+    border: "#332f38",
+    selectionBackground: "#4f378b",
+    searchMatch: "#87d7ff40",
+    searchMatchActive: "#87d7ff",
+  },
+  ansiColors: {
+    black: "#141218",
+    red: "#ff728f",
+    green: "#7fff9a",
+    yellow: "#ffda72",
+    blue: "#bca5f2",
+    magenta: "#4e3d76",
+    cyan: "#D0BCFF",
+    white: "#f4efff",
+    brightBlack: "#9d99a5",
+    brightRed: "#ff9fb2",
+    brightGreen: "#a5ffb8",
+    brightYellow: "#ffe7a5",
+    brightBlue: "#d7c6ff",
+    brightMagenta: "#ded0ff",
+    brightCyan: "#e9e0ff",
+    brightWhite: "#faf8ff",
   },
 };
 
@@ -104,7 +142,9 @@ export function getXtermTheme(theme: Theme): ITheme {
   return {
     background: theme.colors.bgPrimary,
     foreground: theme.colors.textPrimary,
-    cursor: theme.colors.textPrimary,
+    cursor: theme.colors.accent,
+    cursorAccent: theme.colors.bgPrimary,
     selectionBackground: theme.colors.selectionBackground,
+    ...theme.ansiColors,
   };
 }

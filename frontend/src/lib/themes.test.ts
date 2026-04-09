@@ -60,7 +60,7 @@ describe("getXtermTheme", () => {
     const xtermTheme = getXtermTheme(theme);
     expect(xtermTheme.background).toBe(theme.colors.bgPrimary);
     expect(xtermTheme.foreground).toBe(theme.colors.textPrimary);
-    expect(xtermTheme.cursor).toBe(theme.colors.textPrimary);
+    expect(xtermTheme.cursor).toBe(theme.colors.accent);
     expect(xtermTheme.selectionBackground).toBe(theme.colors.selectionBackground);
   });
 });
