@@ -19,11 +19,11 @@
 - **Embedded browser pane** — Preview localhost alongside terminals for web dev workflows
 - **Lifecycle hooks** — Auto-run commands on session create/destroy (install deps, docker-compose, etc.)
 - **CLI/socket API** — External tools can create sessions, send input, and query status programmatically
+- **Command palette** — Searchable palette for all actions and user-defined commands
 
 ## Up Next
 - **Port detection per session** — Detect and display listening ports per session in sidebar
 - **IDE integration** — One-click open session's working directory in VS Code/Cursor/Zed
-- **Command palette** — Searchable palette for all actions and user-defined commands
 - **Create session from PR/branch URL** — Paste a PR URL, auto-setup worktree and session
 - **Workspace templates** — Declarative config file defining sessions, directories, layout, and startup commands
 - **MCP server** — Expose session management to AI agents via MCP protocol
