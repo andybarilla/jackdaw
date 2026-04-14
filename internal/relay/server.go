@@ -134,13 +134,13 @@ func (s *Server) readPTY() {
 		if n > 0 {
 			data := make([]byte, n)
 			copy(data, buf[:n])
-			s.buffer.Write(data)
 			s.mu.Lock()
+			s.buffer.Write(data)
 			for conn := range s.clients {
 				WriteFrame(conn, FrameData, data)
 			}
-			s.mu.Unlock()
 			s.writeHistory(data)
+			s.mu.Unlock()
 		}
 		if err != nil {
 			return
