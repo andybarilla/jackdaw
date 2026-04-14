@@ -8,10 +8,26 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
 )
+
+// ExitState records how the relay's child process terminated. It is
+// populated by waitProcess once Wait4 reports WIFEXITED or WIFSIGNALED
+// and is nil while the child is still running.
+type ExitState struct {
+	// ExitCode is the process exit code when Exited is true, otherwise 0.
+	ExitCode int
+	// Signal is the terminating signal when Signaled is true, otherwise 0.
+	Signal syscall.Signal
+	// Exited is true when the child terminated normally (WIFEXITED).
+	Exited bool
+	// Signaled is true when the child was killed by a signal (WIFSIGNALED).
+	Signaled bool
+}
 
 type Server struct {
 	sockPath      string
@@ -27,6 +43,7 @@ type Server struct {
 	historyBytes  int64
 	historyMax    int64
 	historyPath   string
+	exitState     atomic.Pointer[ExitState]
 }
 
 func NewServer(sockPath string, workDir string, command string, args []string, bufferSize int, historyPath string, historyMax int64) (*Server, error) {
@@ -180,10 +197,52 @@ func (s *Server) startHistoryFlusher() {
 }
 
 func (s *Server) waitProcess() {
-	s.cmd.Wait()
-	// Server stays alive after process exit so clients can still
-	// connect and replay buffered output. Cleanup happens when
-	// the manager calls Close() via Kill.
+	// We must be the only waiter for this pid. exec.Cmd.Wait() also
+	// calls waitpid internally, so it must never run against this
+	// process — two waiters on the same pid is undefined behavior.
+	//
+	// Wait4 with WUNTRACED returns on both stop and exit. On stop we
+	// send SIGCONT so any child that self-suspends (e.g. Claude Code's
+	// Ctrl-Z handler raises SIGTSTP) is resumed transparently. On exit
+	// we publish the final status and return. Server stays alive after
+	// the child exits so clients can still connect and replay buffered
+	// output; cleanup happens when the manager calls Close() via Kill.
+	if s.cmd.Process == nil {
+		return
+	}
+	pid := s.cmd.Process.Pid
+	for {
+		var status syscall.WaitStatus
+		_, err := syscall.Wait4(pid, &status, syscall.WUNTRACED, nil)
+		if err != nil {
+			if err == syscall.EINTR {
+				continue
+			}
+			return
+		}
+		switch {
+		case status.Stopped():
+			// Child stopped itself (SIGTSTP/SIGSTOP). Resume it and
+			// keep waiting — we want to learn when it really exits.
+			s.cmd.Process.Signal(syscall.SIGCONT)
+			continue
+		case status.Exited():
+			s.exitState.Store(&ExitState{
+				ExitCode: status.ExitStatus(),
+				Exited:   true,
+			})
+			return
+		case status.Signaled():
+			s.exitState.Store(&ExitState{
+				Signal:   status.Signal(),
+				Signaled: true,
+			})
+			return
+		default:
+			// Continued or some other transient state — keep waiting.
+			continue
+		}
+	}
 }
 
 func (s *Server) readHistoryTail(maxBytes int) []byte {
