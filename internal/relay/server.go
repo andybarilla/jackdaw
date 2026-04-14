@@ -27,6 +27,10 @@ type ExitState struct {
 	Exited bool
 	// Signaled is true when the child was killed by a signal (WIFSIGNALED).
 	Signaled bool
+	// Err is non-nil when waitProcess terminated because Wait4 itself
+	// returned an error (e.g. ECHILD, ESRCH), distinguishing anomalous
+	// termination from a normal exit/signal.
+	Err error
 }
 
 type Server struct {
@@ -218,6 +222,7 @@ func (s *Server) waitProcess() {
 			if err == syscall.EINTR {
 				continue
 			}
+			s.exitState.Store(&ExitState{Err: err})
 			return
 		}
 		switch {
