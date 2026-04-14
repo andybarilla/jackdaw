@@ -282,13 +282,12 @@ func (s *Server) handleClient(conn net.Conn) {
 	} else {
 		buffered = s.buffer.Bytes()
 	}
-	s.clients[conn] = struct{}{}
-	s.mu.Unlock()
-
 	if len(buffered) > 0 {
 		WriteFrame(conn, FrameData, buffered)
 	}
 	WriteFrame(conn, FrameReplayEnd, nil)
+	s.clients[conn] = struct{}{}
+	s.mu.Unlock()
 
 	defer func() {
 		s.mu.Lock()
