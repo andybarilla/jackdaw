@@ -1,5 +1,21 @@
 export namespace config {
 	
+	export class ShellCommand {
+	    name: string;
+	    command: string;
+	    work_dir?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShellCommand(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.command = source["command"];
+	        this.work_dir = source["work_dir"];
+	    }
+	}
 	export class Config {
 	    theme: string;
 	    keybindings: Record<string, string>;
@@ -19,8 +35,8 @@ export namespace config {
 	    terminal_font_size?: number;
 	    ui_font_family?: string;
 	    ui_font_size?: number;
-	    shell_commands?: {name: string; command: string; work_dir?: string}[];
-
+	    shell_commands?: ShellCommand[];
+	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
 	    }
@@ -45,7 +61,7 @@ export namespace config {
 	        this.terminal_font_size = source["terminal_font_size"];
 	        this.ui_font_family = source["ui_font_family"];
 	        this.ui_font_size = source["ui_font_size"];
-	        this.shell_commands = source["shell_commands"];
+	        this.shell_commands = this.convertValues(source["shell_commands"], ShellCommand);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

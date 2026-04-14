@@ -4,7 +4,6 @@
   import { FitAddon } from "@xterm/addon-fit";
   import { SearchAddon } from "@xterm/addon-search";
   import { WebLinksAddon } from "@xterm/addon-web-links";
-  import { WebglAddon } from "@xterm/addon-webgl";
   import { AttachSession, GetSessionHistory, GetWSPort } from "../../wailsjs/go/main/App";
   import { connectSession, type WSConnection } from "./ws";
   import "@xterm/xterm/css/xterm.css";
@@ -59,16 +58,6 @@
     if (!opened) {
       opened = true;
       term.open(terminalEl);
-
-      try {
-        const webglAddon = new WebglAddon();
-        webglAddon.onContextLoss(() => {
-          webglAddon.dispose();
-        });
-        term.loadAddon(webglAddon);
-      } catch {
-        // WebGL not available, fall back to canvas renderer
-      }
 
       fitAndRefresh();
 

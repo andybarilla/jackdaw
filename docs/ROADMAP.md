@@ -28,6 +28,11 @@
 - **Workspace templates** — Declarative config file defining sessions, directories, layout, and startup commands
 - **MCP server** — Expose session management to AI agents via MCP protocol
 
+## Known Issues / Follow-ups
+
+- **Duplicate WebSocket connections per session** — Trace logs showed two `flush-enter`s per output frame for some long-lived sessions, indicating stale WS connections weren't being cleaned up when a client reconnected. Reproduce by letting a session run through several reload/HMR cycles, then grep `TRACE ... flush-enter` per session ID. Fix likely lives in `Terminal.svelte`'s effect cleanup or `wsserver.handleWS`'s disconnect path.
+- **Relay server buffer/fanout race** — In `internal/relay/server.go` `readPTY`, the ring-buffer write and the client-fanout loop are not atomic with `handleClient`'s snapshot+register. A client connecting at the exact moment a frame arrives can either duplicate or miss that frame. Fix: write to `s.buffer` and snapshot `s.clients` under a single `s.mu` critical section, and have `handleClient` take the same lock around `buffer.Bytes()` + `clients[conn] = …`. Low impact (small window, unlikely to cause visible corruption) but worth closing.
+
 ## Workflow
 
 1. Pick the next item (or propose a new one).
