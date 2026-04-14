@@ -9,13 +9,31 @@ import (
 	"time"
 )
 
-// TestFanoutRaceNoDuplicates spawns a relay backed by a shell that emits a
-// known monotonically-tagged sequence and repeatedly connects clients
-// concurrently with production. Every client's received stream must be a
-// contiguous suffix of the canonical produced stream — no duplicated frames
-// (the original bug) and no gaps. Runs with -race to also catch the
+// TestFanoutRaceNoDuplicates is a forward-looking property test for the
+// relay fanout race fix (commit a6bf0be). It asserts that across many
+// concurrent client connects against a busy producer, every client's
+// received stream is a contiguous suffix of the canonical produced stream
+// with no duplicated frames and no gaps. Runs with -race to also catch the
 // historyWriter race.
+//
+// Note: this test does NOT deterministically reproduce the original bug.
+// The race window between buffer.Write and the fanout critical section in
+// the pre-fix readPTY was only a few instructions wide — too narrow for a
+// time-based connect stagger to hit reliably. Its role is to guard against
+// future refactors that re-introduce the race: with 100 clients per
+// iteration and 5 internal iterations (500 concurrent connects per run),
+// any regression that meaningfully widens the window will be caught.
 func TestFanoutRaceNoDuplicates(t *testing.T) {
+	const iterations = 5
+	for iter := 0; iter < iterations; iter++ {
+		iter := iter
+		t.Run(fmt.Sprintf("iter-%d", iter), func(t *testing.T) {
+			runFanoutRaceIteration(t)
+		})
+	}
+}
+
+func runFanoutRaceIteration(t *testing.T) {
 	sockPath := filepath.Join(t.TempDir(), "race.sock")
 
 	// Emit a long, easily-checkable sequence: 2000 lines of "LINE-<n>\n".
@@ -36,7 +54,7 @@ func TestFanoutRaceNoDuplicates(t *testing.T) {
 	// child is anywhere near done so we race buffer writes against snapshots.
 	time.Sleep(20 * time.Millisecond)
 
-	const numClients = 50
+	const numClients = 100
 	var wg sync.WaitGroup
 	errCh := make(chan error, numClients)
 
@@ -44,8 +62,9 @@ func TestFanoutRaceNoDuplicates(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			// Stagger connects across the production window (~4s total).
-			time.Sleep(time.Duration(idx) * 40 * time.Millisecond)
+			// Tight stagger (~1s total) keeps every connect landing inside
+			// the ~4s production window so snapshots race fanout frames.
+			time.Sleep(time.Duration(idx) * 10 * time.Millisecond)
 
 			c, err := NewClient(sockPath)
 			if err != nil {
