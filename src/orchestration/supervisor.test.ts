@@ -253,6 +253,35 @@ describe("WorkbenchSupervisor persistence", () => {
       lastShellCommand: "git status --short",
       lastShellExitCode: 0,
     });
+    expect(persisted.sessions[0]?.lastShellOutput).toBeUndefined();
+  });
+
+  it("sanitizes shell fallback output before keeping it in memory", async () => {
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    sessionManagerCreateMock.mockReturnValue({ created: true });
+    const managedSession = createManagedSession({
+      sessionId: "session-shell-sanitized",
+      sessionFile: "session-shell-sanitized.json",
+      executeBash: vi.fn().mockResolvedValue({
+        output: "safe\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007\nnext\u001b[31m red\u009b2J",
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      }),
+    });
+    createAgentSessionMock.mockResolvedValue({ session: managedSession });
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+    const session = await supervisor.spawnSession({ cwd: "/repo", task: "task" });
+
+    await expect(supervisor.executeShellCommand(session.id, "printf test")).resolves.toBe(true);
+
+    expect(supervisor.registry.getSelectedSession()).toMatchObject({
+      lastShellOutput: "safelink\nnext red",
+      lastShellExitCode: 0,
+    });
   });
 
   it("rejects shell fallback for unmanaged historical sessions", async () => {

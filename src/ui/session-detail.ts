@@ -1,4 +1,5 @@
 import type { WorkbenchActivity, WorkbenchDetailViewMode, WorkbenchSession } from "../types/workbench.js";
+import { stripTerminalControlSequences } from "../utils/plain-text.js";
 
 export function renderSessionDetailLines(
   session: WorkbenchSession | undefined,
@@ -95,7 +96,7 @@ export function renderSessionDetailLines(
 
 function wrapPrefixedLine(prefix: string, text: string, width: number): string[] {
   const available = Math.max(20, width - prefix.length);
-  const normalized = text.replace(/\s+/g, " ").trim();
+  const normalized = stripTerminalControlSequences(text).replace(/\s+/g, " ").trim();
   if (!normalized) return [prefix.trimEnd()];
 
   const words = normalized.split(" ");
@@ -117,7 +118,7 @@ function wrapPrefixedLine(prefix: string, text: string, width: number): string[]
 }
 
 function compact(text: string, max = 72): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
+  const normalized = stripTerminalControlSequences(text).replace(/\s+/g, " ").trim();
   if (normalized.length <= max) return normalized;
   return `${normalized.slice(0, max - 1)}…`;
 }
@@ -129,5 +130,5 @@ function formatShellResult(exitCode: number | undefined): string {
 }
 
 function shellPreview(output: string): string {
-  return output.replace(/\s+/g, " ").trim();
+  return stripTerminalControlSequences(output).replace(/\s+/g, " ").trim();
 }

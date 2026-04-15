@@ -19,7 +19,6 @@ const validState: PersistedWorkbenchState = {
       connectionState: "historical",
       reconnectNote: "Could not reconnect after restart.",
       lastShellCommand: "pwd",
-      lastShellOutput: "/repo",
       lastShellExitCode: 0,
     },
   ],
@@ -56,7 +55,6 @@ describe("parsePersistedWorkbenchState", () => {
     ["connectionState", { connectionState: "offline" }],
     ["reconnectNote", { reconnectNote: 7 }],
     ["lastShellCommand", { lastShellCommand: 7 }],
-    ["lastShellOutput", { lastShellOutput: 7 }],
     ["lastShellExitCode", { lastShellExitCode: "oops" }],
   ])("rejects persisted state with malformed session %s", (_fieldName, sessionPatch) => {
     expect(() =>
@@ -71,6 +69,25 @@ describe("parsePersistedWorkbenchState", () => {
       }),
     ).toThrow(/session/i);
   });
+
+  it("drops legacy persisted shell output while keeping command metadata", () => {
+    const session = parsePersistedWorkbenchState({
+      ...validState,
+      sessions: [
+        {
+          ...validState.sessions[0],
+          lastShellOutput: "/repo",
+        },
+      ],
+    }).sessions[0];
+
+    expect(session).toMatchObject({
+      lastShellCommand: "pwd",
+      lastShellExitCode: 0,
+    });
+    expect(session).not.toHaveProperty("lastShellOutput");
+  });
+
 
   it("rejects persisted state with an invalid detail view mode", () => {
     expect(() =>

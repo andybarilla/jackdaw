@@ -6,11 +6,12 @@ import {
   SessionManager,
   createAgentSession,
 } from "@mariozechner/pi-coding-agent";
-import { createEmptyPersistedState } from "../persistence/schema.js";
+import { createEmptyPersistedState, type PersistedWorkbenchState } from "../persistence/schema.js";
 import { WorkbenchStore, WorkbenchStoreLoadError } from "../persistence/store.js";
-import type { WorkbenchDetailViewMode, WorkbenchSession } from "../types/workbench.js";
+import type { WorkbenchDetailViewMode, WorkbenchSession, WorkbenchState } from "../types/workbench.js";
 import { normalizeAgentSessionEvent, createActivity } from "./activity.js";
 import { WorkbenchRegistry } from "./registry.js";
+import { stripTerminalControlSequences } from "../utils/plain-text.js";
 
 interface ManagedSession {
   session: AgentSession;
@@ -213,7 +214,7 @@ export class WorkbenchSupervisor {
       this.registry.patchSession(sessionId, {
         currentTool: undefined,
         lastShellCommand: command,
-        lastShellOutput: message,
+        lastShellOutput: previewShellOutput(message),
         lastShellExitCode: undefined,
         lastError: message,
         summary: resultSummary,
@@ -378,10 +379,7 @@ export class WorkbenchSupervisor {
         continue;
       }
 
-      await this.store.save({
-        ...createEmptyPersistedState(),
-        ...this.registry.getState(),
-      });
+      await this.store.save(createPersistedState(this.registry.getState()));
     }
   }
 
@@ -395,12 +393,21 @@ function mergeRecentFiles(existing: string[], incoming: string[]): string[] {
   return [...new Set(merged)].slice(0, 8);
 }
 
+function createPersistedState(state: WorkbenchState): PersistedWorkbenchState {
+  return {
+    ...createEmptyPersistedState(),
+    ...state,
+    sessions: state.sessions.map(({ lastShellOutput: _lastShellOutput, ...session }) => ({ ...session })),
+  };
+}
+
 function sanitizePersistedSessions(sessions: WorkbenchSession[]): WorkbenchSession[] {
   return sessions.map((session) => {
     const sanitized =
       session.status === "blocked" || session.status === "failed" ? session : { ...session, lastError: undefined };
     return {
       ...sanitized,
+      lastShellOutput: undefined,
       connectionState: sanitized.connectionState ?? (sanitized.sessionFile ? "live" : "historical"),
       reconnectNote: sanitized.reconnectNote,
     };
@@ -414,10 +421,12 @@ function formatSessionLines(message: unknown, mode: "transcript" | "log"): strin
     const role = message.role === "assistant" ? "Assistant" : "User";
     const content = "content" in message ? message.content : [];
     if (!Array.isArray(content)) return [];
-    const text = content
-      .filter((item): item is { type: string; text?: string } => !!item && typeof item === "object" && "type" in item)
-      .map((item) => (item.type === "text" && typeof item.text === "string" ? item.text : ""))
-      .join(" ")
+    const text = stripTerminalControlSequences(
+      content
+        .filter((item): item is { type: string; text?: string } => !!item && typeof item === "object" && "type" in item)
+        .map((item) => (item.type === "text" && typeof item.text === "string" ? item.text : ""))
+        .join(" "),
+    )
       .replace(/\s+/g, " ")
       .trim();
     return text ? [`${role}: ${text}`] : [];
@@ -425,8 +434,8 @@ function formatSessionLines(message: unknown, mode: "transcript" | "log"): strin
 
   if (mode === "log" && message.role === "bashExecution") {
     const bashMessage = message as { command?: unknown; output?: unknown; exitCode?: unknown };
-    const command = typeof bashMessage.command === "string" ? bashMessage.command : "";
-    const output = typeof bashMessage.output === "string" ? bashMessage.output : "";
+    const command = typeof bashMessage.command === "string" ? stripTerminalControlSequences(bashMessage.command) : "";
+    const output = typeof bashMessage.output === "string" ? stripTerminalControlSequences(bashMessage.output) : "";
     const exitCode = typeof bashMessage.exitCode === "number" ? bashMessage.exitCode : undefined;
     const lines = [`Bash: ${command}${exitCode !== undefined ? ` (exit ${exitCode})` : ""}`];
     const outputLines = output
@@ -459,7 +468,7 @@ function summarizeShellResult(command: string, exitCode: number | undefined, can
 }
 
 function previewShellOutput(output: string): string {
-  return output
+  return stripTerminalControlSequences(output)
     .split(/\r?\n/)
     .map((line: string) => line.trimEnd())
     .filter(Boolean)

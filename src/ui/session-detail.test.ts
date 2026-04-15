@@ -67,6 +67,19 @@ describe("renderSessionDetailLines", () => {
     expect(lines).toContain("Shell output: M src/ui/dashboard.ts ?? src/ui/dashboard.test.ts");
   });
 
+  it("strips terminal control sequences from shell fallback preview", () => {
+    const lines = renderSessionDetailLines(
+      session({
+        lastShellCommand: "git status --short",
+        lastShellOutput: "M src/ui/dashboard.ts\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007\n?? src/ui/dashboard.test.ts\u001b[31m",
+        lastShellExitCode: 0,
+      }),
+      [],
+    );
+
+    expect(lines).toContain("Shell output: M src/ui/dashboard.tslink ?? src/ui/dashboard.test.ts");
+  });
+
   it("shows reconnect guidance instead of shell availability for historical sessions", () => {
     const lines = renderSessionDetailLines(
       session({
@@ -89,6 +102,12 @@ describe("renderSessionDetailLines", () => {
 
     expect(lines).toContain("Transcript preview:");
     expect(lines).toContain("- User: Please inspect the repo");
+  });
+
+  it("strips terminal control sequences from transcript rendering", () => {
+    const lines = renderSessionDetailLines(session({}), [], ["Assistant: ok\u001b[31m now\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007"], "transcript");
+
+    expect(lines).toContain("- Assistant: ok nowlink");
   });
 
   it("shows transcript window in transcript mode", () => {
