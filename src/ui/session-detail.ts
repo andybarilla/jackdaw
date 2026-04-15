@@ -43,6 +43,7 @@ export function renderSessionDetailLines(
 
   if (session.connectionState === "historical") {
     lines.push("Connection: historical");
+    lines.push("Shell: reconnect first");
     if (session.reconnectNote) {
       lines.push(`Reconnect: ${compact(session.reconnectNote, 88)}`);
     }

@@ -1,7 +1,7 @@
 import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
 import { CURSOR_MARKER, matchesKey, visibleWidth, type Component, type Focusable } from "@mariozechner/pi-tui";
 import { WorkbenchSupervisor } from "../orchestration/supervisor.js";
-import type { WorkbenchDetailViewMode } from "../types/workbench.js";
+import type { WorkbenchDetailViewMode, WorkbenchSession } from "../types/workbench.js";
 import { renderOverviewLines } from "./overview.js";
 import { renderSessionDetailLines } from "./session-detail.js";
 
@@ -259,6 +259,11 @@ class WorkbenchDashboard implements Component, Focusable {
   private beginShellCommand(): void {
     const session = this.supervisor.registry.getSelectedSession();
     if (!session || this.busy) return;
+    if (!this.supervisor.isManaged(session.id)) {
+      this.ctx.ui.notify("Historical session is visible only. Reconnect first to run shell commands.", "info");
+      this.tui.requestRender();
+      return;
+    }
     this.inputMode = { kind: "shell", sessionId: session.id, value: "", cursor: 0 };
     this.tui.requestRender();
   }
@@ -402,6 +407,9 @@ class WorkbenchDashboard implements Component, Focusable {
   }
 
   private renderHints(): string {
+    const selectedSession = this.supervisor.registry.getSelectedSession();
+    const shellActionHint = getShellActionHint(selectedSession, selectedSession ? this.supervisor.isManaged(selectedSession.id) : false);
+
     if (this.inputMode.kind === "spawn") {
       return this.theme.fg("warning", "New session task") + this.theme.fg("dim", " • Enter submit • Esc cancel");
     }
@@ -424,12 +432,23 @@ class WorkbenchDashboard implements Component, Focusable {
       return this.theme.fg("warning", "Abort selected session?") + this.theme.fg("dim", " • y/Enter confirm • n/Esc cancel");
     }
     if (this.detailViewMode === "transcript") {
-      return this.theme.fg("dim", this.busy ? "Working…" : "v summary view • l log view • j/k scroll • J/K page • window 8 lines • ! shell • n new • s steer • a abort • q close");
+      return this.theme.fg(
+        "dim",
+        this.busy ? "Working…" : `v summary view • l log view • j/k scroll • J/K page • window 8 lines • ${shellActionHint} • n new • s steer • a abort • q close`,
+      );
     }
     if (this.detailViewMode === "log") {
-      return this.theme.fg("dim", this.busy ? "Working…" : "l summary view • v transcript • j/k scroll • J/K page • window 8 lines • ! shell • n new • s steer • a abort • q close");
+      return this.theme.fg(
+        "dim",
+        this.busy ? "Working…" : `l summary view • v transcript • j/k scroll • J/K page • window 8 lines • ${shellActionHint} • n new • s steer • a abort • q close`,
+      );
     }
-    return this.theme.fg("dim", this.busy ? "Working…" : "↑/↓ or j/k select • v transcript • l log • ! shell • n new • e rename • t tags • p pin/unpin • s steer • f follow-up • a abort • q close");
+    return this.theme.fg(
+      "dim",
+      this.busy
+        ? "Working…"
+        : `↑/↓ or j/k select • v transcript • l log • ${shellActionHint} • n new • e rename • t tags • p pin/unpin • s steer • f follow-up • a abort • q close`,
+    );
   }
 
   private async togglePinnedSummary(): Promise<void> {
@@ -451,6 +470,12 @@ class WorkbenchDashboard implements Component, Focusable {
       this.tui.requestRender();
     }
   }
+}
+
+export function getShellActionHint(session: WorkbenchSession | undefined, isManaged: boolean): string {
+  if (!session) return "shell unavailable";
+  if (!isManaged) return "shell disabled • reconnect first";
+  return "! shell";
 }
 
 function borderTop(width: number, theme: Theme): string {

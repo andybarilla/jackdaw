@@ -19,6 +19,8 @@ function session(overrides: Partial<WorkbenchSession>): WorkbenchSession {
     latestText: overrides.latestText,
     lastError: overrides.lastError,
     recentFiles: overrides.recentFiles,
+    connectionState: overrides.connectionState,
+    reconnectNote: overrides.reconnectNote,
     lastShellCommand: overrides.lastShellCommand,
     lastShellOutput: overrides.lastShellOutput,
     lastShellExitCode: overrides.lastShellExitCode,
@@ -63,6 +65,19 @@ describe("renderSessionDetailLines", () => {
     expect(lines).toContain("Shell: git status --short");
     expect(lines).toContain("Shell result: exit 0");
     expect(lines).toContain("Shell output: M src/ui/dashboard.ts ?? src/ui/dashboard.test.ts");
+  });
+
+  it("shows reconnect guidance instead of shell availability for historical sessions", () => {
+    const lines = renderSessionDetailLines(
+      session({
+        connectionState: "historical",
+        reconnectNote: "Could not reconnect after restart.",
+      }),
+      [],
+    );
+
+    expect(lines).toContain("Connection: historical");
+    expect(lines).toContain("Shell: reconnect first");
   });
 
   it("shows transcript preview when provided", () => {
