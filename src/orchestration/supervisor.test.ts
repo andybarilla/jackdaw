@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -75,6 +75,24 @@ describe("WorkbenchSupervisor persistence", () => {
       connectionState: "historical",
       reconnectNote: "Could not reconnect after restart.",
     });
+  });
+
+  it("does not overwrite unreadable persisted state on startup", async () => {
+    const { WorkbenchStore } = await import("../persistence/store.js");
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    const store = WorkbenchStore.default(projectRoot);
+    const statePath = path.join(projectRoot, ".jackdaw-workbench", "state.json");
+    await mkdir(path.dirname(statePath), { recursive: true });
+    await writeFile(statePath, '{"sessions":[');
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+    await supervisor.openWorkbench();
+
+    expect(supervisor.registry.getState().sessions).toEqual([]);
+    expect(await readFile(statePath, "utf8")).toBe('{"sessions":[');
+    await expect(store.load()).rejects.toThrow("Failed to load persisted workbench state");
   });
 
   it("keeps unreconnectable sessions visible as historical entries", async () => {

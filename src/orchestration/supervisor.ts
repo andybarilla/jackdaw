@@ -7,7 +7,7 @@ import {
   createAgentSession,
 } from "@mariozechner/pi-coding-agent";
 import { createEmptyPersistedState } from "../persistence/schema.js";
-import { WorkbenchStore } from "../persistence/store.js";
+import { WorkbenchStore, WorkbenchStoreLoadError } from "../persistence/store.js";
 import type { WorkbenchDetailViewMode, WorkbenchSession } from "../types/workbench.js";
 import { normalizeAgentSessionEvent, createActivity } from "./activity.js";
 import { WorkbenchRegistry } from "./registry.js";
@@ -30,6 +30,7 @@ export class WorkbenchSupervisor {
   readonly registry = new WorkbenchRegistry();
   readonly store: WorkbenchStore;
   private initialized = false;
+  private persistenceHealthy = true;
   private managedSessions = new Map<string, ManagedSession>();
   private listeners = new Set<() => void>();
   private readonly sessionDir: string;
@@ -41,7 +42,17 @@ export class WorkbenchSupervisor {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    const persisted = await this.store.load();
+
+    let persisted = createEmptyPersistedState();
+
+    try {
+      persisted = await this.store.load();
+      this.persistenceHealthy = true;
+    } catch (error: unknown) {
+      if (!(error instanceof WorkbenchStoreLoadError)) throw error;
+      this.persistenceHealthy = false;
+    }
+
     this.registry.hydrate({
       ...createEmptyPersistedState(),
       ...persisted,
@@ -293,6 +304,8 @@ export class WorkbenchSupervisor {
   }
 
   private async persist(): Promise<void> {
+    if (!this.persistenceHealthy) return;
+
     await this.store.save({
       ...createEmptyPersistedState(),
       ...this.registry.getState(),
