@@ -73,10 +73,22 @@ Shell fallback commands run through a local non-recording path in the selected s
 
 pi remains the source of truth for transcript/history. On restart, the workbench attempts to reconnect to known sessions from their saved session files. If reconnection fails, the session still appears in the dashboard as a `historical` entry with its saved metadata. Historical entries remain visible instead of disappearing silently, but steer/follow-up/abort/shell fallback only work after a session is reattached or respawned.
 
+## Validation artifacts
+
+Task 9 adds lightweight docs for the one-week prototype trial:
+- `docs/superpowers/validation/2026-04-15-prototype-validation-checklist.md`
+- `docs/superpowers/validation/2026-04-15-usage-log.md`
+- `docs/superpowers/validation/2026-04-15-decision-memo.md`
+
+Use them together:
+1. fill in the baseline and daily entries in the usage log
+2. check the validation checklist after each real monitoring session
+3. complete the decision memo with continue / iterate / stop at the end of the week
+
 ## Next steps
 
-1. improve session naming/tag editing inside the dashboard
+1. run the one-week validation trial and collect real usage evidence
 2. distinguish `blocked` vs `failed` with stronger real-world heuristics
-3. persist pinned summaries and richer session metadata edits
-4. add changed-files and richer tool detail views
+3. persist richer session metadata edits and more polished dashboard affordances
+4. add changed-files and richer tool detail views if the trial shows they are needed
 5. decide whether to keep iterating in-pi or move to a standalone pi SDK shell
