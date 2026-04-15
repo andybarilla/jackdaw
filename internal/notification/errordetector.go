@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"sync"
 	"time"
+
+	"github.com/andybarilla/jackdaw/internal/ansi"
 )
 
 var errorPatterns = []*regexp.Regexp{
@@ -43,7 +45,7 @@ func NewErrorDetector(svc *Service, sessionID string, sessionName string) *Error
 }
 
 func (ed *ErrorDetector) Feed(data []byte) {
-	cleaned := StripANSI(data)
+	cleaned := ansi.StripBytes(data)
 	lines := bytes.Split(cleaned, []byte("\n"))
 	for _, line := range lines {
 		for _, pat := range errorPatterns {
