@@ -1,9 +1,12 @@
 package session
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/andybarilla/jackdaw/internal/ansi"
 )
 
 func newTestTracker(onChange func(Status)) *StatusTracker {
@@ -258,6 +261,92 @@ func TestLastLineWithANSI(t *testing.T) {
 	}
 }
 
+func TestLastLineRemovesOSCSequence(t *testing.T) {
+	st := newTestTracker(nil)
+	st.HandleOutput([]byte("\x1b]0;title\x07build completed\n"))
+	if st.LastLine() != "build completed" {
+		t.Errorf("LastLine() = %q, want %q", st.LastLine(), "build completed")
+	}
+}
+
+func TestLastLineHandlesSplitCSISequenceAcrossChunks(t *testing.T) {
+	st := newTestTracker(nil)
+	st.HandleOutput([]byte("\x1b[32"))
+	st.HandleOutput([]byte("mcolored output\x1b[0m\n"))
+	if st.LastLine() != "colored output" {
+		t.Errorf("LastLine() = %q, want %q", st.LastLine(), "colored output")
+	}
+}
+
+func TestPromptDetectionHandlesSplitCSIWrappedPromptAcrossChunks(t *testing.T) {
+	var mu sync.Mutex
+	var got Status
+	st := newTestTracker(func(s Status) {
+		mu.Lock()
+		got = s
+		mu.Unlock()
+	})
+
+	st.HandleOutput([]byte("\x1b[32"))
+	st.HandleOutput([]byte("m❯\x1b[0m "))
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if got != StatusIdle {
+		t.Errorf("status = %q, want %q", got, StatusIdle)
+	}
+	if st.Status() != StatusIdle {
+		t.Errorf("Status() = %q, want %q", st.Status(), StatusIdle)
+	}
+}
+
+func TestLastLineHandlesSplitOSCBELSequenceAcrossChunks(t *testing.T) {
+	st := newTestTracker(nil)
+	st.HandleOutput([]byte("\x1b]0;tit"))
+	st.HandleOutput([]byte("le\x07ready\n"))
+	if st.LastLine() != "ready" {
+		t.Errorf("LastLine() = %q, want %q", st.LastLine(), "ready")
+	}
+}
+
+func TestLastLineHandlesSplitOSCSTSequenceAcrossChunks(t *testing.T) {
+	st := newTestTracker(nil)
+	st.HandleOutput([]byte("\x1b]0;title\x1b"))
+	st.HandleOutput([]byte("\\ready\n"))
+	if st.LastLine() != "ready" {
+		t.Errorf("LastLine() = %q, want %q", st.LastLine(), "ready")
+	}
+}
+
+func TestCarryoverOverflowFallsBackToStatelessStripping(t *testing.T) {
+	st := newTestTracker(nil)
+	overflowing := []byte("\x1b]0;" + strings.Repeat("a", 300) + " visible output\n")
+
+	st.HandleOutput(overflowing)
+	expected := strings.TrimRight(string(ansi.StripBytes(overflowing)), "\r \n")
+	if len(expected) > 200 {
+		expected = expected[:200]
+	}
+	if st.LastLine() != expected {
+		t.Errorf("LastLine() = %q, want %q", st.LastLine(), expected)
+	}
+
+	st.HandleOutput([]byte("safe output\n"))
+	if st.LastLine() != "safe output" {
+		t.Errorf("LastLine() = %q, want %q", st.LastLine(), "safe output")
+	}
+}
+
+func TestLastLineTruncationStillCapsAt200AfterStrip(t *testing.T) {
+	st := newTestTracker(nil)
+	visible := strings.Repeat("a", 210)
+	st.HandleOutput([]byte("\x1b[32m" + visible + "\x1b[0m\n"))
+	if len(st.LastLine()) != 200 {
+		t.Errorf("LastLine() length = %d, want 200", len(st.LastLine()))
+	}
+}
+
 func TestLastLineTruncation(t *testing.T) {
 	st := newTestTracker(nil)
 	long := make([]byte, 300)
@@ -278,7 +367,7 @@ func TestLastLineEmptyOutput(t *testing.T) {
 	}
 }
 
-func TestHandleOutputWithANSI(t *testing.T) {
+func TestHandleOutputWithANSIStillTriggersIdle(t *testing.T) {
 	var mu sync.Mutex
 	var got Status
 	st := newTestTracker(func(s Status) {

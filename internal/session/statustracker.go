@@ -6,9 +6,13 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/andybarilla/jackdaw/internal/ansi"
 )
 
-var ansiPattern = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07]*\x07)`)
+const (
+	maxANSICarryover = 256
+)
 
 // promptPattern matches Claude Code's idle prompt character (U+276F) at a line start,
 // optionally preceded by whitespace.
@@ -21,6 +25,7 @@ type StatusTracker struct {
 	onChange  func(Status)
 	idleTimer *time.Timer
 	idleDelay time.Duration
+	carryover []byte
 }
 
 func NewStatusTracker(onChange func(Status)) *StatusTracker {
@@ -43,10 +48,20 @@ func (st *StatusTracker) LastLine() string {
 }
 
 func (st *StatusTracker) HandleOutput(data []byte) {
-	cleaned := ansiPattern.ReplaceAll(data, nil)
-
 	st.mu.Lock()
 	defer st.mu.Unlock()
+
+	combined := make([]byte, 0, len(st.carryover)+len(data))
+	combined = append(combined, st.carryover...)
+	combined = append(combined, data...)
+
+	complete, carryover := splitTrailingANSICarryover(combined)
+	st.carryover = append([]byte(nil), carryover...)
+	if len(complete) == 0 {
+		return
+	}
+
+	cleaned := ansi.StripBytes(complete)
 
 	// Extract last non-empty, non-prompt line for dashboard display.
 	lines := bytes.Split(cleaned, []byte("\n"))
@@ -151,4 +166,76 @@ func (st *StatusTracker) setStatusLocked(s Status) {
 	if st.onChange != nil {
 		st.onChange(s)
 	}
+}
+
+func splitTrailingANSICarryover(data []byte) (complete []byte, carryover []byte) {
+	csiStart := trailingPartialCSIStart(data)
+	oscStart := trailingPartialOSCStart(data)
+
+	start := -1
+	switch {
+	case csiStart >= 0 && oscStart >= 0:
+		if csiStart < oscStart {
+			start = csiStart
+		} else {
+			start = oscStart
+		}
+	case csiStart >= 0:
+		start = csiStart
+	case oscStart >= 0:
+		start = oscStart
+	default:
+		return data, nil
+	}
+
+	candidate := data[start:]
+	if len(candidate) > maxANSICarryover {
+		return data, nil
+	}
+
+	return data[:start], candidate
+}
+
+func trailingPartialCSIStart(data []byte) int {
+	for i := len(data) - 2; i >= 0; i-- {
+		if data[i] != 0x1b || data[i+1] != '[' {
+			continue
+		}
+		for j := i + 2; j < len(data); j++ {
+			if data[j] >= 0x40 && data[j] <= 0x7e {
+				goto nextCandidate
+			}
+		}
+		return i
+
+	nextCandidate:
+	}
+
+	return -1
+}
+
+func trailingPartialOSCStart(data []byte) int {
+	for i := len(data) - 2; i >= 0; i-- {
+		if data[i] != 0x1b || data[i+1] != ']' {
+			continue
+		}
+		if !hasCompleteOSCTerminator(data, i) {
+			return i
+		}
+	}
+
+	return -1
+}
+
+func hasCompleteOSCTerminator(data []byte, start int) bool {
+	for i := start + 2; i < len(data); i++ {
+		if data[i] == 0x07 {
+			return true
+		}
+		if data[i] == 0x1b && i+1 < len(data) && data[i+1] == '\\' {
+			return true
+		}
+	}
+
+	return false
 }
