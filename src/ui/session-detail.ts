@@ -56,6 +56,14 @@ export function renderSessionDetailLines(
     lines.push(`Files: ${compact(session.recentFiles.join(", "), 88)}`);
   }
 
+  if (session.lastShellCommand) {
+    lines.push(`Shell: ${compact(session.lastShellCommand, 88)}`);
+    lines.push(`Shell result: ${formatShellResult(session.lastShellExitCode)}`);
+    if (session.lastShellOutput) {
+      lines.push(`Shell output: ${compact(shellPreview(session.lastShellOutput), 88)}`);
+    }
+  }
+
   lines.push("");
 
   if (viewMode === "transcript" || viewMode === "log") {
@@ -111,4 +119,14 @@ function compact(text: string, max = 72): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (normalized.length <= max) return normalized;
   return `${normalized.slice(0, max - 1)}…`;
+}
+
+function formatShellResult(exitCode: number | undefined): string {
+  if (exitCode === 0) return "exit 0";
+  if (exitCode === undefined) return "no exit code recorded";
+  return `exit ${exitCode}`;
+}
+
+function shellPreview(output: string): string {
+  return output.replace(/\s+/g, " ").trim();
 }

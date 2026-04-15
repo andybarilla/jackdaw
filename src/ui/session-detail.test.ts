@@ -19,6 +19,9 @@ function session(overrides: Partial<WorkbenchSession>): WorkbenchSession {
     latestText: overrides.latestText,
     lastError: overrides.lastError,
     recentFiles: overrides.recentFiles,
+    lastShellCommand: overrides.lastShellCommand,
+    lastShellOutput: overrides.lastShellOutput,
+    lastShellExitCode: overrides.lastShellExitCode,
   };
 }
 
@@ -45,6 +48,21 @@ describe("renderSessionDetailLines", () => {
     );
 
     expect(lines.some((line) => line.startsWith("Files: src/ui/dashboard.ts"))).toBe(true);
+  });
+
+  it("shows shell fallback preview when present", () => {
+    const lines = renderSessionDetailLines(
+      session({
+        lastShellCommand: "git status --short",
+        lastShellOutput: "M src/ui/dashboard.ts\n?? src/ui/dashboard.test.ts",
+        lastShellExitCode: 0,
+      }),
+      [],
+    );
+
+    expect(lines).toContain("Shell: git status --short");
+    expect(lines).toContain("Shell result: exit 0");
+    expect(lines).toContain("Shell output: M src/ui/dashboard.ts ?? src/ui/dashboard.test.ts");
   });
 
   it("shows transcript preview when provided", () => {

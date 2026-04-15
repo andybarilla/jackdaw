@@ -42,6 +42,7 @@ type InputMode =
   | { kind: "spawn"; value: string; cursor: number }
   | { kind: "steer"; sessionId: string; value: string; cursor: number }
   | { kind: "followup"; sessionId: string; value: string; cursor: number }
+  | { kind: "shell"; sessionId: string; value: string; cursor: number }
   | { kind: "rename"; sessionId: string; value: string; cursor: number }
   | { kind: "tags"; sessionId: string; value: string; cursor: number }
   | { kind: "abort"; sessionId: string };
@@ -124,6 +125,10 @@ class WorkbenchDashboard implements Component, Focusable {
     }
     if (data === "f") {
       this.beginFollowUp();
+      return;
+    }
+    if (data === "!") {
+      this.beginShellCommand();
       return;
     }
     if (data === "e") {
@@ -251,6 +256,13 @@ class WorkbenchDashboard implements Component, Focusable {
     this.tui.requestRender();
   }
 
+  private beginShellCommand(): void {
+    const session = this.supervisor.registry.getSelectedSession();
+    if (!session || this.busy) return;
+    this.inputMode = { kind: "shell", sessionId: session.id, value: "", cursor: 0 };
+    this.tui.requestRender();
+  }
+
   private beginRename(): void {
     const session = this.supervisor.registry.getSelectedSession();
     if (!session || this.busy) return;
@@ -356,6 +368,9 @@ class WorkbenchDashboard implements Component, Focusable {
       } else if (mode.kind === "followup") {
         const ok = await this.supervisor.followUpSession(mode.sessionId, text);
         if (!ok) this.ctx.ui.notify("Selected session is not currently managed in-process", "error");
+      } else if (mode.kind === "shell") {
+        const ok = await this.supervisor.executeShellCommand(mode.sessionId, text);
+        if (!ok) this.ctx.ui.notify("Selected session is not currently managed in-process", "error");
       } else if (mode.kind === "rename") {
         const ok = await this.supervisor.updateSessionMetadata(mode.sessionId, { name: text });
         if (!ok) this.ctx.ui.notify("Selected session could not be renamed", "error");
@@ -396,6 +411,9 @@ class WorkbenchDashboard implements Component, Focusable {
     if (this.inputMode.kind === "followup") {
       return this.theme.fg("warning", "Follow-up message") + this.theme.fg("dim", " • Enter queue • Esc cancel");
     }
+    if (this.inputMode.kind === "shell") {
+      return this.theme.fg("warning", "One-off shell command") + this.theme.fg("dim", " • runs in selected session context • Enter run • Esc cancel");
+    }
     if (this.inputMode.kind === "rename") {
       return this.theme.fg("warning", "Rename session") + this.theme.fg("dim", " • Enter save • Esc cancel");
     }
@@ -406,12 +424,12 @@ class WorkbenchDashboard implements Component, Focusable {
       return this.theme.fg("warning", "Abort selected session?") + this.theme.fg("dim", " • y/Enter confirm • n/Esc cancel");
     }
     if (this.detailViewMode === "transcript") {
-      return this.theme.fg("dim", this.busy ? "Working…" : "v summary view • l log view • j/k scroll • J/K page • window 8 lines • n new • s steer • a abort • q close");
+      return this.theme.fg("dim", this.busy ? "Working…" : "v summary view • l log view • j/k scroll • J/K page • window 8 lines • ! shell • n new • s steer • a abort • q close");
     }
     if (this.detailViewMode === "log") {
-      return this.theme.fg("dim", this.busy ? "Working…" : "l summary view • v transcript • j/k scroll • J/K page • window 8 lines • n new • s steer • a abort • q close");
+      return this.theme.fg("dim", this.busy ? "Working…" : "l summary view • v transcript • j/k scroll • J/K page • window 8 lines • ! shell • n new • s steer • a abort • q close");
     }
-    return this.theme.fg("dim", this.busy ? "Working…" : "↑/↓ or j/k select • v transcript • l log • n new • e rename • t tags • p pin/unpin • s steer • f follow-up • a abort • q close");
+    return this.theme.fg("dim", this.busy ? "Working…" : "↑/↓ or j/k select • v transcript • l log • ! shell • n new • e rename • t tags • p pin/unpin • s steer • f follow-up • a abort • q close");
   }
 
   private async togglePinnedSummary(): Promise<void> {
@@ -488,9 +506,11 @@ function renderInputOverlay(width: number, theme: Theme, mode: InputMode, focuse
         ? "Steer"
         : editableMode.kind === "followup"
           ? "Follow-up"
-          : editableMode.kind === "rename"
-            ? "Name"
-            : "Tags";
+          : editableMode.kind === "shell"
+            ? "Shell"
+            : editableMode.kind === "rename"
+              ? "Name"
+              : "Tags";
 
   const before = editableMode.value.slice(0, editableMode.cursor);
   const atCursor = editableMode.cursor < editableMode.value.length ? editableMode.value[editableMode.cursor] : " ";

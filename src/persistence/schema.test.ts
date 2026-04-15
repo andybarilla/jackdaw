@@ -18,6 +18,9 @@ const validState: PersistedWorkbenchState = {
       recentFiles: ["src/index.ts"],
       connectionState: "historical",
       reconnectNote: "Could not reconnect after restart.",
+      lastShellCommand: "pwd",
+      lastShellOutput: "/repo",
+      lastShellExitCode: 0,
     },
   ],
   selectedSessionId: "session-1",
@@ -52,6 +55,9 @@ describe("parsePersistedWorkbenchState", () => {
     ["recentFiles", { recentFiles: ["src/index.ts", 7] }],
     ["connectionState", { connectionState: "offline" }],
     ["reconnectNote", { reconnectNote: 7 }],
+    ["lastShellCommand", { lastShellCommand: 7 }],
+    ["lastShellOutput", { lastShellOutput: 7 }],
+    ["lastShellExitCode", { lastShellExitCode: "oops" }],
   ])("rejects persisted state with malformed session %s", (_fieldName, sessionPatch) => {
     expect(() =>
       parsePersistedWorkbenchState({

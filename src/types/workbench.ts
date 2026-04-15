@@ -46,6 +46,9 @@ export interface WorkbenchSession {
   recentFiles?: string[];
   connectionState?: WorkbenchConnectionState;
   reconnectNote?: string;
+  lastShellCommand?: string;
+  lastShellOutput?: string;
+  lastShellExitCode?: number;
 }
 
 export interface WorkbenchPreferences {

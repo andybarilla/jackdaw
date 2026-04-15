@@ -33,6 +33,8 @@ export class WorkbenchSupervisor {
   private persistenceHealthy = true;
   private managedSessions = new Map<string, ManagedSession>();
   private listeners = new Set<() => void>();
+  private persistQueued = false;
+  private persistPromise: Promise<void> | undefined;
   private readonly sessionDir: string;
 
   constructor(private readonly projectRoot: string) {
@@ -173,6 +175,56 @@ export class WorkbenchSupervisor {
     return true;
   }
 
+  async executeShellCommand(sessionId: string, command: string): Promise<boolean> {
+    const managed = this.managedSessions.get(sessionId);
+    if (!managed) return false;
+
+    const startedAt = Date.now();
+    this.registry.patchSession(sessionId, {
+      currentTool: "shell fallback",
+      summary: `Running shell fallback: ${command}`,
+    });
+    this.registry.addActivity(createActivity(sessionId, "tool_running", `Shell fallback: ${command}`, startedAt));
+    await this.persist();
+    this.emitChange();
+
+    try {
+      const result = await managed.session.executeBash(command);
+      const finishedAt = Date.now();
+      const resultSummary = summarizeShellResult(command, result.exitCode, result.cancelled);
+      this.registry.patchSession(sessionId, {
+        currentTool: undefined,
+        lastShellCommand: command,
+        lastShellOutput: previewShellOutput(result.output),
+        lastShellExitCode: result.exitCode,
+        summary: resultSummary,
+        lastError: result.exitCode === 0 || result.cancelled ? undefined : resultSummary,
+      });
+      this.registry.addActivity(
+        createActivity(sessionId, result.exitCode === 0 || result.cancelled ? "session_idle" : "session_blocked", resultSummary, finishedAt),
+      );
+      await this.persist();
+      this.emitChange();
+      return true;
+    } catch (error: unknown) {
+      const finishedAt = Date.now();
+      const message = errorMessage(error);
+      const resultSummary = `Shell fallback failed: ${command} (${message})`;
+      this.registry.patchSession(sessionId, {
+        currentTool: undefined,
+        lastShellCommand: command,
+        lastShellOutput: message,
+        lastShellExitCode: undefined,
+        lastError: message,
+        summary: resultSummary,
+      });
+      this.registry.addActivity(createActivity(sessionId, "session_failed", resultSummary, finishedAt));
+      await this.persist();
+      this.emitChange();
+      return true;
+    }
+  }
+
   async updateSessionMetadata(
     sessionId: string,
     patch: Pick<Partial<WorkbenchSession>, "name" | "tags" | "pinnedSummary">,
@@ -299,17 +351,38 @@ export class WorkbenchSupervisor {
     if (normalized.activity) {
       this.registry.addActivity(normalized.activity);
     }
-    void this.persist();
+    this.schedulePersist();
     this.emitChange();
   }
 
-  private async persist(): Promise<void> {
-    if (!this.persistenceHealthy) return;
+  private schedulePersist(): void {
+    void this.persist().catch(() => undefined);
+  }
 
-    await this.store.save({
-      ...createEmptyPersistedState(),
-      ...this.registry.getState(),
+  private async persist(): Promise<void> {
+    this.persistQueued = true;
+    if (this.persistPromise) {
+      return this.persistPromise;
+    }
+
+    this.persistPromise = this.flushPersistQueue().finally(() => {
+      this.persistPromise = undefined;
     });
+    return this.persistPromise;
+  }
+
+  private async flushPersistQueue(): Promise<void> {
+    while (this.persistQueued) {
+      this.persistQueued = false;
+      if (!this.persistenceHealthy) {
+        continue;
+      }
+
+      await this.store.save({
+        ...createEmptyPersistedState(),
+        ...this.registry.getState(),
+      });
+    }
   }
 
   private emitChange(): void {
@@ -370,6 +443,29 @@ function formatSessionLines(message: unknown, mode: "transcript" | "log"): strin
 
 function createReconnectNote(): string {
   return "Could not reconnect after restart. Metadata remains visible locally, but steer/follow-up/abort only work for sessions reattached in-process.";
+}
+
+function summarizeShellResult(command: string, exitCode: number | undefined, cancelled: boolean): string {
+  if (cancelled) {
+    return `Shell fallback cancelled: ${command}`;
+  }
+  if (exitCode === 0) {
+    return `Shell fallback completed: ${command}`;
+  }
+  if (exitCode === undefined) {
+    return `Shell fallback ended without an exit code: ${command}`;
+  }
+  return `Shell fallback exited ${exitCode}: ${command}`;
+}
+
+function previewShellOutput(output: string): string {
+  return output
+    .split(/\r?\n/)
+    .map((line: string) => line.trimEnd())
+    .filter(Boolean)
+    .slice(0, 6)
+    .join("\n")
+    .slice(0, 600);
 }
 
 function isAbortLikeError(message: string): boolean {

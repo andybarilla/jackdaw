@@ -35,6 +35,7 @@ From the dashboard:
 - `p` pins or unpins the current selected-session summary
 - `s` sends a steering message
 - `f` queues a follow-up
+- `!` runs a one-off shell command in the selected session context
 - `a` aborts the selected session
 
 Or launch directly:
@@ -64,10 +65,11 @@ Persisted data stays intentionally lightweight:
 - editable session names and tags
 - pinned summaries
 - recent file context and last meaningful update
+- last shell fallback command preview
 - selected session and detail-view preference
 - recent session entries, including sessions that are no longer live in-process
 
-pi remains the source of truth for transcript/history. On restart, the workbench attempts to reconnect to known sessions from their saved session files. If reconnection fails, the session still appears in the dashboard as a `historical` entry with its saved metadata. Historical entries remain visible instead of disappearing silently, but steer/follow-up/abort only work after a session is reattached or respawned.
+pi remains the source of truth for transcript/history. On restart, the workbench attempts to reconnect to known sessions from their saved session files. If reconnection fails, the session still appears in the dashboard as a `historical` entry with its saved metadata. Historical entries remain visible instead of disappearing silently, but steer/follow-up/abort/shell fallback only work after a session is reattached or respawned.
 
 ## Next steps
 

@@ -104,6 +104,15 @@ function parsePersistedSession(value: unknown, index: number): WorkbenchSession 
   if (value.reconnectNote !== undefined && typeof value.reconnectNote !== "string") {
     throw new TypeError(`Persisted session ${index} reconnectNote must be a string`);
   }
+  if (value.lastShellCommand !== undefined && typeof value.lastShellCommand !== "string") {
+    throw new TypeError(`Persisted session ${index} lastShellCommand must be a string`);
+  }
+  if (value.lastShellOutput !== undefined && typeof value.lastShellOutput !== "string") {
+    throw new TypeError(`Persisted session ${index} lastShellOutput must be a string`);
+  }
+  if (value.lastShellExitCode !== undefined && typeof value.lastShellExitCode !== "number") {
+    throw new TypeError(`Persisted session ${index} lastShellExitCode must be a number`);
+  }
 
   return {
     id: value.id,
@@ -123,6 +132,9 @@ function parsePersistedSession(value: unknown, index: number): WorkbenchSession 
     recentFiles: value.recentFiles,
     connectionState: value.connectionState,
     reconnectNote: value.reconnectNote,
+    lastShellCommand: value.lastShellCommand,
+    lastShellOutput: value.lastShellOutput,
+    lastShellExitCode: value.lastShellExitCode,
   };
 }
 

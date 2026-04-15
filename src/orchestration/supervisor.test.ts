@@ -15,6 +15,32 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
   },
 }));
 
+interface MockManagedSession {
+  sessionId: string;
+  sessionFile: string;
+  model: { id: string };
+  prompt: ReturnType<typeof vi.fn>;
+  steer: ReturnType<typeof vi.fn>;
+  followUp: ReturnType<typeof vi.fn>;
+  abort: ReturnType<typeof vi.fn>;
+  subscribe: ReturnType<typeof vi.fn>;
+  executeBash: ReturnType<typeof vi.fn>;
+}
+
+function createManagedSession(overrides: Partial<MockManagedSession> = {}): MockManagedSession {
+  return {
+    sessionId: overrides.sessionId ?? "managed-session",
+    sessionFile: overrides.sessionFile ?? "managed-session.json",
+    model: overrides.model ?? { id: "gpt-5.4" },
+    prompt: overrides.prompt ?? vi.fn().mockResolvedValue(undefined),
+    steer: overrides.steer ?? vi.fn().mockResolvedValue(undefined),
+    followUp: overrides.followUp ?? vi.fn().mockResolvedValue(undefined),
+    abort: overrides.abort ?? vi.fn().mockResolvedValue(undefined),
+    subscribe: overrides.subscribe ?? vi.fn(() => () => undefined),
+    executeBash: overrides.executeBash ?? vi.fn().mockResolvedValue({ output: "", exitCode: 0, cancelled: false, truncated: false }),
+  };
+}
+
 describe("WorkbenchSupervisor persistence", () => {
   let projectRoot: string;
 
@@ -77,21 +103,21 @@ describe("WorkbenchSupervisor persistence", () => {
     });
   });
 
-  it("does not overwrite unreadable persisted state on startup", async () => {
+  it("does not overwrite parseable but malformed persisted state on startup", async () => {
     const { WorkbenchStore } = await import("../persistence/store.js");
     const { WorkbenchSupervisor } = await import("./supervisor.js");
 
     const store = WorkbenchStore.default(projectRoot);
     const statePath = path.join(projectRoot, ".jackdaw-workbench", "state.json");
     await mkdir(path.dirname(statePath), { recursive: true });
-    await writeFile(statePath, '{"sessions":[');
+    await writeFile(statePath, '{"sessions":"oops"}');
 
     const supervisor = new WorkbenchSupervisor(projectRoot);
     await supervisor.initialize();
     await supervisor.openWorkbench();
 
     expect(supervisor.registry.getState().sessions).toEqual([]);
-    expect(await readFile(statePath, "utf8")).toBe('{"sessions":[');
+    expect(await readFile(statePath, "utf8")).toBe('{"sessions":"oops"}');
     await expect(store.load()).rejects.toThrow("Failed to load persisted workbench state");
   });
 
@@ -140,5 +166,113 @@ describe("WorkbenchSupervisor persistence", () => {
     const persisted = await supervisor.store.load();
     expect(persisted.sessions[0]?.connectionState).toBe("historical");
     expect(persisted.sessions[0]?.reconnectNote).toContain("Metadata remains visible locally");
+  });
+
+  it("serializes persistence triggered by rapid session events", async () => {
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+    supervisor.registry.upsertSession({
+      id: "session-3",
+      name: "Event Session",
+      cwd: "/repo",
+      model: "gpt-5.4",
+      taskLabel: "task",
+      status: "running",
+      tags: [],
+      lastUpdateAt: 404,
+      summary: "Waiting",
+      connectionState: "historical",
+    });
+
+    let activeSaves = 0;
+    let maxConcurrentSaves = 0;
+    const saveSpy = vi.spyOn(supervisor.store, "save").mockImplementation(async () => {
+      activeSaves += 1;
+      maxConcurrentSaves = Math.max(maxConcurrentSaves, activeSaves);
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+      activeSaves -= 1;
+    });
+
+    try {
+      (supervisor as unknown as { handleSessionEvent: (sessionId: string, event: unknown) => void }).handleSessionEvent(
+        "session-3",
+        { type: "agent_start" },
+      );
+      (supervisor as unknown as { handleSessionEvent: (sessionId: string, event: unknown) => void }).handleSessionEvent(
+        "session-3",
+        { type: "agent_start" },
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, 75));
+    } finally {
+      saveSpy.mockRestore();
+    }
+
+    expect(maxConcurrentSaves).toBe(1);
+  });
+
+  it("runs a shell fallback command in the selected session context", async () => {
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    sessionManagerCreateMock.mockReturnValue({ created: true });
+    const managedSession = createManagedSession({
+      sessionId: "session-shell",
+      sessionFile: "session-shell.json",
+      executeBash: vi.fn().mockResolvedValue({
+        output: "M src/ui/dashboard.ts\n?? src/ui/dashboard.test.ts\n",
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      }),
+    });
+    createAgentSessionMock.mockResolvedValue({ session: managedSession });
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+    const session = await supervisor.spawnSession({ cwd: "/repo", task: "task" });
+
+    const ok = await supervisor.executeShellCommand(session.id, "git status --short");
+
+    expect(ok).toBe(true);
+    expect(managedSession.executeBash).toHaveBeenCalledWith("git status --short");
+    expect(supervisor.registry.getSelectedSession()).toMatchObject({
+      id: "session-shell",
+      lastShellCommand: "git status --short",
+      lastShellOutput: "M src/ui/dashboard.ts\n?? src/ui/dashboard.test.ts",
+      lastShellExitCode: 0,
+      summary: "Shell fallback completed: git status --short",
+      currentTool: undefined,
+    });
+    expect(supervisor.registry.getActivities("session-shell").map((activity) => activity.summary)).toEqual(
+      expect.arrayContaining(["Shell fallback: git status --short", "Shell fallback completed: git status --short"]),
+    );
+
+    const persisted = await supervisor.store.load();
+    expect(persisted.sessions[0]).toMatchObject({
+      lastShellCommand: "git status --short",
+      lastShellExitCode: 0,
+    });
+  });
+
+  it("rejects shell fallback for unmanaged historical sessions", async () => {
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+    supervisor.registry.upsertSession({
+      id: "session-historical",
+      name: "Historical Session",
+      cwd: "/repo",
+      model: "gpt-5.4",
+      taskLabel: "task",
+      status: "idle",
+      tags: [],
+      lastUpdateAt: 505,
+      summary: "Visible only",
+      connectionState: "historical",
+    });
+
+    await expect(supervisor.executeShellCommand("session-historical", "pwd")).resolves.toBe(false);
   });
 });
