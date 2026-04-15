@@ -123,3 +123,29 @@ func TestPatternMatcherDetectsPasswordPrompt(t *testing.T) {
 		t.Fatalf("expected 1 notification, got %d", len(received))
 	}
 }
+
+func TestPatternMatcherStripsANSIWrappedApprovalPrompt(t *testing.T) {
+	svc := NewService()
+	defer svc.Close()
+
+	var received []Notification
+	var mu sync.Mutex
+	svc.OnNotification = func(n Notification) {
+		mu.Lock()
+		received = append(received, n)
+		mu.Unlock()
+	}
+
+	pm := NewPatternMatcher(svc, "s1", "my-project")
+	pm.Feed([]byte("\x1b[33mApprove action?\x1b[0m"))
+
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(received))
+	}
+	if received[0].Type != TypeInputRequired {
+		t.Errorf("type = %q, want %q", received[0].Type, TypeInputRequired)
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"sync"
 	"time"
+
+	"github.com/andybarilla/jackdaw/internal/ansi"
 )
 
 var inputPatterns = []*regexp.Regexp{
@@ -38,7 +40,7 @@ func NewPatternMatcher(svc *Service, sessionID string, sessionName string) *Patt
 }
 
 func (pm *PatternMatcher) Feed(data []byte) {
-	cleaned := StripANSI(data)
+	cleaned := ansi.StripBytes(data)
 	for _, pat := range inputPatterns {
 		if pat.Match(cleaned) {
 			pm.fire(string(cleaned))
