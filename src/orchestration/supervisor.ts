@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import path from "node:path";
 import {
   type AgentSession,
@@ -178,7 +179,8 @@ export class WorkbenchSupervisor {
 
   async executeShellCommand(sessionId: string, command: string): Promise<boolean> {
     const managed = this.managedSessions.get(sessionId);
-    if (!managed) return false;
+    const session = this.registry.listSessions().find((item) => item.id === sessionId);
+    if (!managed || !session) return false;
 
     const startedAt = Date.now();
     this.registry.patchSession(sessionId, {
@@ -190,7 +192,7 @@ export class WorkbenchSupervisor {
     this.emitChange();
 
     try {
-      const result = await managed.session.executeBash(command);
+      const result = await runNonRecordingShellCommand(command, session.cwd);
       const finishedAt = Date.now();
       const resultSummary = summarizeShellResult(command, result.exitCode, result.cancelled);
       this.registry.patchSession(sessionId, {
@@ -386,6 +388,48 @@ export class WorkbenchSupervisor {
   private emitChange(): void {
     for (const listener of this.listeners) listener();
   }
+}
+
+interface ShellCommandResult {
+  output: string;
+  exitCode: number | undefined;
+  cancelled: boolean;
+}
+
+function runNonRecordingShellCommand(command: string, cwd: string): Promise<ShellCommandResult> {
+  return new Promise<ShellCommandResult>((resolve, reject) => {
+    const child = spawn(command, {
+      cwd,
+      env: process.env,
+      shell: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      stdout += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderr += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    });
+    child.on("error", (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+    child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      resolve({
+        output: [stdout, stderr].filter(Boolean).join(stdout && stderr ? "\n" : ""),
+        exitCode: code ?? undefined,
+        cancelled: signal !== null,
+      });
+    });
+  });
 }
 
 function mergeRecentFiles(existing: string[], incoming: string[]): string[] {

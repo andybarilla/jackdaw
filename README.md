@@ -69,6 +69,8 @@ Persisted data stays intentionally lightweight:
 - selected session and detail-view preference
 - recent session entries, including sessions that are no longer live in-process
 
+Shell fallback commands run through a local non-recording path in the selected session cwd. Their preview stays in memory only and is not written into workbench state or pi session history.
+
 pi remains the source of truth for transcript/history. On restart, the workbench attempts to reconnect to known sessions from their saved session files. If reconnection fails, the session still appears in the dashboard as a `historical` entry with its saved metadata. Historical entries remain visible instead of disappearing silently, but steer/follow-up/abort/shell fallback only work after a session is reattached or respawned.
 
 ## Next steps

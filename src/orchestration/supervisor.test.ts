@@ -212,45 +212,42 @@ describe("WorkbenchSupervisor persistence", () => {
     expect(maxConcurrentSaves).toBe(1);
   });
 
-  it("runs a shell fallback command in the selected session context", async () => {
+  it("runs a shell fallback command in the selected session cwd without recording through pi", async () => {
     const { WorkbenchSupervisor } = await import("./supervisor.js");
 
     sessionManagerCreateMock.mockReturnValue({ created: true });
     const managedSession = createManagedSession({
       sessionId: "session-shell",
       sessionFile: "session-shell.json",
-      executeBash: vi.fn().mockResolvedValue({
-        output: "M src/ui/dashboard.ts\n?? src/ui/dashboard.test.ts\n",
-        exitCode: 0,
-        cancelled: false,
-        truncated: false,
-      }),
     });
     createAgentSessionMock.mockResolvedValue({ session: managedSession });
 
+    const shellCwd = path.join(projectRoot, "shell-cwd");
+    await mkdir(shellCwd, { recursive: true });
+
     const supervisor = new WorkbenchSupervisor(projectRoot);
     await supervisor.initialize();
-    const session = await supervisor.spawnSession({ cwd: "/repo", task: "task" });
+    const session = await supervisor.spawnSession({ cwd: shellCwd, task: "task" });
 
-    const ok = await supervisor.executeShellCommand(session.id, "git status --short");
+    const ok = await supervisor.executeShellCommand(session.id, "pwd");
 
     expect(ok).toBe(true);
-    expect(managedSession.executeBash).toHaveBeenCalledWith("git status --short");
+    expect(managedSession.executeBash).not.toHaveBeenCalled();
     expect(supervisor.registry.getSelectedSession()).toMatchObject({
       id: "session-shell",
-      lastShellCommand: "git status --short",
-      lastShellOutput: "M src/ui/dashboard.ts\n?? src/ui/dashboard.test.ts",
+      lastShellCommand: "pwd",
+      lastShellOutput: shellCwd,
       lastShellExitCode: 0,
-      summary: "Shell fallback completed: git status --short",
+      summary: "Shell fallback completed: pwd",
       currentTool: undefined,
     });
     expect(supervisor.registry.getActivities("session-shell").map((activity) => activity.summary)).toEqual(
-      expect.arrayContaining(["Shell fallback: git status --short", "Shell fallback completed: git status --short"]),
+      expect.arrayContaining(["Shell fallback: pwd", "Shell fallback completed: pwd"]),
     );
 
     const persisted = await supervisor.store.load();
     expect(persisted.sessions[0]).toMatchObject({
-      lastShellCommand: "git status --short",
+      lastShellCommand: "pwd",
       lastShellExitCode: 0,
     });
     expect(persisted.sessions[0]?.lastShellOutput).toBeUndefined();
@@ -263,21 +260,21 @@ describe("WorkbenchSupervisor persistence", () => {
     const managedSession = createManagedSession({
       sessionId: "session-shell-sanitized",
       sessionFile: "session-shell-sanitized.json",
-      executeBash: vi.fn().mockResolvedValue({
-        output: "safe\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007\nnext\u001b[31m red\u009b2J",
-        exitCode: 0,
-        cancelled: false,
-        truncated: false,
-      }),
     });
     createAgentSessionMock.mockResolvedValue({ session: managedSession });
 
     const supervisor = new WorkbenchSupervisor(projectRoot);
     await supervisor.initialize();
-    const session = await supervisor.spawnSession({ cwd: "/repo", task: "task" });
+    const session = await supervisor.spawnSession({ cwd: projectRoot, task: "task" });
 
-    await expect(supervisor.executeShellCommand(session.id, "printf test")).resolves.toBe(true);
+    await expect(
+      supervisor.executeShellCommand(
+        session.id,
+        `node -e "process.stdout.write('safe\\u001b]8;;https://example.com\\u0007link\\u001b]8;;\\u0007\\nnext\\u001b[31m red\\u009b2J')"`,
+      ),
+    ).resolves.toBe(true);
 
+    expect(managedSession.executeBash).not.toHaveBeenCalled();
     expect(supervisor.registry.getSelectedSession()).toMatchObject({
       lastShellOutput: "safelink\nnext red",
       lastShellExitCode: 0,
