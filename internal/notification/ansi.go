@@ -1,9 +1,7 @@
 package notification
 
-import "regexp"
-
-var ansiPattern = regexp.MustCompile(`\x1b(?:\[[0-9;]*[a-zA-Z]|\][^\x07]*\x07)`)
+import "github.com/andybarilla/jackdaw/internal/ansi"
 
 func StripANSI(data []byte) []byte {
-	return ansiPattern.ReplaceAll(data, nil)
+	return ansi.StripBytes(data)
 }
