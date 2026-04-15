@@ -58,6 +58,7 @@ Or launch directly:
 ## Persistence behavior
 
 Workbench metadata is stored locally at `.jackdaw-workbench/state.json`.
+The entire `.jackdaw-workbench/` directory is gitignored so repo-local session metadata does not get committed accidentally.
 
 Persisted data stays intentionally lightweight:
 - editable session names and tags
