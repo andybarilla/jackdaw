@@ -20,6 +20,7 @@
 - **Lifecycle hooks** — Auto-run commands on session create/destroy (install deps, docker-compose, etc.)
 - **CLI/socket API** — External tools can create sessions, send input, and query status programmatically
 - **Command palette** — Searchable palette for all actions and user-defined commands
+- **Relay server buffer/fanout race** — Serialized `readPTY` (buffer write + fanout + history) and `handleClient` (replay + register) under `s.mu`, closing duplicate and interleaving races
 
 ## Up Next
 - **Port detection per session** — Detect and display listening ports per session in sidebar
@@ -31,7 +32,7 @@
 ## Known Issues / Follow-ups
 
 - **Duplicate WebSocket connections per session** — Trace logs showed two `flush-enter`s per output frame for some long-lived sessions, indicating stale WS connections weren't being cleaned up when a client reconnected. Reproduce by letting a session run through several reload/HMR cycles, then grep `TRACE ... flush-enter` per session ID. Fix likely lives in `Terminal.svelte`'s effect cleanup or `wsserver.handleWS`'s disconnect path.
-- **Relay server buffer/fanout race** — In `internal/relay/server.go` `readPTY`, the ring-buffer write and the client-fanout loop are not atomic with `handleClient`'s snapshot+register. A client connecting at the exact moment a frame arrives can either duplicate or miss that frame. Fix: write to `s.buffer` and snapshot `s.clients` under a single `s.mu` critical section, and have `handleClient` take the same lock around `buffer.Bytes()` + `clients[conn] = …`. Low impact (small window, unlikely to cause visible corruption) but worth closing.
+- **Relay `pty.Setsize` vs `ptmx.Close` race** — `TestClientResize`/`TestServerResize` fail under `-race` because `handleClient`'s `pty.Setsize(s.ptmx, ...)` at `internal/relay/server.go:311` can execute while `Server.Close` is closing `ptmx`. Pre-existing, unrelated to the fanout race fix. Fix likely needs a close-flag checked under `s.mu` in the resize path, or a `sync.Once`/lifecycle guard around `ptmx` access.
 
 ## Workflow
 
