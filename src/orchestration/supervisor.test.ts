@@ -359,41 +359,49 @@ describe("WorkbenchSupervisor persistence", () => {
   });
 
   it("marks a pending intervention observed only after later meaningful non-local activity", async () => {
-    const { WorkbenchSupervisor } = await import("./supervisor.js");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-16T12:00:00.000Z"));
 
-    sessionManagerCreateMock.mockReturnValue({ created: true });
-    const managedSession = createManagedSession({
-      sessionId: "session-followup",
-      sessionFile: "session-followup.json",
-    });
-    createAgentSessionMock.mockResolvedValue({ session: managedSession });
+    try {
+      const { WorkbenchSupervisor } = await import("./supervisor.js");
 
-    const supervisor = new WorkbenchSupervisor(projectRoot);
-    await supervisor.initialize();
-    const session = await supervisor.spawnSession({ cwd: projectRoot, task: "task" });
+      sessionManagerCreateMock.mockReturnValue({ created: true });
+      const managedSession = createManagedSession({
+        sessionId: "session-followup",
+        sessionFile: "session-followup.json",
+      });
+      createAgentSessionMock.mockResolvedValue({ session: managedSession });
 
-    await supervisor.followUpSession(session.id, "Please confirm the migration path");
-    const requestedAt = supervisor.registry.getSelectedSession()!.lastIntervention!.requestedAt;
+      const supervisor = new WorkbenchSupervisor(projectRoot);
+      await supervisor.initialize();
+      const session = await supervisor.spawnSession({ cwd: projectRoot, task: "task" });
 
-    (supervisor as unknown as { handleSessionEvent: (sessionId: string, event: unknown) => void }).handleSessionEvent(session.id, {
-      type: "message_update",
-      assistantMessageEvent: { type: "text_delta", delta: "streaming" },
-    });
-    expect(supervisor.registry.getSelectedSession()?.lastIntervention?.status).toBe("pending-observation");
+      await supervisor.followUpSession(session.id, "Please confirm the migration path");
+      const requestedAt = supervisor.registry.getSelectedSession()!.lastIntervention!.requestedAt;
 
-    (supervisor as unknown as { handleSessionEvent: (sessionId: string, event: unknown) => void }).handleSessionEvent(session.id, {
-      type: "tool_execution_start",
-      toolName: "read",
-      args: { path: "src/index.ts" },
-    });
-    await supervisor.openWorkbench();
+      (supervisor as unknown as { handleSessionEvent: (sessionId: string, event: unknown) => void }).handleSessionEvent(session.id, {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "streaming" },
+      });
+      expect(supervisor.registry.getSelectedSession()?.lastIntervention?.status).toBe("pending-observation");
 
-    expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
-      kind: "followup",
-      status: "observed",
-      observedAt: expect.any(Number),
-    });
-    expect(supervisor.registry.getSelectedSession()!.lastIntervention!.observedAt).toBeGreaterThan(requestedAt);
+      vi.advanceTimersByTime(1);
+      (supervisor as unknown as { handleSessionEvent: (sessionId: string, event: unknown) => void }).handleSessionEvent(session.id, {
+        type: "tool_execution_start",
+        toolName: "read",
+        args: { path: "src/index.ts" },
+      });
+      await supervisor.openWorkbench();
+
+      expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
+        kind: "followup",
+        status: "observed",
+        observedAt: expect.any(Number),
+      });
+      expect(supervisor.registry.getSelectedSession()!.lastIntervention!.observedAt).toBeGreaterThan(requestedAt);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not clear pending observation on later session-idle churn", async () => {

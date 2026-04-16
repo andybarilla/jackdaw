@@ -238,9 +238,9 @@ async function openDashboard(options: DashboardHarnessOptions): Promise<Dashboar
         dashboard = renderDashboard({ requestRender: () => undefined }, createTheme(), undefined, () => undefined);
       }),
     },
-  } satisfies Pick<ExtensionCommandContext, "cwd" | "model" | "ui">;
+  } as unknown as ExtensionCommandContext;
 
-  await showWorkbenchDashboard(ctx as ExtensionCommandContext, supervisor as never);
+  await showWorkbenchDashboard(ctx, supervisor as never);
 
   expect(dashboard).toBeDefined();
   return dashboard!;
