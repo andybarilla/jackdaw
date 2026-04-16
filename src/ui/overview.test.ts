@@ -45,10 +45,55 @@ describe("renderOverviewLines", () => {
     ], "input");
 
     expect(lines[0]).toContain("✓ done Done Session · finished 2m ago");
-    expect(lines[1]).toContain("> ◉ input Needs Answer · Which option should I choose next?",
-    );
+    expect(lines[1]).toContain("> ◉ input Needs Answer · Awaiting your choice");
 
     vi.useRealTimers();
+  });
+
+  it("prefers the pinned summary over status-specific fallback fields", () => {
+    const lines = renderOverviewLines([
+      session({
+        id: "input",
+        name: "Needs Answer",
+        status: "awaiting-input",
+        summary: "Live summary",
+        pinnedSummary: "Frozen input summary",
+        latestText: "Which option should I choose next?",
+      }),
+      session({
+        id: "blocked",
+        name: "Blocked Session",
+        status: "blocked",
+        summary: "Live blocked summary",
+        pinnedSummary: "Frozen blocked summary",
+        lastError: "Command exited 1",
+      }),
+      session({
+        id: "failed",
+        name: "Failed Session",
+        status: "failed",
+        summary: "Live failed summary",
+        pinnedSummary: "Frozen failed summary",
+        lastError: "Process crashed",
+      }),
+      session({
+        id: "running",
+        name: "Running Session",
+        status: "running",
+        summary: "Live running summary",
+        pinnedSummary: "Frozen running summary",
+        currentTool: "edit",
+      }),
+    ]);
+
+    expect(lines[0]).toContain("Needs Answer · Frozen input summary");
+    expect(lines[0]).not.toContain("Which option should I choose next?");
+    expect(lines[1]).toContain("Blocked Session · Frozen blocked summary");
+    expect(lines[1]).not.toContain("Command exited 1");
+    expect(lines[2]).toContain("Failed Session · Frozen failed summary");
+    expect(lines[2]).not.toContain("Process crashed");
+    expect(lines[3]).toContain("Running Session · Frozen running summary");
+    expect(lines[3]).not.toContain("running edit");
   });
 
   it("shows recent file context when available", () => {

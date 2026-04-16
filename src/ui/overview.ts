@@ -30,16 +30,16 @@ function summarizeAttentionReason(session: WorkbenchSession): string {
   const preferredSummary = session.pinnedSummary ?? session.summary;
 
   if (session.status === "awaiting-input") {
-    return compact(session.latestText ?? preferredSummary ?? "asked a question");
+    return compact(preferredSummary || session.latestText || "asked a question");
   }
   if (session.status === "blocked") {
-    return compact(session.lastError ?? preferredSummary ?? "tool failed");
+    return compact(preferredSummary || session.lastError || "tool failed");
   }
   if (session.status === "running") {
-    return session.currentTool ? `running ${session.currentTool}` : compact(preferredSummary || "working");
+    return compact(preferredSummary || (session.currentTool ? `running ${session.currentTool}` : "working"));
   }
   if (session.status === "failed") {
-    return compact(session.lastError ?? preferredSummary ?? "session failed");
+    return compact(preferredSummary || session.lastError || "session failed");
   }
   if (session.status === "done") {
     return session.pinnedSummary ? compact(session.pinnedSummary) : `finished ${relativeTime(session.lastUpdateAt)}`;
