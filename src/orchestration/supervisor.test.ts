@@ -396,6 +396,36 @@ describe("WorkbenchSupervisor persistence", () => {
     expect(supervisor.registry.getSelectedSession()!.lastIntervention!.observedAt).toBeGreaterThan(requestedAt);
   });
 
+  it("does not clear pending observation on later session-idle churn", async () => {
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    sessionManagerCreateMock.mockReturnValue({ created: true });
+    const managedSession = createManagedSession({
+      sessionId: "session-followup-idle",
+      sessionFile: "session-followup-idle.json",
+    });
+    createAgentSessionMock.mockResolvedValue({ session: managedSession });
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+    const session = await supervisor.spawnSession({ cwd: projectRoot, task: "task" });
+
+    await supervisor.followUpSession(session.id, "Please confirm the migration path");
+    const requestedAt = supervisor.registry.getSelectedSession()!.lastIntervention!.requestedAt;
+
+    (supervisor as unknown as { handleSessionEvent: (sessionId: string, event: unknown) => void }).handleSessionEvent(session.id, {
+      type: "agent_end",
+      messages: [],
+    });
+
+    expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
+      kind: "followup",
+      status: "pending-observation",
+      requestedAt,
+    });
+    expect(supervisor.registry.getSelectedSession()?.lastIntervention?.observedAt).toBeUndefined();
+  });
+
   it("records successful follow-up submissions as sent before pending observation", async () => {
     const { WorkbenchSupervisor } = await import("./supervisor.js");
 

@@ -147,7 +147,7 @@ export function normalizeAgentSessionEvent(sessionId: string, event: AgentSessio
 
     case "agent_end":
       return {
-        activity: createActivity(sessionId, "session_idle", "Agent turn completed"),
+        activity: createActivity(sessionId, "session_idle", "Agent turn completed", { meaningful: false }),
         patch: {
           currentTool: undefined,
         },

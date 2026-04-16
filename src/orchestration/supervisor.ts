@@ -425,8 +425,11 @@ export class WorkbenchSupervisor {
     }
   }
 
-  private observePendingIntervention(sessionId: string, activity: { timestamp: number; origin?: string; meaningful?: boolean }): void {
-    if (activity.origin === "operator" || activity.meaningful === false) {
+  private observePendingIntervention(
+    sessionId: string,
+    activity: { timestamp: number; type: string; origin?: string; meaningful?: boolean },
+  ): void {
+    if (activity.origin === "operator" || activity.meaningful === false || activity.type === "session_idle") {
       return;
     }
 
