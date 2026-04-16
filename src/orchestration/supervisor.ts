@@ -79,6 +79,9 @@ export class WorkbenchSupervisor {
       sessions: sanitizePersistedSessions((persisted.sessions ?? []).map((session) => ({ ...session }))),
     });
     await this.restoreManagedSessions();
+    for (const session of this.registry.listSessions()) {
+      this.reconcilePendingIntervention(session.id);
+    }
     this.initialized = true;
     this.emitChange();
   }
@@ -403,6 +406,7 @@ export class WorkbenchSupervisor {
       this.registry.patchSession(sessionId, {
         lastIntervention: createIntervention(kind, text, "pending-observation", requestedAt),
       });
+      this.reconcilePendingIntervention(sessionId);
       await this.persist();
       this.emitChange();
       return {
@@ -429,7 +433,7 @@ export class WorkbenchSupervisor {
     sessionId: string,
     activity: { timestamp: number; type: string; origin?: string; meaningful?: boolean },
   ): void {
-    if (activity.origin === "operator" || activity.meaningful === false || activity.type === "session_idle") {
+    if (!isMeaningfulObservedActivity(activity)) {
       return;
     }
 
@@ -441,11 +445,46 @@ export class WorkbenchSupervisor {
       return;
     }
 
+    this.markInterventionObserved(sessionId, session.lastIntervention, activity.timestamp);
+  }
+
+  private reconcilePendingIntervention(sessionId: string): void {
+    const session = this.registry.listSessions().find((item) => item.id === sessionId);
+    if (!session?.lastIntervention || session.lastIntervention.status !== "pending-observation") {
+      return;
+    }
+
+    const observedAt = findObservedActivityTimestamp(session.lastIntervention.requestedAt, this.registry.getActivities(sessionId));
+    if (observedAt !== undefined) {
+      this.markInterventionObserved(sessionId, session.lastIntervention, observedAt);
+      return;
+    }
+
+    const historicalObservedAt = this.findObservedActivityTimestampInSessionHistory(session);
+    if (historicalObservedAt !== undefined) {
+      this.markInterventionObserved(sessionId, session.lastIntervention, historicalObservedAt);
+    }
+  }
+
+  private findObservedActivityTimestampInSessionHistory(session: WorkbenchSession): number | undefined {
+    if (!session.sessionFile || !session.lastIntervention || session.lastIntervention.status !== "pending-observation") {
+      return undefined;
+    }
+
+    try {
+      const manager = SessionManager.open(session.sessionFile, this.sessionDir, session.cwd);
+      return findObservedHistoryTimestamp(manager.getBranch(), session.lastIntervention.requestedAt);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private markInterventionObserved(sessionId: string, intervention: WorkbenchIntervention, observedAt: number): void {
     this.registry.patchSession(sessionId, {
       lastIntervention: {
-        ...session.lastIntervention,
+        ...intervention,
         status: "observed",
-        observedAt: activity.timestamp,
+        observedAt,
         errorMessage: undefined,
       },
     });
@@ -629,6 +668,54 @@ function createIntervention(
     errorMessage,
     summary: interventionLabel(kind),
   };
+}
+
+function findObservedActivityTimestamp(requestedAt: number, activities: Array<Pick<WorkbenchInterventionActivity, "timestamp" | "type" | "origin" | "meaningful">>): number | undefined {
+  return activities.find((activity) => isMeaningfulObservedActivity(activity) && activity.timestamp > requestedAt)?.timestamp;
+}
+
+function findObservedHistoryTimestamp(entries: Array<{ type: string; timestamp?: string; message?: unknown }>, requestedAt: number): number | undefined {
+  for (const entry of entries) {
+    const timestamp = getObservedHistoryEntryTimestamp(entry);
+    if (timestamp !== undefined && timestamp > requestedAt) {
+      return timestamp;
+    }
+  }
+
+  return undefined;
+}
+
+interface WorkbenchInterventionActivity {
+  timestamp: number;
+  type: string;
+  origin?: string;
+  meaningful?: boolean;
+}
+
+function isMeaningfulObservedActivity(activity: Pick<WorkbenchInterventionActivity, "type" | "origin" | "meaningful">): boolean {
+  return activity.origin !== "operator" && activity.meaningful !== false && activity.type !== "session_idle";
+}
+
+function getObservedHistoryEntryTimestamp(entry: { type: string; timestamp?: string; message?: unknown }): number | undefined {
+  if (entry.type !== "message" || !entry.message || typeof entry.message !== "object" || !("role" in entry.message)) {
+    return undefined;
+  }
+
+  const message = entry.message as { role?: unknown; timestamp?: unknown };
+  if (message.role !== "assistant" && message.role !== "toolResult" && message.role !== "bashExecution") {
+    return undefined;
+  }
+
+  if (typeof message.timestamp === "number") {
+    return message.timestamp;
+  }
+
+  if (typeof entry.timestamp === "string") {
+    const parsed = Date.parse(entry.timestamp);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+
+  return undefined;
 }
 
 function interventionLabel(kind: WorkbenchInterventionKind): string {

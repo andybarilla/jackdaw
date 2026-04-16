@@ -358,6 +358,55 @@ describe("WorkbenchSupervisor persistence", () => {
     });
   });
 
+  it("reconciles meaningful activity emitted during submission after pending observation is recorded", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-16T11:59:00.000Z"));
+
+    try {
+      const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+      sessionManagerCreateMock.mockReturnValue({ created: true });
+      let sessionEventListener: ((event: unknown) => void) | undefined;
+      const managedSession = createManagedSession({
+        sessionId: "session-steer-race",
+        sessionFile: "session-steer-race.json",
+        subscribe: vi.fn((listener: (event: unknown) => void) => {
+          sessionEventListener = listener;
+          return () => undefined;
+        }),
+        steer: vi.fn().mockImplementation(async () => {
+          vi.advanceTimersByTime(1);
+          sessionEventListener?.({
+            type: "tool_execution_start",
+            toolName: "read",
+            args: { path: "src/index.ts" },
+          });
+        }),
+      });
+      createAgentSessionMock.mockResolvedValue({ session: managedSession });
+
+      const supervisor = new WorkbenchSupervisor(projectRoot);
+      await supervisor.initialize();
+      const session = await supervisor.spawnSession({ cwd: projectRoot, task: "task" });
+
+      const result = await supervisor.steerSession(session.id, "Please focus on the failing test");
+
+      expect(result).toEqual({
+        ok: true,
+        notificationMessage: "Steer accepted locally — pending observation",
+        notificationLevel: "info",
+      });
+      expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
+        kind: "steer",
+        status: "observed",
+        text: "Please focus on the failing test",
+        observedAt: expect.any(Number),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("marks a pending intervention observed only after later meaningful non-local activity", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-16T12:00:00.000Z"));
@@ -516,6 +565,68 @@ describe("WorkbenchSupervisor persistence", () => {
       summary: "Abort requested",
       origin: "operator",
       meaningful: false,
+    });
+  });
+
+  it("reconciles persisted pending interventions from newer session history during initialize", async () => {
+    const { WorkbenchStore } = await import("../persistence/store.js");
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    const requestedAt = new Date("2026-04-16T12:00:00.000Z").getTime();
+    const observedAt = requestedAt + 5_000;
+
+    sessionManagerOpenMock.mockReturnValue({
+      getBranch: () => [
+        {
+          type: "message",
+          timestamp: new Date(observedAt).toISOString(),
+          message: {
+            role: "assistant",
+            timestamp: observedAt,
+            content: [{ type: "text", text: "Picked up the request and reading files now." }],
+          },
+        },
+      ],
+    });
+    createAgentSessionMock.mockRejectedValue(new Error("session file missing"));
+
+    const store = WorkbenchStore.default(projectRoot);
+    await store.save({
+      version: 1,
+      sessions: [
+        {
+          id: "session-restore-observed",
+          name: "Restored Session",
+          cwd: "/repo",
+          model: "gpt-5.4",
+          taskLabel: "task",
+          status: "running",
+          tags: [],
+          lastUpdateAt: requestedAt,
+          summary: "Waiting",
+          sessionFile: "session-restore-observed.json",
+          lastIntervention: {
+            kind: "followup",
+            text: "Please confirm the migration path",
+            status: "pending-observation",
+            requestedAt,
+            summary: "Follow-up",
+          },
+        },
+      ],
+      preferences: {
+        detailViewMode: "summary",
+      },
+    });
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+
+    expect(supervisor.registry.listSessions()[0]?.lastIntervention).toMatchObject({
+      kind: "followup",
+      status: "observed",
+      requestedAt,
+      observedAt,
     });
   });
 
