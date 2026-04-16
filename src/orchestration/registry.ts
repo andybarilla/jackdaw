@@ -119,10 +119,19 @@ export class WorkbenchRegistry {
     }
 
     this.state.sessions.splice(index, 1);
-    this.insertSessionAtBandTop(session);
+    this.insertSessionAtTransitionBandTop(session);
   }
 
   private insertSessionAtBandTop(session: WorkbenchSession): void {
+    const insertionIndex = findNewSessionInsertionIndex(
+      this.state.sessions,
+      getStatusBand(session.status),
+      session.lastUpdateAt,
+    );
+    this.state.sessions.splice(insertionIndex, 0, session);
+  }
+
+  private insertSessionAtTransitionBandTop(session: WorkbenchSession): void {
     const insertionIndex = findBandTopInsertionIndex(this.state.sessions, getStatusBand(session.status));
     this.state.sessions.splice(insertionIndex, 0, session);
   }
@@ -132,7 +141,31 @@ function getStatusBand(status: WorkbenchStatus): number {
   return STATUS_BAND_ORDER.indexOf(status);
 }
 
+function findNewSessionInsertionIndex(
+  sessions: WorkbenchSession[],
+  targetBand: number,
+  sessionLastUpdateAt: number,
+): number {
+  for (const [index, session] of sessions.entries()) {
+    const sessionBand = getStatusBand(session.status);
+    if (sessionBand > targetBand) {
+      return index;
+    }
+
+    if (sessionBand === targetBand && sessionLastUpdateAt > session.lastUpdateAt) {
+      return index;
+    }
+  }
+
+  return sessions.length;
+}
+
 function findBandTopInsertionIndex(sessions: WorkbenchSession[], targetBand: number): number {
-  const index = sessions.findIndex((session) => getStatusBand(session.status) >= targetBand);
-  return index === -1 ? sessions.length : index;
+  for (const [index, session] of sessions.entries()) {
+    if (getStatusBand(session.status) >= targetBand) {
+      return index;
+    }
+  }
+
+  return sessions.length;
 }

@@ -58,7 +58,7 @@ describe("WorkbenchRegistry ordering", () => {
     expect(registry.getState().sessions.map((item) => item.id)).toEqual(["running", "awaiting", "done"]);
   });
 
-  it("inserts new sessions at the top of their band", () => {
+  it("orders new same-band sessions by lastUpdateAt newest-first even when inserted out of order", () => {
     const registry = new WorkbenchRegistry();
 
     registry.hydrate(state([
@@ -69,8 +69,8 @@ describe("WorkbenchRegistry ordering", () => {
       session({ id: "idle", status: "idle", lastUpdateAt: 60 }),
     ]));
 
-    registry.upsertSession(session({ id: "running-c", status: "running", lastUpdateAt: 110 }));
     registry.upsertSession(session({ id: "running-d", status: "running", lastUpdateAt: 120 }));
+    registry.upsertSession(session({ id: "running-c", status: "running", lastUpdateAt: 110 }));
 
     expect(registry.listSessions().map((item) => item.id)).toEqual([
       "awaiting",
@@ -101,10 +101,11 @@ describe("WorkbenchRegistry ordering", () => {
     expect(registry.listSessions().map((item) => item.id)).toEqual(["running-a", "running-b", "idle"]);
   });
 
-  it("moves a session to the top of its new band when status changes", () => {
+  it("moves a session to the top of its new band when status changes even if an existing peer is newer", () => {
     const registry = new WorkbenchRegistry();
 
     registry.hydrate(state([
+      session({ id: "blocked-a", status: "blocked", lastUpdateAt: 200 }),
       session({ id: "running-a", status: "running", lastUpdateAt: 100 }),
       session({ id: "running-b", status: "running", lastUpdateAt: 90 }),
       session({ id: "idle", status: "idle", lastUpdateAt: 80 }),
@@ -112,17 +113,18 @@ describe("WorkbenchRegistry ordering", () => {
 
     registry.patchSession("running-b", {
       status: "blocked",
-      lastUpdateAt: 200,
+      lastUpdateAt: 50,
       summary: "tool failed",
     });
 
-    expect(registry.listSessions().map((item) => item.id)).toEqual(["running-b", "running-a", "idle"]);
+    expect(registry.listSessions().map((item) => item.id)).toEqual(["running-b", "blocked-a", "running-a", "idle"]);
   });
 
-  it("keeps same-band activity updates stable but moves band transitions", () => {
+  it("keeps same-band activity updates stable but moves band transitions to the top of the destination band", () => {
     const registry = new WorkbenchRegistry();
 
     registry.hydrate(state([
+      session({ id: "awaiting-a", status: "awaiting-input", lastUpdateAt: 400, summary: "already waiting" }),
       session({ id: "running-a", status: "running", lastUpdateAt: 100, summary: "working" }),
       session({ id: "running-b", status: "running", lastUpdateAt: 90, summary: "working" }),
       session({ id: "idle", status: "idle", lastUpdateAt: 80, summary: "waiting" }),
@@ -136,16 +138,16 @@ describe("WorkbenchRegistry ordering", () => {
       timestamp: 200,
     }));
 
-    expect(registry.listSessions().map((item) => item.id)).toEqual(["running-a", "running-b", "idle"]);
+    expect(registry.listSessions().map((item) => item.id)).toEqual(["awaiting-a", "running-a", "running-b", "idle"]);
 
     registry.addActivity(activity({
       id: "attention",
       sessionId: "idle",
       type: "awaiting_user",
       summary: "Need your answer",
-      timestamp: 300,
+      timestamp: 50,
     }));
 
-    expect(registry.listSessions().map((item) => item.id)).toEqual(["idle", "running-a", "running-b"]);
+    expect(registry.listSessions().map((item) => item.id)).toEqual(["idle", "awaiting-a", "running-a", "running-b"]);
   });
 });
