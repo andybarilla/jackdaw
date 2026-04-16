@@ -143,6 +143,10 @@ class WorkbenchDashboard implements Component, Focusable {
       void this.togglePinnedSummary();
       return;
     }
+    if (data === "P") {
+      void this.replacePinnedSummary();
+      return;
+    }
     if (data === "v") {
       this.detailViewMode = this.detailViewMode === "summary" ? "transcript" : "summary";
       this.transcriptOffset = 0;
@@ -448,7 +452,7 @@ class WorkbenchDashboard implements Component, Focusable {
       "dim",
       this.busy
         ? "Working…"
-        : `↑/↓ or j/k select • v transcript • l log • ${shellActionHint} • n new • e rename • t tags • p pin/unpin • s steer • f follow-up • a abort • q close`,
+        : `↑/↓ or j/k select • v transcript • l log • ${shellActionHint} • n new • e rename • t tags • p pin/unpin • P refresh pin • s steer • f follow-up • a abort • q close`,
     );
   }
 
@@ -456,9 +460,19 @@ class WorkbenchDashboard implements Component, Focusable {
     const session = this.supervisor.registry.getSelectedSession();
     if (!session || this.busy) return;
 
-    const toggleState = getPinnedSummaryToggleState(session);
-    if (toggleState.kind === "noop") {
-      this.ctx.ui.notify(toggleState.notificationMessage, toggleState.notificationLevel);
+    await this.applyPinnedSummaryState(session.id, getPinnedSummaryToggleState(session));
+  }
+
+  private async replacePinnedSummary(): Promise<void> {
+    const session = this.supervisor.registry.getSelectedSession();
+    if (!session || this.busy) return;
+
+    await this.applyPinnedSummaryState(session.id, getPinnedSummaryReplaceState(session));
+  }
+
+  private async applyPinnedSummaryState(sessionId: string, pinnedSummaryState: PinnedSummaryState): Promise<void> {
+    if (pinnedSummaryState.kind === "noop") {
+      this.ctx.ui.notify(pinnedSummaryState.notificationMessage, pinnedSummaryState.notificationLevel);
       this.tui.requestRender();
       return;
     }
@@ -466,12 +480,12 @@ class WorkbenchDashboard implements Component, Focusable {
     this.busy = true;
     this.tui.requestRender();
     try {
-      const ok = await this.supervisor.updateSessionMetadata(session.id, { pinnedSummary: toggleState.nextPinnedSummary });
+      const ok = await this.supervisor.updateSessionMetadata(sessionId, { pinnedSummary: pinnedSummaryState.nextPinnedSummary });
       if (!ok) {
         this.ctx.ui.notify("Selected session summary could not be updated", "error");
         return;
       }
-      this.ctx.ui.notify(toggleState.notificationMessage, toggleState.notificationLevel);
+      this.ctx.ui.notify(pinnedSummaryState.notificationMessage, pinnedSummaryState.notificationLevel);
     } finally {
       this.busy = false;
       this.tui.requestRender();
@@ -479,14 +493,14 @@ class WorkbenchDashboard implements Component, Focusable {
   }
 }
 
-export interface PinnedSummaryToggleState {
-  kind: "pin" | "unpin" | "noop";
+export interface PinnedSummaryState {
+  kind: "pin" | "repin" | "unpin" | "noop";
   nextPinnedSummary?: string;
   notificationMessage: string;
   notificationLevel: "info";
 }
 
-export function getPinnedSummaryToggleState(session: WorkbenchSession): PinnedSummaryToggleState {
+export function getPinnedSummaryToggleState(session: WorkbenchSession): PinnedSummaryState {
   if (session.pinnedSummary) {
     return {
       kind: "unpin",
@@ -496,6 +510,10 @@ export function getPinnedSummaryToggleState(session: WorkbenchSession): PinnedSu
     };
   }
 
+  return getPinnedSummaryReplaceState(session);
+}
+
+export function getPinnedSummaryReplaceState(session: WorkbenchSession): PinnedSummaryState {
   const liveSummary = session.summary.trim();
   if (!liveSummary) {
     return {
@@ -506,9 +524,9 @@ export function getPinnedSummaryToggleState(session: WorkbenchSession): PinnedSu
   }
 
   return {
-    kind: "pin",
+    kind: session.pinnedSummary ? "repin" : "pin",
     nextPinnedSummary: liveSummary,
-    notificationMessage: `Pinned summary frozen: ${clipNotificationText(liveSummary)}`,
+    notificationMessage: `${session.pinnedSummary ? "Pinned summary replaced" : "Pinned summary frozen"}: ${clipNotificationText(liveSummary)}`,
     notificationLevel: "info",
   };
 }

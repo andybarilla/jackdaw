@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorkbenchSession } from "../types/workbench.js";
-import { getDetailPanelTitle, getPinnedSummaryToggleState, getShellActionHint } from "./dashboard.js";
+import { getDetailPanelTitle, getPinnedSummaryReplaceState, getPinnedSummaryToggleState, getShellActionHint } from "./dashboard.js";
 
 function session(overrides: Partial<WorkbenchSession> = {}): WorkbenchSession {
   return {
@@ -79,6 +79,21 @@ describe("getPinnedSummaryToggleState", () => {
     ).toMatchObject({
       kind: "unpin",
       notificationMessage: "Pinned summary removed",
+    });
+  });
+
+  it("re-pins by replacing the existing snapshot with the current live summary", () => {
+    expect(
+      getPinnedSummaryReplaceState(
+        session({
+          summary: "New live summary",
+          pinnedSummary: "Older frozen summary",
+        }),
+      ),
+    ).toMatchObject({
+      kind: "repin",
+      nextPinnedSummary: "New live summary",
+      notificationMessage: "Pinned summary replaced: New live summary",
     });
   });
 
