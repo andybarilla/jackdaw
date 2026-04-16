@@ -32,15 +32,15 @@ function summarizeAttentionReason(session: WorkbenchSession): string {
   const preferredSummary = session.pinnedSummary ?? session.summary;
 
   if (session.status === "awaiting-input") {
-    const attentionText = session.pinnedSummary ?? session.latestText ?? session.summary ?? "asked a question";
+    const attentionText = session.latestText ?? session.summary ?? session.pinnedSummary ?? "asked a question";
     return compact(attentionText);
   }
   if (session.status === "blocked") {
-    const attentionText = session.pinnedSummary ?? session.lastError ?? session.summary ?? "tool failed";
+    const attentionText = session.lastError ?? session.summary ?? session.pinnedSummary ?? "tool failed";
     return compact(attentionText);
   }
   if (session.status === "failed") {
-    const attentionText = session.pinnedSummary ?? session.lastError ?? session.summary ?? "session failed";
+    const attentionText = session.lastError ?? session.summary ?? session.pinnedSummary ?? "session failed";
     return compact(attentionText);
   }
   if (session.status === "running") {

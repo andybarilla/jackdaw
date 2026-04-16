@@ -51,7 +51,7 @@ describe("renderOverviewLines", () => {
     vi.useRealTimers();
   });
 
-  it("prefers the pinned summary over status-specific fallback fields", () => {
+  it("prefers live urgent reason text over pinned summaries for attention states", () => {
     const lines = renderOverviewLines([
       session({
         id: "input",
@@ -100,12 +100,12 @@ describe("renderOverviewLines", () => {
       }),
     ]);
 
-    expect(lines[0]).toContain("◉ needs input Needs Answer · Frozen input summary");
-    expect(lines[0]).not.toContain("Which option should I choose next?");
-    expect(lines[1]).toContain("◆ needs attention Blocked Session · Frozen blocked summary");
-    expect(lines[1]).not.toContain("Command exited 1");
-    expect(lines[2]).toContain("✖ needs attention Failed Session · Frozen failed summary");
-    expect(lines[2]).not.toContain("Process crashed");
+    expect(lines[0]).toContain("◉ needs input Needs Answer · Which option should I choose next?");
+    expect(lines[0]).not.toContain("Frozen input summary");
+    expect(lines[1]).toContain("◆ needs attention Blocked Session · Command exited 1");
+    expect(lines[1]).not.toContain("Frozen blocked summary");
+    expect(lines[2]).toContain("✖ needs attention Failed Session · Process crashed");
+    expect(lines[2]).not.toContain("Frozen failed summary");
     expect(lines[3]).toContain("● running Running Session · Frozen running summary");
     expect(lines[3]).not.toContain("needs attention");
     expect(lines[3]).not.toContain("running edit");
@@ -114,13 +114,14 @@ describe("renderOverviewLines", () => {
     expect(lines[5]).toContain("Live Done Session · Live done summary");
   });
 
-  it("uses operator-facing attention wording and prefers question or error text for urgent rows", () => {
+  it("uses operator-facing attention wording and keeps live urgent reason after a pinned session transitions to attention", () => {
     const lines = renderOverviewLines([
       session({
         id: "input",
         name: "Needs Answer",
         status: "awaiting-input",
         summary: "Waiting on operator",
+        pinnedSummary: "Pinned snapshot from earlier",
         latestText: "Should I ship the smaller fix first?",
       }),
       session({
@@ -148,6 +149,7 @@ describe("renderOverviewLines", () => {
 
     expect(lines[0]).toContain("◉ needs input Needs Answer · Should I ship the smaller fix first?");
     expect(lines[0]).not.toContain("Waiting on operator");
+    expect(lines[0]).not.toContain("Pinned snapshot from earlier");
     expect(lines[1]).toContain("◆ needs attention Blocked Session · API token missing for deploy step");
     expect(lines[1]).not.toContain("Investigating issue");
     expect(lines[2]).toContain("✖ needs attention Failed Session · Tests failed in CI");
