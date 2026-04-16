@@ -373,11 +373,11 @@ class WorkbenchDashboard implements Component, Focusable {
           model: this.ctx.model,
         });
       } else if (mode.kind === "steer") {
-        const ok = await this.supervisor.steerSession(mode.sessionId, text);
-        if (!ok) this.ctx.ui.notify("Selected session is not currently managed in-process", "error");
+        const result = await this.supervisor.steerSession(mode.sessionId, text);
+        this.ctx.ui.notify(result.notificationMessage, result.notificationLevel);
       } else if (mode.kind === "followup") {
-        const ok = await this.supervisor.followUpSession(mode.sessionId, text);
-        if (!ok) this.ctx.ui.notify("Selected session is not currently managed in-process", "error");
+        const result = await this.supervisor.followUpSession(mode.sessionId, text);
+        this.ctx.ui.notify(result.notificationMessage, result.notificationLevel);
       } else if (mode.kind === "shell") {
         const ok = await this.supervisor.executeShellCommand(mode.sessionId, text);
         if (!ok) this.ctx.ui.notify("Selected session is not currently managed in-process", "error");
@@ -403,8 +403,8 @@ class WorkbenchDashboard implements Component, Focusable {
     this.inputMode = { kind: "none" };
     this.tui.requestRender();
     try {
-      const ok = await this.supervisor.abortSession(sessionId);
-      if (!ok) this.ctx.ui.notify("Selected session is not currently managed in-process", "error");
+      const result = await this.supervisor.abortSession(sessionId);
+      this.ctx.ui.notify(result.notificationMessage, result.notificationLevel);
     } finally {
       this.busy = false;
       this.tui.requestRender();

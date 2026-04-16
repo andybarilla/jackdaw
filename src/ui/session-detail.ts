@@ -1,4 +1,10 @@
-import type { WorkbenchActivity, WorkbenchDetailViewMode, WorkbenchSession, WorkbenchStatus } from "../types/workbench.js";
+import type {
+  WorkbenchActivity,
+  WorkbenchDetailViewMode,
+  WorkbenchIntervention,
+  WorkbenchSession,
+  WorkbenchStatus,
+} from "../types/workbench.js";
 import { stripTerminalControlSequences } from "../utils/plain-text.js";
 
 export function renderSessionDetailLines(
@@ -44,6 +50,17 @@ export function renderSessionDetailLines(
 
   if (session.lastError && (session.status === "blocked" || session.status === "failed")) {
     lines.push(`Error: ${compact(session.lastError, 88)}`);
+  }
+
+  if (session.lastIntervention) {
+    lines.push(`Latest intervention: ${formatInterventionHeader(session.lastIntervention)}`);
+    lines.push(`Intervention text: ${compact(session.lastIntervention.text, 88)}`);
+    if (session.lastIntervention.status === "observed" && session.lastIntervention.observedAt) {
+      lines.push(`Observed at: ${formatTimestamp(session.lastIntervention.observedAt)}`);
+    }
+    if (session.lastIntervention.status === "failed" && session.lastIntervention.errorMessage) {
+      lines.push(`Failure: ${compact(session.lastIntervention.errorMessage, 88)}`);
+    }
   }
 
   lines.push(`Model: ${session.model}`);
@@ -122,13 +139,38 @@ function currentActivityFromStatus(status: WorkbenchStatus): string {
 function latestMeaningfulUpdate(activities: WorkbenchActivity[]): string | undefined {
   for (let index = activities.length - 1; index >= 0; index -= 1) {
     const activity = activities[index];
-    if (activity.type === "message_streaming") {
+    if (activity.meaningful === false || activity.type === "message_streaming") {
       continue;
     }
     return activity.summary;
   }
 
   return undefined;
+}
+
+function formatInterventionHeader(intervention: WorkbenchIntervention): string {
+  return `${intervention.summary} — ${interventionStatusLabel(intervention.status)}`;
+}
+
+function interventionStatusLabel(status: WorkbenchIntervention["status"]): string {
+  switch (status) {
+    case "sent":
+      return "accepted locally";
+    case "pending-observation":
+      return "pending observation";
+    case "observed":
+      return "observed in session activity";
+    case "failed":
+      return "failed locally";
+  }
+}
+
+function formatTimestamp(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function wrapPrefixedLine(prefix: string, text: string, width: number): string[] {

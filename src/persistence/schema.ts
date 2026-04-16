@@ -1,5 +1,8 @@
 import type {
   WorkbenchDetailViewMode,
+  WorkbenchIntervention,
+  WorkbenchInterventionKind,
+  WorkbenchInterventionStatus,
   WorkbenchSession,
   WorkbenchState,
   WorkbenchStatus,
@@ -11,6 +14,8 @@ export interface PersistedWorkbenchState extends WorkbenchState {
 
 const VALID_STATUSES = new Set<WorkbenchStatus>(["idle", "running", "awaiting-input", "blocked", "failed", "done"]);
 const VALID_DETAIL_VIEW_MODES = new Set<WorkbenchDetailViewMode>(["summary", "transcript", "log"]);
+const VALID_INTERVENTION_KINDS = new Set<WorkbenchInterventionKind>(["steer", "followup", "abort"]);
+const VALID_INTERVENTION_STATUSES = new Set<WorkbenchInterventionStatus>(["sent", "pending-observation", "observed", "failed"]);
 
 export function createEmptyPersistedState(): PersistedWorkbenchState {
   return {
@@ -110,6 +115,8 @@ function parsePersistedSession(value: unknown, index: number): WorkbenchSession 
   if (value.lastShellExitCode !== undefined && typeof value.lastShellExitCode !== "number") {
     throw new TypeError(`Persisted session ${index} lastShellExitCode must be a number`);
   }
+  const lastIntervention =
+    value.lastIntervention !== undefined ? parsePersistedIntervention(value.lastIntervention, index) : undefined;
 
   return {
     id: value.id,
@@ -131,6 +138,47 @@ function parsePersistedSession(value: unknown, index: number): WorkbenchSession 
     reconnectNote: value.reconnectNote,
     lastShellCommand: value.lastShellCommand,
     lastShellExitCode: value.lastShellExitCode,
+    lastIntervention,
+  };
+}
+
+function parsePersistedIntervention(value: unknown, index: number): WorkbenchIntervention {
+  if (!isObject(value)) {
+    throw new TypeError(`Persisted session ${index} lastIntervention must be an object`);
+  }
+  if (typeof value.kind !== "string" || !VALID_INTERVENTION_KINDS.has(value.kind as WorkbenchInterventionKind)) {
+    throw new TypeError(`Persisted session ${index} lastIntervention.kind must be a valid intervention kind`);
+  }
+  if (typeof value.text !== "string") {
+    throw new TypeError(`Persisted session ${index} lastIntervention.text must be a string`);
+  }
+  if (
+    typeof value.status !== "string" ||
+    !VALID_INTERVENTION_STATUSES.has(value.status as WorkbenchInterventionStatus)
+  ) {
+    throw new TypeError(`Persisted session ${index} lastIntervention.status must be a valid intervention status`);
+  }
+  if (typeof value.requestedAt !== "number") {
+    throw new TypeError(`Persisted session ${index} lastIntervention.requestedAt must be a number`);
+  }
+  if (value.observedAt !== undefined && typeof value.observedAt !== "number") {
+    throw new TypeError(`Persisted session ${index} lastIntervention.observedAt must be a number`);
+  }
+  if (value.errorMessage !== undefined && typeof value.errorMessage !== "string") {
+    throw new TypeError(`Persisted session ${index} lastIntervention.errorMessage must be a string`);
+  }
+  if (typeof value.summary !== "string") {
+    throw new TypeError(`Persisted session ${index} lastIntervention.summary must be a string`);
+  }
+
+  return {
+    kind: value.kind as WorkbenchInterventionKind,
+    text: value.text,
+    status: value.status as WorkbenchInterventionStatus,
+    requestedAt: value.requestedAt,
+    observedAt: value.observedAt,
+    errorMessage: value.errorMessage,
+    summary: value.summary,
   };
 }
 

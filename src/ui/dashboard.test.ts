@@ -24,6 +24,7 @@ function session(overrides: Partial<WorkbenchSession> = {}): WorkbenchSession {
     lastShellCommand: overrides.lastShellCommand,
     lastShellOutput: overrides.lastShellOutput,
     lastShellExitCode: overrides.lastShellExitCode,
+    lastIntervention: overrides.lastIntervention,
   };
 }
 

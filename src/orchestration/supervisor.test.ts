@@ -77,6 +77,13 @@ describe("WorkbenchSupervisor persistence", () => {
           recentFiles: ["src/ui/dashboard.ts"],
           connectionState: "historical",
           reconnectNote: "Could not reconnect after restart.",
+          lastIntervention: {
+            kind: "steer",
+            text: "Keep going",
+            status: "pending-observation",
+            requestedAt: 150,
+            summary: "Steer",
+          },
         },
       ],
       selectedSessionId: "session-1",
@@ -100,6 +107,13 @@ describe("WorkbenchSupervisor persistence", () => {
       recentFiles: ["src/ui/dashboard.ts"],
       connectionState: "historical",
       reconnectNote: "Could not reconnect after restart.",
+      lastIntervention: {
+        kind: "steer",
+        text: "Keep going",
+        status: "pending-observation",
+        requestedAt: 150,
+        summary: "Steer",
+      },
     });
   });
 
@@ -300,5 +314,123 @@ describe("WorkbenchSupervisor persistence", () => {
     });
 
     await expect(supervisor.executeShellCommand("session-historical", "pwd")).resolves.toBe(false);
+  });
+
+  it("records steer as sent before local submission, then pending observation after success", async () => {
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    sessionManagerCreateMock.mockReturnValue({ created: true });
+    const managedSession = createManagedSession({
+      sessionId: "session-steer",
+      sessionFile: "session-steer.json",
+      steer: vi.fn().mockImplementation(async () => {
+        expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
+          kind: "steer",
+          status: "sent",
+          text: "Please focus on the failing test",
+          summary: "Steer",
+        });
+      }),
+    });
+    createAgentSessionMock.mockResolvedValue({ session: managedSession });
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+    const session = await supervisor.spawnSession({ cwd: projectRoot, task: "task" });
+
+    const result = await supervisor.steerSession(session.id, "Please focus on the failing test");
+
+    expect(result).toEqual({
+      ok: true,
+      notificationMessage: "Steer accepted locally — pending observation",
+      notificationLevel: "info",
+    });
+    expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
+      kind: "steer",
+      status: "pending-observation",
+      text: "Please focus on the failing test",
+      summary: "Steer",
+    });
+    expect(supervisor.registry.getActivities(session.id).at(-1)).toMatchObject({
+      summary: "Steering queued: Please focus on the failing test",
+      origin: "operator",
+      meaningful: false,
+    });
+  });
+
+  it("marks a pending intervention observed only after later meaningful non-local activity", async () => {
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    sessionManagerCreateMock.mockReturnValue({ created: true });
+    const managedSession = createManagedSession({
+      sessionId: "session-followup",
+      sessionFile: "session-followup.json",
+    });
+    createAgentSessionMock.mockResolvedValue({ session: managedSession });
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+    const session = await supervisor.spawnSession({ cwd: projectRoot, task: "task" });
+
+    await supervisor.followUpSession(session.id, "Please confirm the migration path");
+    const requestedAt = supervisor.registry.getSelectedSession()!.lastIntervention!.requestedAt;
+
+    (supervisor as unknown as { handleSessionEvent: (sessionId: string, event: unknown) => void }).handleSessionEvent(session.id, {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "streaming" },
+    });
+    expect(supervisor.registry.getSelectedSession()?.lastIntervention?.status).toBe("pending-observation");
+
+    (supervisor as unknown as { handleSessionEvent: (sessionId: string, event: unknown) => void }).handleSessionEvent(session.id, {
+      type: "tool_execution_start",
+      toolName: "read",
+      args: { path: "src/index.ts" },
+    });
+    await supervisor.openWorkbench();
+
+    expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
+      kind: "followup",
+      status: "observed",
+      observedAt: expect.any(Number),
+    });
+    expect(supervisor.registry.getSelectedSession()!.lastIntervention!.observedAt).toBeGreaterThan(requestedAt);
+  });
+
+  it("stores failed abort submissions and returns explicit local failure feedback", async () => {
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    sessionManagerCreateMock.mockReturnValue({ created: true });
+    const managedSession = createManagedSession({
+      sessionId: "session-abort",
+      sessionFile: "session-abort.json",
+      abort: vi.fn().mockRejectedValue(new Error("abort transport disconnected")),
+    });
+    createAgentSessionMock.mockResolvedValue({ session: managedSession });
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+    const session = await supervisor.spawnSession({ cwd: projectRoot, task: "task" });
+
+    const result = await supervisor.abortSession(session.id);
+
+    expect(result).toEqual({
+      ok: false,
+      notificationMessage: "Abort failed locally: abort transport disconnected",
+      notificationLevel: "error",
+    });
+    expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
+      kind: "abort",
+      status: "failed",
+      text: "Abort requested",
+      errorMessage: "abort transport disconnected",
+      summary: "Abort",
+    });
+
+    const persisted = await supervisor.store.load();
+    expect(persisted.sessions[0]?.lastIntervention).toMatchObject({
+      kind: "abort",
+      status: "failed",
+      errorMessage: "abort transport disconnected",
+    });
   });
 });

@@ -9,7 +9,13 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import { createEmptyPersistedState, type PersistedWorkbenchState } from "../persistence/schema.js";
 import { WorkbenchStore, WorkbenchStoreLoadError } from "../persistence/store.js";
-import type { WorkbenchDetailViewMode, WorkbenchSession, WorkbenchState } from "../types/workbench.js";
+import type {
+  WorkbenchDetailViewMode,
+  WorkbenchIntervention,
+  WorkbenchInterventionKind,
+  WorkbenchSession,
+  WorkbenchState,
+} from "../types/workbench.js";
 import { normalizeAgentSessionEvent, createActivity } from "./activity.js";
 import { WorkbenchRegistry } from "./registry.js";
 import { stripTerminalControlSequences } from "../utils/plain-text.js";
@@ -18,6 +24,12 @@ interface ManagedSession {
   session: AgentSession;
   unsubscribe: () => void;
   promptPromise?: Promise<void>;
+}
+
+export interface InterventionCommandResult {
+  ok: boolean;
+  notificationMessage: string;
+  notificationLevel: "info" | "error";
 }
 
 export interface SpawnWorkbenchSessionOptions {
@@ -143,38 +155,35 @@ export class WorkbenchSupervisor {
     return workbenchSession;
   }
 
-  async abortSession(sessionId: string): Promise<boolean> {
-    const managed = this.managedSessions.get(sessionId);
-    if (!managed) return false;
-    await managed.session.abort();
-    this.registry.patchSession(sessionId, {
-      currentTool: undefined,
-      summary: "Abort requested",
+  async abortSession(sessionId: string): Promise<InterventionCommandResult> {
+    return this.submitIntervention(sessionId, "abort", "Abort requested", async (managed) => {
+      await managed.session.abort();
+      this.registry.patchSession(sessionId, {
+        currentTool: undefined,
+        summary: "Abort requested",
+      });
+      this.registry.addActivity(
+        createActivity(sessionId, "session_idle", "Abort requested", { origin: "operator", meaningful: false }),
+      );
     });
-    this.registry.addActivity(createActivity(sessionId, "session_idle", "Abort requested"));
-    await this.persist();
-    this.emitChange();
-    return true;
   }
 
-  async steerSession(sessionId: string, text: string): Promise<boolean> {
-    const managed = this.managedSessions.get(sessionId);
-    if (!managed) return false;
-    await managed.session.steer(text);
-    this.registry.addActivity(createActivity(sessionId, "message_streaming", `Steering queued: ${text}`));
-    await this.persist();
-    this.emitChange();
-    return true;
+  async steerSession(sessionId: string, text: string): Promise<InterventionCommandResult> {
+    return this.submitIntervention(sessionId, "steer", text, async (managed) => {
+      await managed.session.steer(text);
+      this.registry.addActivity(
+        createActivity(sessionId, "message_streaming", `Steering queued: ${text}`, { origin: "operator", meaningful: false }),
+      );
+    });
   }
 
-  async followUpSession(sessionId: string, text: string): Promise<boolean> {
-    const managed = this.managedSessions.get(sessionId);
-    if (!managed) return false;
-    await managed.session.followUp(text);
-    this.registry.addActivity(createActivity(sessionId, "message_streaming", `Follow-up queued: ${text}`));
-    await this.persist();
-    this.emitChange();
-    return true;
+  async followUpSession(sessionId: string, text: string): Promise<InterventionCommandResult> {
+    return this.submitIntervention(sessionId, "followup", text, async (managed) => {
+      await managed.session.followUp(text);
+      this.registry.addActivity(
+        createActivity(sessionId, "message_streaming", `Follow-up queued: ${text}`, { origin: "operator", meaningful: false }),
+      );
+    });
   }
 
   async executeShellCommand(sessionId: string, command: string): Promise<boolean> {
@@ -353,9 +362,90 @@ export class WorkbenchSupervisor {
     }
     if (normalized.activity) {
       this.registry.addActivity(normalized.activity);
+      this.observePendingIntervention(sessionId, normalized.activity);
     }
     this.schedulePersist();
     this.emitChange();
+  }
+
+  private async submitIntervention(
+    sessionId: string,
+    kind: WorkbenchInterventionKind,
+    text: string,
+    submit: (managed: ManagedSession) => Promise<void>,
+  ): Promise<InterventionCommandResult> {
+    const managed = this.managedSessions.get(sessionId);
+    const session = this.registry.listSessions().find((item) => item.id === sessionId);
+    if (!managed || !session) {
+      if (session) {
+        this.registry.patchSession(sessionId, {
+          lastIntervention: createIntervention(kind, text, "failed", undefined, "Selected session is not currently managed in-process"),
+        });
+        await this.persist();
+        this.emitChange();
+      }
+      return {
+        ok: false,
+        notificationMessage: "Intervention failed locally: selected session is not currently managed in-process",
+        notificationLevel: "error",
+      };
+    }
+
+    const requestedAt = Date.now();
+    this.registry.patchSession(sessionId, {
+      lastIntervention: createIntervention(kind, text, "sent", requestedAt),
+    });
+    await this.persist();
+    this.emitChange();
+
+    try {
+      await submit(managed);
+      this.registry.patchSession(sessionId, {
+        lastIntervention: createIntervention(kind, text, "pending-observation", requestedAt),
+      });
+      await this.persist();
+      this.emitChange();
+      return {
+        ok: true,
+        notificationMessage: `${interventionLabel(kind)} accepted locally — pending observation`,
+        notificationLevel: "info",
+      };
+    } catch (error: unknown) {
+      const message = errorMessage(error);
+      this.registry.patchSession(sessionId, {
+        lastIntervention: createIntervention(kind, text, "failed", requestedAt, message),
+      });
+      await this.persist();
+      this.emitChange();
+      return {
+        ok: false,
+        notificationMessage: `${interventionLabel(kind)} failed locally: ${message}`,
+        notificationLevel: "error",
+      };
+    }
+  }
+
+  private observePendingIntervention(sessionId: string, activity: { timestamp: number; origin?: string; meaningful?: boolean }): void {
+    if (activity.origin === "operator" || activity.meaningful === false) {
+      return;
+    }
+
+    const session = this.registry.listSessions().find((item) => item.id === sessionId);
+    if (!session?.lastIntervention || session.lastIntervention.status !== "pending-observation") {
+      return;
+    }
+    if (activity.timestamp <= session.lastIntervention.requestedAt) {
+      return;
+    }
+
+    this.registry.patchSession(sessionId, {
+      lastIntervention: {
+        ...session.lastIntervention,
+        status: "observed",
+        observedAt: activity.timestamp,
+        errorMessage: undefined,
+      },
+    });
   }
 
   private schedulePersist(): void {
@@ -519,6 +609,34 @@ function previewShellOutput(output: string): string {
     .slice(0, 6)
     .join("\n")
     .slice(0, 600);
+}
+
+function createIntervention(
+  kind: WorkbenchInterventionKind,
+  text: string,
+  status: WorkbenchIntervention["status"],
+  requestedAt = Date.now(),
+  errorMessage?: string,
+): WorkbenchIntervention {
+  return {
+    kind,
+    text,
+    status,
+    requestedAt,
+    errorMessage,
+    summary: interventionLabel(kind),
+  };
+}
+
+function interventionLabel(kind: WorkbenchInterventionKind): string {
+  switch (kind) {
+    case "steer":
+      return "Steer";
+    case "followup":
+      return "Follow-up";
+    case "abort":
+      return "Abort";
+  }
 }
 
 function isAbortLikeError(message: string): boolean {

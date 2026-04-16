@@ -1,5 +1,5 @@
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
-import type { WorkbenchActivity, WorkbenchActivityType, WorkbenchSession } from "../types/workbench.js";
+import type { WorkbenchActivity, WorkbenchActivityOrigin, WorkbenchActivityType, WorkbenchSession } from "../types/workbench.js";
 
 export interface NormalizedWorkbenchEvent {
   activity?: WorkbenchActivity;
@@ -7,18 +7,30 @@ export interface NormalizedWorkbenchEvent {
   changedFiles?: string[];
 }
 
+export interface CreateWorkbenchActivityOptions {
+  timestamp?: number;
+  origin?: WorkbenchActivityOrigin;
+  meaningful?: boolean;
+}
+
 export function createActivity(
   sessionId: string,
   type: WorkbenchActivityType,
   summary: string,
-  timestamp = Date.now(),
+  options: number | CreateWorkbenchActivityOptions = {},
 ): WorkbenchActivity {
+  const timestamp = typeof options === "number" ? options : (options.timestamp ?? Date.now());
+  const origin = typeof options === "number" ? undefined : options.origin;
+  const meaningful = typeof options === "number" ? undefined : options.meaningful;
+
   return {
     id: `${sessionId}:${type}:${timestamp}`,
     sessionId,
     type,
     summary,
     timestamp,
+    origin,
+    meaningful: meaningful ?? type !== "message_streaming",
   };
 }
 

@@ -24,6 +24,7 @@ function session(overrides: Partial<WorkbenchSession>): WorkbenchSession {
     lastShellCommand: overrides.lastShellCommand,
     lastShellOutput: overrides.lastShellOutput,
     lastShellExitCode: overrides.lastShellExitCode,
+    lastIntervention: overrides.lastIntervention,
   };
 }
 
@@ -144,6 +145,46 @@ describe("renderSessionDetailLines", () => {
     );
 
     expect(lines).toContain("Latest update: No meaningful update yet");
+  });
+
+  it("shows the latest intervention lifecycle when one exists", () => {
+    const observedAt = new Date("2026-04-16T12:34:56Z").getTime();
+    const lines = renderSessionDetailLines(
+      session({
+        lastIntervention: {
+          kind: "steer",
+          text: "Focus on the flaky schema test",
+          status: "observed",
+          requestedAt: observedAt - 1_000,
+          observedAt,
+          summary: "Steer",
+        },
+      }),
+      [],
+    );
+
+    expect(lines).toContain("Latest intervention: Steer — observed in session activity");
+    expect(lines).toContain("Intervention text: Focus on the flaky schema test");
+    expect(lines.some((line) => line.startsWith("Observed at: "))).toBe(true);
+  });
+
+  it("shows local intervention failures explicitly", () => {
+    const lines = renderSessionDetailLines(
+      session({
+        lastIntervention: {
+          kind: "followup",
+          text: "Please retry after updating dependencies",
+          status: "failed",
+          requestedAt: 200,
+          errorMessage: "transport disconnected",
+          summary: "Follow-up",
+        },
+      }),
+      [],
+    );
+
+    expect(lines).toContain("Latest intervention: Follow-up — failed locally");
+    expect(lines).toContain("Failure: transport disconnected");
   });
 
   it("shows recent files when present", () => {

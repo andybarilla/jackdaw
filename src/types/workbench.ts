@@ -20,12 +20,30 @@ export type WorkbenchDetailViewMode = "summary" | "transcript" | "log";
 
 export type WorkbenchConnectionState = "live" | "historical";
 
+export type WorkbenchActivityOrigin = "session" | "operator";
+
+export type WorkbenchInterventionKind = "steer" | "followup" | "abort";
+
+export type WorkbenchInterventionStatus = "sent" | "pending-observation" | "observed" | "failed";
+
 export interface WorkbenchActivity {
   id: string;
   sessionId: string;
   type: WorkbenchActivityType;
   summary: string;
   timestamp: number;
+  origin?: WorkbenchActivityOrigin;
+  meaningful?: boolean;
+}
+
+export interface WorkbenchIntervention {
+  kind: WorkbenchInterventionKind;
+  text: string;
+  status: WorkbenchInterventionStatus;
+  requestedAt: number;
+  observedAt?: number;
+  errorMessage?: string;
+  summary: string;
 }
 
 export interface WorkbenchSession {
@@ -49,6 +67,7 @@ export interface WorkbenchSession {
   lastShellCommand?: string;
   lastShellOutput?: string;
   lastShellExitCode?: number;
+  lastIntervention?: WorkbenchIntervention;
 }
 
 export interface WorkbenchPreferences {

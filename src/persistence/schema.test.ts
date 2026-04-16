@@ -20,6 +20,13 @@ const validState: PersistedWorkbenchState = {
       reconnectNote: "Could not reconnect after restart.",
       lastShellCommand: "pwd",
       lastShellExitCode: 0,
+      lastIntervention: {
+        kind: "steer",
+        text: "Keep the scope tight",
+        status: "pending-observation",
+        requestedAt: 789,
+        summary: "Steer",
+      },
     },
   ],
   selectedSessionId: "session-1",
@@ -56,6 +63,7 @@ describe("parsePersistedWorkbenchState", () => {
     ["reconnectNote", { reconnectNote: 7 }],
     ["lastShellCommand", { lastShellCommand: 7 }],
     ["lastShellExitCode", { lastShellExitCode: "oops" }],
+    ["lastIntervention", { lastIntervention: { kind: "steer" } }],
   ])("rejects persisted state with malformed session %s", (_fieldName, sessionPatch) => {
     expect(() =>
       parsePersistedWorkbenchState({
