@@ -33,6 +33,7 @@ describe("renderOverviewLines", () => {
         id: "done",
         name: "Done Session",
         status: "done",
+        summary: "Finished summary",
         lastUpdateAt: new Date("2026-04-15T19:58:00Z").getTime(),
       }),
       session({
@@ -44,7 +45,7 @@ describe("renderOverviewLines", () => {
       }),
     ], "input");
 
-    expect(lines[0]).toContain("✓ done Done Session · finished 2m ago");
+    expect(lines[0]).toContain("✓ done Done Session · Finished summary · finished 2m ago");
     expect(lines[1]).toContain("> ◉ input Needs Answer · Awaiting your choice");
 
     vi.useRealTimers();
@@ -84,6 +85,19 @@ describe("renderOverviewLines", () => {
         pinnedSummary: "Frozen running summary",
         currentTool: "edit",
       }),
+      session({
+        id: "done-pinned",
+        name: "Pinned Done Session",
+        status: "done",
+        summary: "Live done summary",
+        pinnedSummary: "Frozen done summary",
+      }),
+      session({
+        id: "done-live",
+        name: "Live Done Session",
+        status: "done",
+        summary: "Live done summary",
+      }),
     ]);
 
     expect(lines[0]).toContain("Needs Answer · Frozen input summary");
@@ -94,6 +108,9 @@ describe("renderOverviewLines", () => {
     expect(lines[2]).not.toContain("Process crashed");
     expect(lines[3]).toContain("Running Session · Frozen running summary");
     expect(lines[3]).not.toContain("running edit");
+    expect(lines[4]).toContain("Pinned Done Session · Frozen done summary");
+    expect(lines[4]).not.toContain("Live done summary");
+    expect(lines[5]).toContain("Live Done Session · Live done summary");
   });
 
   it("shows recent file context when available", () => {

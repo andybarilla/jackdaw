@@ -42,7 +42,8 @@ function summarizeAttentionReason(session: WorkbenchSession): string {
     return compact(preferredSummary || session.lastError || "session failed");
   }
   if (session.status === "done") {
-    return session.pinnedSummary ? compact(session.pinnedSummary) : `finished ${relativeTime(session.lastUpdateAt)}`;
+    const completionContext = `finished ${relativeTime(session.lastUpdateAt)}`;
+    return preferredSummary ? `${compact(preferredSummary)} · ${completionContext}` : completionContext;
   }
   return compact(preferredSummary || `updated ${relativeTime(session.lastUpdateAt)}`);
 }
