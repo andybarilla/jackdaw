@@ -1,5 +1,7 @@
 import { deriveStatus } from "./status.js";
-import type { WorkbenchActivity, WorkbenchPreferences, WorkbenchSession, WorkbenchState } from "../types/workbench.js";
+import type { WorkbenchActivity, WorkbenchPreferences, WorkbenchSession, WorkbenchState, WorkbenchStatus } from "../types/workbench.js";
+
+const STATUS_BAND_ORDER: ReadonlyArray<WorkbenchStatus> = ["awaiting-input", "blocked", "failed", "running", "idle", "done"];
 
 export class WorkbenchRegistry {
   private state: WorkbenchState;
@@ -16,7 +18,7 @@ export class WorkbenchRegistry {
 
   hydrate(state: WorkbenchState): void {
     this.state = {
-      sessions: [...state.sessions].sort(sortByRecentUpdate),
+      sessions: [...state.sessions],
       selectedSessionId: state.selectedSessionId,
       lastOpenedAt: state.lastOpenedAt,
       preferences: state.preferences,
@@ -27,20 +29,21 @@ export class WorkbenchRegistry {
     return {
       ...this.state,
       preferences: { ...this.state.preferences },
-      sessions: [...this.state.sessions].sort(sortByRecentUpdate),
+      sessions: [...this.state.sessions],
     };
   }
 
   listSessions(): WorkbenchSession[] {
-    return [...this.state.sessions].sort(sortByRecentUpdate);
+    return [...this.state.sessions];
   }
 
   upsertSession(session: WorkbenchSession): void {
     const index = this.state.sessions.findIndex((item) => item.id === session.id);
-    if (index === -1) this.state.sessions.push(session);
-    else this.state.sessions[index] = session;
-
-    this.state.sessions.sort(sortByRecentUpdate);
+    if (index === -1) {
+      this.insertSessionAtBandTop(session);
+    } else {
+      this.replaceSession(index, session);
+    }
 
     if (!this.state.selectedSessionId) {
       this.state.selectedSessionId = session.id;
@@ -48,10 +51,13 @@ export class WorkbenchRegistry {
   }
 
   patchSession(sessionId: string, patch: Partial<WorkbenchSession>): void {
-    const session = this.state.sessions.find((item) => item.id === sessionId);
-    if (!session) return;
-    Object.assign(session, patch);
-    this.state.sessions.sort(sortByRecentUpdate);
+    const index = this.state.sessions.findIndex((item) => item.id === sessionId);
+    if (index === -1) return;
+
+    const session = this.state.sessions[index]!;
+    const previousBand = getStatusBand(session.status);
+    const nextSession: WorkbenchSession = { ...session, ...patch };
+    this.replaceSession(index, nextSession, previousBand);
   }
 
   selectSession(sessionId: string): void {
@@ -88,20 +94,45 @@ export class WorkbenchRegistry {
     items.push(activity);
     this.activities.set(activity.sessionId, items.slice(-50));
 
-    const session = this.state.sessions.find((item) => item.id === activity.sessionId);
-    if (!session) return;
+    const index = this.state.sessions.findIndex((item) => item.id === activity.sessionId);
+    if (index === -1) return;
 
-    session.status = deriveStatus(activity);
-    session.lastUpdateAt = activity.timestamp;
-    session.summary = activity.summary;
-    this.state.sessions.sort(sortByRecentUpdate);
+    const session = this.state.sessions[index]!;
+    const nextSession: WorkbenchSession = {
+      ...session,
+      status: deriveStatus(activity),
+      lastUpdateAt: activity.timestamp,
+      summary: activity.summary,
+    };
+    this.replaceSession(index, nextSession, getStatusBand(session.status));
   }
 
   getActivities(sessionId: string): WorkbenchActivity[] {
     return [...(this.activities.get(sessionId) ?? [])];
   }
+
+  private replaceSession(index: number, session: WorkbenchSession, previousBand = getStatusBand(this.state.sessions[index]!.status)): void {
+    const nextBand = getStatusBand(session.status);
+    if (previousBand === nextBand) {
+      this.state.sessions[index] = session;
+      return;
+    }
+
+    this.state.sessions.splice(index, 1);
+    this.insertSessionAtBandTop(session);
+  }
+
+  private insertSessionAtBandTop(session: WorkbenchSession): void {
+    const insertionIndex = findBandTopInsertionIndex(this.state.sessions, getStatusBand(session.status));
+    this.state.sessions.splice(insertionIndex, 0, session);
+  }
 }
 
-function sortByRecentUpdate(a: WorkbenchSession, b: WorkbenchSession): number {
-  return b.lastUpdateAt - a.lastUpdateAt;
+function getStatusBand(status: WorkbenchStatus): number {
+  return STATUS_BAND_ORDER.indexOf(status);
+}
+
+function findBandTopInsertionIndex(sessions: WorkbenchSession[], targetBand: number): number {
+  const index = sessions.findIndex((session) => getStatusBand(session.status) >= targetBand);
+  return index === -1 ? sessions.length : index;
 }

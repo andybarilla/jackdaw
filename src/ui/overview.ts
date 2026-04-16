@@ -1,35 +1,18 @@
 import type { WorkbenchSession, WorkbenchStatus } from "../types/workbench.js";
 
-const STATUS_PRIORITY: Record<WorkbenchStatus, number> = {
-  "awaiting-input": 0,
-  blocked: 1,
-  running: 2,
-  failed: 3,
-  idle: 4,
-  done: 5,
-};
-
 export function renderOverviewLines(sessions: WorkbenchSession[], selectedSessionId?: string): string[] {
   if (sessions.length === 0) {
     return ["No sessions yet.", "Press n to start a tracked session."];
   }
 
-  return [...sessions]
-    .sort(compareSessions)
-    .map((session) => {
-      const selected = session.id === selectedSessionId ? ">" : " ";
-      const badge = formatStatusBadge(session.status);
-      const reason = summarizeAttentionReason(session);
-      const files = summarizeRecentFiles(session);
-      const connection = session.connectionState === "historical" ? "historical" : undefined;
-      return `${selected} ${badge} ${session.name} · ${reason}${files ? ` · ${files}` : ""}${connection ? ` · ${connection}` : ""}`;
-    });
-}
-
-export function compareSessions(a: WorkbenchSession, b: WorkbenchSession): number {
-  const priorityDelta = STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status];
-  if (priorityDelta !== 0) return priorityDelta;
-  return b.lastUpdateAt - a.lastUpdateAt;
+  return sessions.map((session) => {
+    const selected = session.id === selectedSessionId ? ">" : " ";
+    const badge = formatStatusBadge(session.status);
+    const reason = summarizeAttentionReason(session);
+    const files = summarizeRecentFiles(session);
+    const connection = session.connectionState === "historical" ? "historical" : undefined;
+    return `${selected} ${badge} ${session.name} · ${reason}${files ? ` · ${files}` : ""}${connection ? ` · ${connection}` : ""}`;
+  });
 }
 
 function formatStatusBadge(status: WorkbenchStatus): string {

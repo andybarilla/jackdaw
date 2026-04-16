@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkbenchSession } from "../types/workbench.js";
-import { compareSessions, renderOverviewLines } from "./overview.js";
+import { renderOverviewLines } from "./overview.js";
 
 function session(overrides: Partial<WorkbenchSession>): WorkbenchSession {
   return {
@@ -23,31 +23,8 @@ function session(overrides: Partial<WorkbenchSession>): WorkbenchSession {
   };
 }
 
-describe("compareSessions", () => {
-  it("prioritizes awaiting-input over running and done", () => {
-    const items = [
-      session({ id: "done", status: "done", lastUpdateAt: 1000 }),
-      session({ id: "running", status: "running", lastUpdateAt: 2000 }),
-      session({ id: "input", status: "awaiting-input", lastUpdateAt: 500 }),
-    ];
-
-    const sorted = [...items].sort(compareSessions);
-    expect(sorted.map((item) => item.id)).toEqual(["input", "running", "done"]);
-  });
-
-  it("breaks ties by recent activity", () => {
-    const items = [
-      session({ id: "older", status: "running", lastUpdateAt: 1000 }),
-      session({ id: "newer", status: "running", lastUpdateAt: 2000 }),
-    ];
-
-    const sorted = [...items].sort(compareSessions);
-    expect(sorted.map((item) => item.id)).toEqual(["newer", "older"]);
-  });
-});
-
 describe("renderOverviewLines", () => {
-  it("renders compact attention reasons", () => {
+  it("renders sessions in the supplied registry order", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-15T20:00:00Z"));
 
@@ -67,8 +44,9 @@ describe("renderOverviewLines", () => {
       }),
     ], "input");
 
-    expect(lines[0]).toContain("> ◉ input Needs Answer · Which option should I choose next?");
-    expect(lines[1]).toContain("✓ done Done Session · finished 2m ago");
+    expect(lines[0]).toContain("✓ done Done Session · finished 2m ago");
+    expect(lines[1]).toContain("> ◉ input Needs Answer · Which option should I choose next?",
+    );
 
     vi.useRealTimers();
   });
