@@ -46,7 +46,7 @@ describe("renderOverviewLines", () => {
     ], "input");
 
     expect(lines[0]).toContain("✓ done Done Session · Finished summary · finished 2m ago");
-    expect(lines[1]).toContain("> ◉ input Needs Answer · Awaiting your choice");
+    expect(lines[1]).toContain("> ◉ needs input Needs Answer · Which option should I choose next?");
 
     vi.useRealTimers();
   });
@@ -100,17 +100,60 @@ describe("renderOverviewLines", () => {
       }),
     ]);
 
-    expect(lines[0]).toContain("Needs Answer · Frozen input summary");
+    expect(lines[0]).toContain("◉ needs input Needs Answer · Frozen input summary");
     expect(lines[0]).not.toContain("Which option should I choose next?");
-    expect(lines[1]).toContain("Blocked Session · Frozen blocked summary");
+    expect(lines[1]).toContain("◆ needs attention Blocked Session · Frozen blocked summary");
     expect(lines[1]).not.toContain("Command exited 1");
-    expect(lines[2]).toContain("Failed Session · Frozen failed summary");
+    expect(lines[2]).toContain("✖ needs attention Failed Session · Frozen failed summary");
     expect(lines[2]).not.toContain("Process crashed");
-    expect(lines[3]).toContain("Running Session · Frozen running summary");
+    expect(lines[3]).toContain("● running Running Session · Frozen running summary");
+    expect(lines[3]).not.toContain("needs attention");
     expect(lines[3]).not.toContain("running edit");
     expect(lines[4]).toContain("Pinned Done Session · Frozen done summary");
     expect(lines[4]).not.toContain("Live done summary");
     expect(lines[5]).toContain("Live Done Session · Live done summary");
+  });
+
+  it("uses operator-facing attention wording and prefers question or error text for urgent rows", () => {
+    const lines = renderOverviewLines([
+      session({
+        id: "input",
+        name: "Needs Answer",
+        status: "awaiting-input",
+        summary: "Waiting on operator",
+        latestText: "Should I ship the smaller fix first?",
+      }),
+      session({
+        id: "blocked",
+        name: "Blocked Session",
+        status: "blocked",
+        summary: "Investigating issue",
+        lastError: "API token missing for deploy step",
+      }),
+      session({
+        id: "failed",
+        name: "Failed Session",
+        status: "failed",
+        summary: "Retrying",
+        lastError: "Tests failed in CI",
+      }),
+      session({
+        id: "running",
+        name: "Running Session",
+        status: "running",
+        summary: "Generating release notes",
+        currentTool: "write",
+      }),
+    ]);
+
+    expect(lines[0]).toContain("◉ needs input Needs Answer · Should I ship the smaller fix first?");
+    expect(lines[0]).not.toContain("Waiting on operator");
+    expect(lines[1]).toContain("◆ needs attention Blocked Session · API token missing for deploy step");
+    expect(lines[1]).not.toContain("Investigating issue");
+    expect(lines[2]).toContain("✖ needs attention Failed Session · Tests failed in CI");
+    expect(lines[2]).not.toContain("Retrying");
+    expect(lines[3]).toContain("● running Running Session · Generating release notes");
+    expect(lines[3]).not.toContain("needs attention");
   });
 
   it("shows recent file context when available", () => {

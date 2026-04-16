@@ -1,5 +1,14 @@
 import type { WorkbenchSession, WorkbenchStatus } from "../types/workbench.js";
 
+const OVERVIEW_STATUS_BADGES: Readonly<Record<WorkbenchStatus, string>> = {
+  "awaiting-input": "◉ needs input",
+  blocked: "◆ needs attention",
+  failed: "✖ needs attention",
+  running: "● running",
+  idle: "○ idle",
+  done: "✓ done",
+};
+
 export function renderOverviewLines(sessions: WorkbenchSession[], selectedSessionId?: string): string[] {
   if (sessions.length === 0) {
     return ["No sessions yet.", "Press n to start a tracked session."];
@@ -16,30 +25,26 @@ export function renderOverviewLines(sessions: WorkbenchSession[], selectedSessio
 }
 
 function formatStatusBadge(status: WorkbenchStatus): string {
-  return {
-    "awaiting-input": "◉ input",
-    blocked: "◆ blocked",
-    running: "● running",
-    failed: "✖ failed",
-    idle: "○ idle",
-    done: "✓ done",
-  }[status];
+  return OVERVIEW_STATUS_BADGES[status];
 }
 
 function summarizeAttentionReason(session: WorkbenchSession): string {
   const preferredSummary = session.pinnedSummary ?? session.summary;
 
   if (session.status === "awaiting-input") {
-    return compact(preferredSummary || session.latestText || "asked a question");
+    const attentionText = session.pinnedSummary ?? session.latestText ?? session.summary ?? "asked a question";
+    return compact(attentionText);
   }
   if (session.status === "blocked") {
-    return compact(preferredSummary || session.lastError || "tool failed");
+    const attentionText = session.pinnedSummary ?? session.lastError ?? session.summary ?? "tool failed";
+    return compact(attentionText);
+  }
+  if (session.status === "failed") {
+    const attentionText = session.pinnedSummary ?? session.lastError ?? session.summary ?? "session failed";
+    return compact(attentionText);
   }
   if (session.status === "running") {
     return compact(preferredSummary || (session.currentTool ? `running ${session.currentTool}` : "working"));
-  }
-  if (session.status === "failed") {
-    return compact(preferredSummary || session.lastError || "session failed");
   }
   if (session.status === "done") {
     const completionContext = `finished ${relativeTime(session.lastUpdateAt)}`;
