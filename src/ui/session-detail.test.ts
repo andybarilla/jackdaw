@@ -28,17 +28,31 @@ function session(overrides: Partial<WorkbenchSession>): WorkbenchSession {
 }
 
 describe("renderSessionDetailLines", () => {
-  it("shows pinned summary separately when present", () => {
+  it("shows an actionable empty state when nothing is selected", () => {
+    const lines = renderSessionDetailLines(undefined, []);
+
+    expect(lines).toEqual([
+      "No session selected.",
+      "",
+      "Choose a session in the left column.",
+      "Press n to start a tracked session.",
+      "Use ↑/↓ or j/k to change selection.",
+    ]);
+  });
+
+  it("shows live and pinned summaries as separate lines", () => {
     const lines = renderSessionDetailLines(
       session({
         summary: "latest generated summary",
         pinnedSummary: "operator-pinned summary",
+        latestText: "streaming text still changing",
       }),
       [],
     );
 
-    expect(lines).toContain("Pinned: operator-pinned summary");
-    expect(lines).toContain("Summary: operator-pinned summary");
+    expect(lines).toContain("Live summary: latest generated summary");
+    expect(lines).toContain("Pinned summary: operator-pinned summary");
+    expect(lines).toContain("Latest: streaming text still changing");
   });
 
   it("shows recent files when present", () => {

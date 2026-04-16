@@ -193,6 +193,7 @@ class WorkbenchDashboard implements Component, Focusable {
     );
     const status = this.busy ? this.theme.fg("warning", "busy") : this.theme.fg("success", "ready");
     const hints = this.renderHints();
+    const detailTitle = getDetailPanelTitle(selected, this.detailViewMode);
 
     const leftLines = [
       `${this.supervisor.getProjectName()}`,
@@ -214,7 +215,7 @@ class WorkbenchDashboard implements Component, Focusable {
     lines.push(frameLine(innerWidth, `${this.theme.fg("accent", "Jackdaw Workbench")} ${this.theme.fg("dim", "pi-native prototype")}`, this.theme));
     lines.push(frameLine(innerWidth, this.theme.fg("dim", hints), this.theme));
     lines.push(borderDivider(innerWidth, this.theme));
-    lines.push(frameColumnsHeader(leftWidth, rightWidth, "Sessions", "Selected session", this.theme));
+    lines.push(frameColumnsHeader(leftWidth, rightWidth, "Sessions", detailTitle, this.theme));
     lines.push(frameColumnsDivider(leftWidth, rightWidth, this.theme));
 
     for (let index = 0; index < bodyHeight; index++) {
@@ -455,16 +456,22 @@ class WorkbenchDashboard implements Component, Focusable {
     const session = this.supervisor.registry.getSelectedSession();
     if (!session || this.busy) return;
 
-    const candidate = (session.latestText ?? session.summary).trim();
-    const nextPinned = session.pinnedSummary === candidate ? undefined : candidate;
+    const toggleState = getPinnedSummaryToggleState(session);
+    if (toggleState.kind === "noop") {
+      this.ctx.ui.notify(toggleState.notificationMessage, toggleState.notificationLevel);
+      this.tui.requestRender();
+      return;
+    }
 
     this.busy = true;
     this.tui.requestRender();
     try {
-      const ok = await this.supervisor.updateSessionMetadata(session.id, { pinnedSummary: nextPinned });
+      const ok = await this.supervisor.updateSessionMetadata(session.id, { pinnedSummary: toggleState.nextPinnedSummary });
       if (!ok) {
         this.ctx.ui.notify("Selected session summary could not be updated", "error");
+        return;
       }
+      this.ctx.ui.notify(toggleState.notificationMessage, toggleState.notificationLevel);
     } finally {
       this.busy = false;
       this.tui.requestRender();
@@ -472,10 +479,59 @@ class WorkbenchDashboard implements Component, Focusable {
   }
 }
 
+export interface PinnedSummaryToggleState {
+  kind: "pin" | "unpin" | "noop";
+  nextPinnedSummary?: string;
+  notificationMessage: string;
+  notificationLevel: "info";
+}
+
+export function getPinnedSummaryToggleState(session: WorkbenchSession): PinnedSummaryToggleState {
+  if (session.pinnedSummary) {
+    return {
+      kind: "unpin",
+      nextPinnedSummary: undefined,
+      notificationMessage: "Pinned summary removed",
+      notificationLevel: "info",
+    };
+  }
+
+  const liveSummary = session.summary.trim();
+  if (!liveSummary) {
+    return {
+      kind: "noop",
+      notificationMessage: "No live summary available to pin",
+      notificationLevel: "info",
+    };
+  }
+
+  return {
+    kind: "pin",
+    nextPinnedSummary: liveSummary,
+    notificationMessage: `Pinned summary frozen: ${clipNotificationText(liveSummary)}`,
+    notificationLevel: "info",
+  };
+}
+
 export function getShellActionHint(session: WorkbenchSession | undefined, isManaged: boolean): string {
   if (!session) return "shell unavailable";
   if (!isManaged) return "shell disabled • reconnect first";
   return "! shell";
+}
+
+export function getDetailPanelTitle(
+  session: WorkbenchSession | undefined,
+  viewMode: WorkbenchDetailViewMode,
+): string {
+  const modeLabel =
+    viewMode === "summary"
+      ? "summary"
+      : viewMode === "transcript"
+        ? "transcript"
+        : "log";
+
+  if (!session) return `Selected session · none · ${modeLabel}`;
+  return `Selected session · ${session.name} · ${modeLabel}`;
 }
 
 function borderTop(width: number, theme: Theme): string {
@@ -544,6 +600,11 @@ function renderInputOverlay(width: number, theme: Theme, mode: InputMode, focuse
   const input = `${before}${marker}\x1b[7m${atCursor}\x1b[27m${after}`;
 
   return frameLine(innerWidth, `${theme.fg("accent", `${label}:`)} ${input}`, theme);
+}
+
+function clipNotificationText(text: string, max = 48): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1)}…`;
 }
 
 function fit(text: string, width: number): string {

@@ -11,7 +11,13 @@ export function renderSessionDetailLines(
   contentWidth = 84,
 ): string[] {
   if (!session) {
-    return ["No session selected."];
+    return [
+      "No session selected.",
+      "",
+      "Choose a session in the left column.",
+      "Press n to start a tracked session.",
+      "Use ↑/↓ or j/k to change selection.",
+    ];
   }
 
   const recent = activities
@@ -24,11 +30,11 @@ export function renderSessionDetailLines(
     "",
     `Name: ${compact(session.name, 88)}`,
     `Task: ${compact(session.taskLabel, 88)}`,
-    `Summary: ${compact(session.pinnedSummary ?? session.summary, 88)}`,
+    `Live summary: ${compact(session.summary, 88)}`,
   ];
 
   if (session.pinnedSummary) {
-    lines.push(`Pinned: ${compact(session.pinnedSummary, 88)}`);
+    lines.push(`Pinned summary: ${compact(session.pinnedSummary, 88)}`);
   }
 
   if (session.latestText && session.latestText !== session.summary) {

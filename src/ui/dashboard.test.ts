@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorkbenchSession } from "../types/workbench.js";
-import { getShellActionHint } from "./dashboard.js";
+import { getDetailPanelTitle, getPinnedSummaryToggleState, getShellActionHint } from "./dashboard.js";
 
 function session(overrides: Partial<WorkbenchSession> = {}): WorkbenchSession {
   return {
@@ -34,5 +34,68 @@ describe("getShellActionHint", () => {
 
   it("shows reconnect guidance for historical sessions", () => {
     expect(getShellActionHint(session({ connectionState: "historical" }), false)).toBe("shell disabled • reconnect first");
+  });
+});
+
+describe("getDetailPanelTitle", () => {
+  it("includes the selected session name in summary mode", () => {
+    expect(getDetailPanelTitle(session({ name: "Inventory pass" }), "summary")).toBe("Selected session · Inventory pass · summary");
+  });
+
+  it("reflects transcript and log modes", () => {
+    expect(getDetailPanelTitle(session({ name: "Fix lint" }), "transcript")).toBe("Selected session · Fix lint · transcript");
+    expect(getDetailPanelTitle(session({ name: "Fix lint" }), "log")).toBe("Selected session · Fix lint · log");
+  });
+
+  it("shows an explicit empty state when nothing is selected", () => {
+    expect(getDetailPanelTitle(undefined, "summary")).toBe("Selected session · none · summary");
+  });
+});
+
+describe("getPinnedSummaryToggleState", () => {
+  it("pins the trimmed live summary instead of transient latest text", () => {
+    expect(
+      getPinnedSummaryToggleState(
+        session({
+          summary: "  Freeze this summary now  ",
+          latestText: "transient streaming text",
+        }),
+      ),
+    ).toMatchObject({
+      kind: "pin",
+      nextPinnedSummary: "Freeze this summary now",
+      notificationMessage: "Pinned summary frozen: Freeze this summary now",
+    });
+  });
+
+  it("unpins when a frozen snapshot already exists", () => {
+    expect(
+      getPinnedSummaryToggleState(
+        session({
+          summary: "New live summary",
+          pinnedSummary: "Older frozen summary",
+        }),
+      ),
+    ).toMatchObject({
+      kind: "unpin",
+      notificationMessage: "Pinned summary removed",
+    });
+  });
+
+  it("returns a no-op when there is no live summary to pin", () => {
+    expect(getPinnedSummaryToggleState(session({ summary: "   ", latestText: "still streaming" }))).toMatchObject({
+      kind: "noop",
+      notificationMessage: "No live summary available to pin",
+    });
+  });
+
+  it("clips long pin notifications", () => {
+    expect(
+      getPinnedSummaryToggleState(
+        session({
+          summary: "This is a very long live summary that should be clipped in the confirmation message for the dashboard notification",
+        }),
+      ).notificationMessage,
+    ).toBe("Pinned summary frozen: This is a very long live summary that should be…");
   });
 });
