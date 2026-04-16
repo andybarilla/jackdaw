@@ -1,4 +1,4 @@
-import type { WorkbenchActivity, WorkbenchDetailViewMode, WorkbenchSession } from "../types/workbench.js";
+import type { WorkbenchActivity, WorkbenchDetailViewMode, WorkbenchSession, WorkbenchStatus } from "../types/workbench.js";
 import { stripTerminalControlSequences } from "../utils/plain-text.js";
 
 export function renderSessionDetailLines(
@@ -24,6 +24,8 @@ export function renderSessionDetailLines(
     .slice(-4)
     .reverse()
     .map((activity) => `- ${compact(activity.summary, 84)}`);
+  const currentActivity = session.currentTool ?? currentActivityFromStatus(session.status);
+  const latestUpdate = latestMeaningfulUpdate(activities);
 
   const lines = [
     `${session.status.toUpperCase()}${session.currentTool ? ` · ${session.currentTool}` : ""}`,
@@ -37,9 +39,8 @@ export function renderSessionDetailLines(
     lines.push(`Pinned summary: ${compact(session.pinnedSummary, 88)}`);
   }
 
-  if (session.latestText && session.latestText !== session.summary) {
-    lines.push(`Latest: ${compact(session.latestText, 88)}`);
-  }
+  lines.push(`Current activity: ${compact(currentActivity, 88)}`);
+  lines.push(`Latest update: ${compact(latestUpdate ?? "No meaningful update yet", 88)}`);
 
   if (session.lastError && (session.status === "blocked" || session.status === "failed")) {
     lines.push(`Error: ${compact(session.lastError, 88)}`);
@@ -98,6 +99,36 @@ export function renderSessionDetailLines(
   }
 
   return lines;
+}
+
+function currentActivityFromStatus(status: WorkbenchStatus): string {
+  switch (status) {
+    case "awaiting-input":
+      return "waiting for input";
+    case "blocked":
+      return "blocked";
+    case "failed":
+      return "failed";
+    case "running":
+      return "running";
+    case "done":
+      return "done";
+    case "idle":
+    default:
+      return "idle";
+  }
+}
+
+function latestMeaningfulUpdate(activities: WorkbenchActivity[]): string | undefined {
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    const activity = activities[index];
+    if (activity.type === "message_streaming") {
+      continue;
+    }
+    return activity.summary;
+  }
+
+  return undefined;
 }
 
 function wrapPrefixedLine(prefix: string, text: string, width: number): string[] {
