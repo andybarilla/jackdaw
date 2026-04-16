@@ -396,6 +396,91 @@ describe("WorkbenchSupervisor persistence", () => {
     expect(supervisor.registry.getSelectedSession()!.lastIntervention!.observedAt).toBeGreaterThan(requestedAt);
   });
 
+  it("records successful follow-up submissions as sent before pending observation", async () => {
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    sessionManagerCreateMock.mockReturnValue({ created: true });
+    const managedSession = createManagedSession({
+      sessionId: "session-followup-success",
+      sessionFile: "session-followup-success.json",
+      followUp: vi.fn().mockImplementation(async (text: string) => {
+        expect(text).toBe("Please verify the migration fallback");
+        expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
+          kind: "followup",
+          status: "sent",
+          text: "Please verify the migration fallback",
+          summary: "Follow-up",
+        });
+      }),
+    });
+    createAgentSessionMock.mockResolvedValue({ session: managedSession });
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+    const session = await supervisor.spawnSession({ cwd: projectRoot, task: "task" });
+
+    const result = await supervisor.followUpSession(session.id, "Please verify the migration fallback");
+
+    expect(result).toEqual({
+      ok: true,
+      notificationMessage: "Follow-up accepted locally — pending observation",
+      notificationLevel: "info",
+    });
+    expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
+      kind: "followup",
+      status: "pending-observation",
+      text: "Please verify the migration fallback",
+      summary: "Follow-up",
+    });
+    expect(supervisor.registry.getActivities(session.id).at(-1)).toMatchObject({
+      summary: "Follow-up queued: Please verify the migration fallback",
+      origin: "operator",
+      meaningful: false,
+    });
+  });
+
+  it("records successful abort submissions as sent before pending observation", async () => {
+    const { WorkbenchSupervisor } = await import("./supervisor.js");
+
+    sessionManagerCreateMock.mockReturnValue({ created: true });
+    const managedSession = createManagedSession({
+      sessionId: "session-abort-success",
+      sessionFile: "session-abort-success.json",
+      abort: vi.fn().mockImplementation(async () => {
+        expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
+          kind: "abort",
+          status: "sent",
+          text: "Abort requested",
+          summary: "Abort",
+        });
+      }),
+    });
+    createAgentSessionMock.mockResolvedValue({ session: managedSession });
+
+    const supervisor = new WorkbenchSupervisor(projectRoot);
+    await supervisor.initialize();
+    const session = await supervisor.spawnSession({ cwd: projectRoot, task: "task" });
+
+    const result = await supervisor.abortSession(session.id);
+
+    expect(result).toEqual({
+      ok: true,
+      notificationMessage: "Abort accepted locally — pending observation",
+      notificationLevel: "info",
+    });
+    expect(supervisor.registry.getSelectedSession()?.lastIntervention).toMatchObject({
+      kind: "abort",
+      status: "pending-observation",
+      text: "Abort requested",
+      summary: "Abort",
+    });
+    expect(supervisor.registry.getActivities(session.id).at(-1)).toMatchObject({
+      summary: "Abort requested",
+      origin: "operator",
+      meaningful: false,
+    });
+  });
+
   it("stores failed abort submissions and returns explicit local failure feedback", async () => {
     const { WorkbenchSupervisor } = await import("./supervisor.js");
 

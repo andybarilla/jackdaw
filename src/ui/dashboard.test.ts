@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
-import type { WorkbenchSession } from "../types/workbench.js";
-import { getDetailPanelTitle, getPinnedSummaryReplaceState, getPinnedSummaryToggleState, getShellActionHint } from "./dashboard.js";
+import { describe, expect, it, vi } from "vitest";
+import type { ExtensionCommandContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { WorkbenchDetailViewMode, WorkbenchSession, WorkbenchState } from "../types/workbench.js";
+import { getDetailPanelTitle, getPinnedSummaryReplaceState, getPinnedSummaryToggleState, getShellActionHint, showWorkbenchDashboard } from "./dashboard.js";
 
 function session(overrides: Partial<WorkbenchSession> = {}): WorkbenchSession {
   return {
@@ -115,3 +116,139 @@ describe("getPinnedSummaryToggleState", () => {
     ).toBe("Pinned summary frozen: This is a very long live summary that should be…");
   });
 });
+
+describe("showWorkbenchDashboard intervention notifications", () => {
+  it("surfaces steer notifications from the dashboard interaction layer", async () => {
+    const notify = vi.fn();
+    const steerSession = vi.fn().mockResolvedValue({
+      ok: true,
+      notificationMessage: "Steer accepted locally — pending observation",
+      notificationLevel: "info",
+    });
+    const dashboard = await openDashboard({ notify, steerSession });
+
+    dashboard.inputMode = {
+      kind: "steer",
+      sessionId: "s1",
+      value: "Please focus on the flaky test",
+      cursor: "Please focus on the flaky test".length,
+    };
+
+    await dashboard.submitInputMode();
+
+    expect(steerSession).toHaveBeenCalledWith("s1", "Please focus on the flaky test");
+    expect(notify).toHaveBeenCalledWith("Steer accepted locally — pending observation", "info");
+  });
+
+  it("surfaces follow-up notifications from the dashboard interaction layer", async () => {
+    const notify = vi.fn();
+    const followUpSession = vi.fn().mockResolvedValue({
+      ok: true,
+      notificationMessage: "Follow-up accepted locally — pending observation",
+      notificationLevel: "info",
+    });
+    const dashboard = await openDashboard({ notify, followUpSession });
+
+    dashboard.inputMode = {
+      kind: "followup",
+      sessionId: "s1",
+      value: "Please confirm the rollback path",
+      cursor: "Please confirm the rollback path".length,
+    };
+
+    await dashboard.submitInputMode();
+
+    expect(followUpSession).toHaveBeenCalledWith("s1", "Please confirm the rollback path");
+    expect(notify).toHaveBeenCalledWith("Follow-up accepted locally — pending observation", "info");
+  });
+
+  it("surfaces abort notifications from the dashboard interaction layer", async () => {
+    const notify = vi.fn();
+    const abortSession = vi.fn().mockResolvedValue({
+      ok: true,
+      notificationMessage: "Abort accepted locally — pending observation",
+      notificationLevel: "info",
+    });
+    const dashboard = await openDashboard({ notify, abortSession });
+
+    await dashboard.confirmAbort("s1");
+
+    expect(abortSession).toHaveBeenCalledWith("s1");
+    expect(notify).toHaveBeenCalledWith("Abort accepted locally — pending observation", "info");
+  });
+});
+
+interface DashboardInstance {
+  inputMode:
+    | { kind: "none" }
+    | { kind: "steer"; sessionId: string; value: string; cursor: number }
+    | { kind: "followup"; sessionId: string; value: string; cursor: number };
+  submitInputMode: () => Promise<void>;
+  confirmAbort: (sessionId: string) => Promise<void>;
+}
+
+interface DashboardHarnessOptions {
+  notify?: ReturnType<typeof vi.fn>;
+  steerSession?: ReturnType<typeof vi.fn>;
+  followUpSession?: ReturnType<typeof vi.fn>;
+  abortSession?: ReturnType<typeof vi.fn>;
+}
+
+async function openDashboard(options: DashboardHarnessOptions): Promise<DashboardInstance> {
+  let dashboard: DashboardInstance | undefined;
+  const notify = options.notify ?? vi.fn();
+  const selectedSession = session();
+  const state: WorkbenchState = {
+    sessions: [selectedSession],
+    selectedSessionId: selectedSession.id,
+    preferences: { detailViewMode: "summary" },
+  };
+
+  const supervisor = {
+    initialize: vi.fn().mockResolvedValue(undefined),
+    openWorkbench: vi.fn().mockResolvedValue(undefined),
+    onChange: vi.fn(() => () => undefined),
+    registry: {
+      getState: (): WorkbenchState => state,
+      getSelectedSession: (): WorkbenchSession => selectedSession,
+      getActivities: (): never[] => [],
+    },
+    getProjectName: (): string => "jackdaw-revisited",
+    getTranscriptLines: (): never[] => [],
+    getLogLines: (): never[] => [],
+    getTranscriptPreview: (): never[] => [],
+    isManaged: (): boolean => true,
+    selectNextSession: vi.fn().mockResolvedValue(undefined),
+    updatePreferences: vi.fn().mockResolvedValue(undefined),
+    spawnSession: vi.fn().mockResolvedValue(selectedSession),
+    steerSession: options.steerSession ?? vi.fn().mockResolvedValue({ ok: true, notificationMessage: "steer", notificationLevel: "info" }),
+    followUpSession:
+      options.followUpSession ?? vi.fn().mockResolvedValue({ ok: true, notificationMessage: "follow-up", notificationLevel: "info" }),
+    abortSession: options.abortSession ?? vi.fn().mockResolvedValue({ ok: true, notificationMessage: "abort", notificationLevel: "info" }),
+    executeShellCommand: vi.fn().mockResolvedValue(true),
+    updateSessionMetadata: vi.fn().mockResolvedValue(true),
+  };
+
+  const ctx = {
+    cwd: "/tmp/project",
+    model: "gpt-5.4",
+    ui: {
+      notify,
+      custom: vi.fn().mockImplementation(async (renderDashboard: (tui: { requestRender: () => void }, theme: Theme, kb: unknown, done: () => void) => DashboardInstance) => {
+        dashboard = renderDashboard({ requestRender: () => undefined }, createTheme(), undefined, () => undefined);
+      }),
+    },
+  } satisfies Pick<ExtensionCommandContext, "cwd" | "model" | "ui">;
+
+  await showWorkbenchDashboard(ctx as ExtensionCommandContext, supervisor as never);
+
+  expect(dashboard).toBeDefined();
+  return dashboard!;
+}
+
+function createTheme(): Theme {
+  return {
+    fg: (_color: string, text: string): string => text,
+    bg: (_color: string, text: string): string => text,
+  } as Theme;
+}
