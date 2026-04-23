@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import React from "react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
 import type { HealthResponse } from "../shared/transport/api.js";
@@ -46,7 +47,7 @@ const WORKSPACE_DETAIL: WorkspaceDetailDto = {
     worktrees: [{ id: "wt-1", repoRootId: "repo-1", path: "/worktrees/jackdaw-live", branch: "feat/live" }],
     sessionIds: ["session-awaiting", "session-running", "session-idle"],
     artifactIds: ["artifact-1"],
-    preferences: { selectedSessionId: "session-awaiting", attentionView: "all", detailView: "summary" },
+    preferences: { selectedSessionId: "session-missing", attentionView: "all", detailView: "summary" },
     optionalIntegrations: { hqProjectId: "hq-123" },
     createdAt: "2026-04-23T11:00:00.000Z",
     updatedAt: "2026-04-23T12:00:00.000Z",
@@ -150,17 +151,6 @@ const WORKSPACE_DETAIL: WorkspaceDetailDto = {
       meaningful: true,
     },
   ],
-};
-
-const WORKSPACE_DETAIL_WITH_PREFERRED_RUNNING_SESSION: WorkspaceDetailDto = {
-  ...WORKSPACE_DETAIL,
-  workspace: {
-    ...WORKSPACE_DETAIL.workspace,
-    preferences: {
-      ...WORKSPACE_DETAIL.workspace.preferences,
-      selectedSessionId: "session-running",
-    },
-  },
 };
 
 const OPS_WORKSPACE_DETAIL: WorkspaceDetailDto = {
@@ -285,7 +275,7 @@ describe("App", () => {
     expect(screen.getByText("Loading workspace…")).toBeVisible();
   });
 
-  it("renders the fetched workspace, keeps rail order, and selects the first session by default", async () => {
+  it("renders the fetched workspace, keeps rail order, and defaults to the first ordered session when preferences do not match", async () => {
     mockFetchImplementation();
 
     render(<App />);
@@ -354,44 +344,63 @@ describe("App", () => {
     expect(within(detailPanel).getByText("src/service/demo-state.ts")).toBeVisible();
   });
 
-  it("falls back to the first remaining session when the seeded preferred session is missing after a controlled remount", async () => {
+  it("falls back to the first session when the selected session disappears after a workspace change on the same mount", async () => {
     mockFetchImplementation({
       workspaceDetailResponses: {
-        "ws-demo": createJsonResponse(WORKSPACE_DETAIL_WITH_PREFERRED_RUNNING_SESSION, { status: 200 }),
+        "ws-demo": createJsonResponse(WORKSPACE_DETAIL, { status: 200 }),
         "ws-ops": createJsonResponse(OPS_WORKSPACE_DETAIL, { status: 200 }),
       },
     });
 
-    const firstRender = render(<App />);
+    let selectedWorkspaceSetter: React.Dispatch<React.SetStateAction<string | undefined>> | undefined;
+    const originalUseState = React.useState;
+    let undefinedStateCount = 0;
+
+    vi.spyOn(React, "useState").mockImplementation(((initialState?: unknown) => {
+      const stateTuple = initialState === undefined ? originalUseState() : originalUseState(initialState);
+
+      if (initialState === undefined) {
+        undefinedStateCount += 1;
+        if (undefinedStateCount === 1) {
+          selectedWorkspaceSetter = stateTuple[1] as React.Dispatch<React.SetStateAction<string | undefined>>;
+        }
+      }
+
+      return stateTuple;
+    }) as typeof React.useState);
+
+    render(<App />);
+
+    if (selectedWorkspaceSetter === undefined) {
+      throw new Error("Selected workspace setter was not captured");
+    }
 
     expect(await screen.findByRole("heading", { name: "Demo Workspace" })).toBeVisible();
 
-    const firstAttentionRail = screen.getByRole("list", { name: "Attention rail" });
-    const preferredSelection = within(firstAttentionRail).getByRole("button", { name: /Service read model/i });
-    expect(preferredSelection).toHaveAttribute("aria-pressed", "true");
+    const attentionRail = await screen.findByRole("list", { name: "Attention rail" });
+    const preservedSelection = within(attentionRail).getByRole("button", { name: /Service read model/i });
 
-    firstRender.unmount();
-    vi.restoreAllMocks();
+    fireEvent.click(preservedSelection);
 
-    mockFetchImplementation({
-      workspacesResponse: createJsonResponse([WORKSPACE_SUMMARIES[1], WORKSPACE_SUMMARIES[0]], { status: 200 }),
-      workspaceDetailResponses: {
-        "ws-demo": createJsonResponse(WORKSPACE_DETAIL_WITH_PREFERRED_RUNNING_SESSION, { status: 200 }),
-        "ws-ops": createJsonResponse(OPS_WORKSPACE_DETAIL, { status: 200 }),
-      },
+    await waitFor(() => {
+      expect(preservedSelection).toHaveAttribute("aria-pressed", "true");
     });
 
-    render(<App />);
+    await act(async () => {
+      selectedWorkspaceSetter?.("ws-ops");
+    });
 
     expect(await screen.findByRole("heading", { name: "Ops Workspace" })).toBeVisible();
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /Service read model/i })).not.toBeInTheDocument();
     });
 
-    const refreshedAttentionRail = screen.getByRole("list", { name: "Attention rail" });
+    const refreshedAttentionRail = await screen.findByRole("list", { name: "Attention rail" });
     const fallbackSelection = within(refreshedAttentionRail).getByRole("button", { name: /Ops operator follow-up/i });
+    const secondarySession = within(refreshedAttentionRail).getByRole("button", { name: /Ops cleanup/i });
 
     expect(fallbackSelection).toHaveAttribute("aria-pressed", "true");
+    expect(secondarySession).toHaveAttribute("aria-pressed", "false");
 
     const detailPanel = screen.getByLabelText("Selected session detail panel");
     expect(within(detailPanel).getByRole("heading", { name: "Ops operator follow-up" })).toBeVisible();
