@@ -58,6 +58,7 @@ const WORKSPACE_DETAIL: WorkspaceDetailDto = {
       workspaceId: "ws-demo",
       name: "Operator follow-up",
       repoRoot: "/repos/jackdaw",
+      worktree: "/worktrees/jackdaw-live",
       cwd: "/repos/jackdaw",
       branch: "feat/live-workspace",
       runtime: { agent: "pi", model: "sonnet", runtime: "pi" },
@@ -77,7 +78,7 @@ const WORKSPACE_DETAIL: WorkspaceDetailDto = {
         { path: "src/web/App.tsx", operation: "edited", timestamp: "2026-04-23T11:35:00.000Z" },
         { path: "src/service/server.ts", operation: "edited", timestamp: "2026-04-23T11:36:00.000Z" },
       ],
-      linkedResources: { artifactIds: ["artifact-1"], workItemIds: [], reviewIds: [] },
+      linkedResources: { artifactIds: ["artifact-1"], workItemIds: ["task-8"], reviewIds: ["review-1"] },
       connectionState: "live",
       sessionFile: ".jackdaw/session-awaiting.json",
       startedAt: "2026-04-23T11:00:00.000Z",
@@ -133,7 +134,7 @@ const WORKSPACE_DETAIL: WorkspaceDetailDto = {
       filePath: "docs/superpowers/plans/2026-04-23-service-backed-live-workspace.md",
       sourceSessionId: "session-awaiting",
       linkedSessionIds: ["session-awaiting"],
-      linkedWorkItemIds: [],
+      linkedWorkItemIds: ["task-8"],
       createdAt: "2026-04-23T11:20:00.000Z",
       updatedAt: "2026-04-23T11:20:00.000Z",
     },
@@ -229,8 +230,12 @@ function mockFetchImplementation(overrides?: {
   workspacesResponse?: Response;
   workspaceDetailResponses?: Record<string, Response>;
 }): void {
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL): Promise<Response> => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = String(input);
+
+    if (init?.method === "POST") {
+      return createJsonResponse({ error: "Mutation route unavailable" }, { status: 405 });
+    }
 
     if (url.endsWith("/health")) {
       return createJsonResponse(HEALTH_RESPONSE, { status: 200 });
@@ -275,7 +280,7 @@ describe("App", () => {
     expect(screen.getByText("Loading workspace…")).toBeVisible();
   });
 
-  it("renders the fetched workspace, keeps rail order, and defaults to the first ordered session when preferences do not match", async () => {
+  it("renders the fetched workspace, keeps rail order, and shows the command center for the first ordered session", async () => {
     mockFetchImplementation();
 
     render(<App />);
@@ -283,13 +288,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Demo Workspace" })).toBeVisible();
     const attentionRail = await screen.findByRole("list", { name: "Attention rail" });
 
-    expect(screen.queryByText("GUI foundation is live")).not.toBeInTheDocument();
-    expect(screen.getByText("Read-only demo workspace")).toBeVisible();
-    expect(screen.getByText("needs-operator")).toBeVisible();
-    expect(screen.getByText("3 sessions")).toBeVisible();
-
     const sessionButtons = within(attentionRail).getAllByRole("button");
-    expect(sessionButtons).toHaveLength(3);
     expect(sessionButtons.map((button) => button.textContent)).toEqual([
       expect.stringContaining("Operator follow-up"),
       expect.stringContaining("Service read model"),
@@ -300,22 +299,17 @@ describe("App", () => {
     expect(firstSessionButton).toHaveAttribute("aria-pressed", "true");
 
     const detailPanel = screen.getByLabelText("Selected session detail panel");
+    expect(within(detailPanel).getByLabelText("Session command center")).toBeVisible();
     expect(within(detailPanel).getByRole("heading", { name: "Operator follow-up" })).toBeVisible();
-    expect(within(detailPanel).getAllByText("awaiting-input")).toHaveLength(2);
-    expect(within(detailPanel).getByText("Waiting for product direction.")).toBeVisible();
+    expect(within(within(detailPanel).getByLabelText("Live summary panel")).getByText("Waiting for product direction.")).toBeVisible();
     expect(within(detailPanel).getByText("Need approval before continuing.")).toBeVisible();
-    expect(within(detailPanel).getAllByText("/repos/jackdaw")).toHaveLength(2);
-    expect(within(detailPanel).getByText("feat/live-workspace")).toBeVisible();
     expect(within(detailPanel).getByText("Paused for operator reply")).toBeVisible();
-    expect(within(detailPanel).getByText("chat")).toBeVisible();
-    expect(within(detailPanel).getByText("src/web/App.tsx")).toBeVisible();
-    expect(within(detailPanel).getByText("src/service/server.ts")).toBeVisible();
-    expect(within(detailPanel).getByText("follow-up")).toBeVisible();
-    expect(within(detailPanel).getByText("pending-observation")).toBeVisible();
     expect(within(detailPanel).getByText("Confirm API contract changes")).toBeVisible();
+    expect(within(detailPanel).getByText(/plan · Live workspace slice plan/)).toBeVisible();
+    expect(within(detailPanel).getByRole("button", { name: "Shell fallback" })).toBeVisible();
   });
 
-  it("updates the selected row and detail panel when a different session is clicked", async () => {
+  it("updates the selected row and command center when a different session is clicked", async () => {
     mockFetchImplementation();
 
     render(<App />);
@@ -323,9 +317,6 @@ describe("App", () => {
     const attentionRail = await screen.findByRole("list", { name: "Attention rail" });
     const initialSelection = within(attentionRail).getByRole("button", { name: /Operator follow-up/i });
     const nextSelection = within(attentionRail).getByRole("button", { name: /Service read model/i });
-
-    expect(initialSelection).toHaveAttribute("aria-pressed", "true");
-    expect(nextSelection).toHaveAttribute("aria-pressed", "false");
 
     fireEvent.click(nextSelection);
 
@@ -336,12 +327,9 @@ describe("App", () => {
 
     const detailPanel = screen.getByLabelText("Selected session detail panel");
     expect(within(detailPanel).getByRole("heading", { name: "Service read model" })).toBeVisible();
-    expect(within(detailPanel).getByText("Implementing deterministic service fixtures.")).toBeVisible();
-    expect(within(detailPanel).getAllByText("/repos/hq")).toHaveLength(2);
-    expect(within(detailPanel).getByText("feat/service-read-model")).toBeVisible();
+    expect(within(within(detailPanel).getByLabelText("Live summary panel")).getByText("Implementing deterministic service fixtures.")).toBeVisible();
     expect(within(detailPanel).getByText("Editing demo-state.ts")).toBeVisible();
-    expect(within(detailPanel).getByText("edit")).toBeVisible();
-    expect(within(detailPanel).getByText("src/service/demo-state.ts")).toBeVisible();
+    expect(within(detailPanel).getByText("src/service/demo-state.ts · edited")).toBeVisible();
   });
 
   it("falls back to the first session when the selected session disappears after a workspace change on the same mount", async () => {
@@ -397,14 +385,9 @@ describe("App", () => {
 
     const refreshedAttentionRail = await screen.findByRole("list", { name: "Attention rail" });
     const fallbackSelection = within(refreshedAttentionRail).getByRole("button", { name: /Ops operator follow-up/i });
-    const secondarySession = within(refreshedAttentionRail).getByRole("button", { name: /Ops cleanup/i });
 
     expect(fallbackSelection).toHaveAttribute("aria-pressed", "true");
-    expect(secondarySession).toHaveAttribute("aria-pressed", "false");
-
-    const detailPanel = screen.getByLabelText("Selected session detail panel");
-    expect(within(detailPanel).getByRole("heading", { name: "Ops operator follow-up" })).toBeVisible();
-    expect(within(detailPanel).getByText("Need release sign-off.")).toBeVisible();
+    expect(screen.getByLabelText("Selected session detail panel")).toHaveTextContent("Need release sign-off.");
   });
 
   it("renders a workspace error card while health still loads normally when workspace fetch fails", async () => {

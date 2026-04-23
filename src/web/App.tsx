@@ -1,7 +1,9 @@
 import React from "react";
 import type { HealthResponse, RendererBootstrap } from "../shared/transport/api.js";
-import type { WorkspaceSummaryDto, WorkspaceDetailDto } from "../shared/transport/dto.js";
+import type { WorkspaceDetailDto, WorkspaceSummaryDto } from "../shared/transport/dto.js";
 import type { WorkspaceSession } from "../shared/domain/session.js";
+import { SessionCommandCenter } from "./components/sessions/session-command-center.js";
+import { useWorkspaceActions } from "./hooks/useWorkspaceActions.js";
 
 declare global {
   interface Window {
@@ -80,6 +82,7 @@ export function App(): React.JSX.Element {
   const [workspaceDetail, setWorkspaceDetail] = React.useState<Loadable<WorkspaceDetailDto>>({ status: "loading" });
   const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState<string | undefined>(undefined);
   const [selectedSessionId, setSelectedSessionId] = React.useState<string | undefined>(undefined);
+  const workspaceActions = useWorkspaceActions(bootstrap.serviceBaseUrl);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -145,10 +148,7 @@ export function App(): React.JSX.Element {
 
     void (async (): Promise<void> => {
       try {
-        const data = await fetchJson<WorkspaceDetailDto>(
-          `/workspaces/${selectedWorkspaceId}`,
-          "Workspace detail fetch failed",
-        );
+        const data = await fetchJson<WorkspaceDetailDto>(`/workspaces/${selectedWorkspaceId}`, "Workspace detail fetch failed");
 
         if (cancelled) {
           return;
@@ -202,7 +202,7 @@ export function App(): React.JSX.Element {
         </div>
       </header>
 
-      <main className="workspace-grid">
+      <main className="workspace-grid workspace-grid-command-center">
         <section className="panel" aria-label="Service health panel">
           <div className="panel-header">
             <p className="eyebrow">Service health</p>
@@ -314,97 +314,20 @@ export function App(): React.JSX.Element {
           )}
         </section>
 
-        <section className="panel session-detail-panel" aria-label="Selected session detail panel">
-          <div className="panel-header">
-            <p className="eyebrow">Selected session</p>
-            {selectedSession !== undefined && <span className={`status-pill status-${selectedSession.status}`}>{selectedSession.status}</span>}
-          </div>
-          {workspaceSummaries.status === "loading" && <p>Loading session detail…</p>}
+        <section className="session-detail-shell" aria-label="Selected session detail panel">
+          {workspaceSummaries.status === "loading" && <div className="panel"><p>Loading session detail…</p></div>}
           {workspaceDetail.status === "loading" && workspaceSummaries.status === "ready" && workspaceSummaries.data.length > 0 && (
-            <p>Loading session detail…</p>
+            <div className="panel"><p>Loading session detail…</p></div>
           )}
-          {workspaceDetail.status === "ready" && workspaceSessions.length === 0 && <p>No sessions in this workspace yet.</p>}
-          {selectedSession !== undefined && (
-            <div className="session-detail">
-              <h2>{selectedSession.name}</h2>
-              <dl className="session-facts">
-                <div>
-                  <dt>Status</dt>
-                  <dd>{selectedSession.status}</dd>
-                </div>
-                {selectedSession.liveSummary.length > 0 && (
-                  <div>
-                    <dt>Live summary</dt>
-                    <dd>{selectedSession.liveSummary}</dd>
-                  </div>
-                )}
-                {selectedSession.pinnedSummary !== undefined && (
-                  <div>
-                    <dt>Pinned summary</dt>
-                    <dd>{selectedSession.pinnedSummary}</dd>
-                  </div>
-                )}
-                <div>
-                  <dt>Repo root</dt>
-                  <dd>{selectedSession.repoRoot}</dd>
-                </div>
-                <div>
-                  <dt>Working directory</dt>
-                  <dd>{selectedSession.cwd}</dd>
-                </div>
-                {selectedSession.branch !== undefined && (
-                  <div>
-                    <dt>Branch</dt>
-                    <dd>{selectedSession.branch}</dd>
-                  </div>
-                )}
-                {selectedSession.currentActivity !== undefined && (
-                  <div>
-                    <dt>Current activity</dt>
-                    <dd>{selectedSession.currentActivity}</dd>
-                  </div>
-                )}
-                {selectedSession.currentTool !== undefined && (
-                  <div>
-                    <dt>Current tool</dt>
-                    <dd>{selectedSession.currentTool}</dd>
-                  </div>
-                )}
-              </dl>
-
-              <div className="detail-section">
-                <h3>Recent files</h3>
-                {selectedSession.recentFiles.length > 0 ? (
-                  <ul className="detail-list">
-                    {selectedSession.recentFiles.map((file) => (
-                      <li key={`${file.path}-${file.timestamp ?? ""}`}>{file.path}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>No recent files.</p>
-                )}
-              </div>
-
-              {selectedSession.lastIntervention !== undefined && (
-                <div className="detail-section">
-                  <h3>Last intervention</h3>
-                  <dl className="session-facts compact">
-                    <div>
-                      <dt>Kind</dt>
-                      <dd>{selectedSession.lastIntervention.kind}</dd>
-                    </div>
-                    <div>
-                      <dt>Status</dt>
-                      <dd>{selectedSession.lastIntervention.status}</dd>
-                    </div>
-                    <div>
-                      <dt>Text</dt>
-                      <dd>{selectedSession.lastIntervention.text}</dd>
-                    </div>
-                  </dl>
-                </div>
-              )}
-            </div>
+          {workspaceDetail.status === "ready" && workspaceSessions.length === 0 && <div className="panel"><p>No sessions in this workspace yet.</p></div>}
+          {workspaceDetail.status === "ready" && selectedSession !== undefined && (
+            <SessionCommandCenter
+              workspace={workspaceDetail.data.workspace}
+              session={selectedSession}
+              artifacts={workspaceDetail.data.artifacts}
+              recentAttention={workspaceDetail.data.recentAttention}
+              actions={workspaceActions}
+            />
           )}
         </section>
       </main>
