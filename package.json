@@ -1,16 +1,44 @@
 {
   "name": "jackdaw-revisited",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "dist/desktop/main.js",
   "scripts": {
     "check": "tsc --noEmit",
     "dev:pi": "pi",
+    "dev:web": "vite",
+    "dev:node:watch": "tsc -w -p tsconfig.node.json",
+    "dev:service": "tsc -p tsconfig.node.json && cross-env NODE_ENV=development JACKDAW_APP_DATA_DIR=.jackdaw-app-data node dist/service/main.js",
+    "dev:desktop": "wait-on file:dist/desktop/main.js file:dist/service/main.js http-get://127.0.0.1:5173 && cross-env NODE_ENV=development JACKDAW_WEB_URL=http://127.0.0.1:5173 electron .",
+    "dev:gui": "concurrently -k -n WEB,NODE,ELECTRON \"npm:dev:web\" \"npm:dev:node:watch\" \"npm:dev:desktop\"",
+    "build:web": "vite build",
+    "build:service": "tsc -p tsconfig.node.json",
+    "build:desktop": "tsc -p tsconfig.node.json",
+    "build": "npm run build:service && npm run build:desktop && npm run build:web",
+    "package:dir": "npm run build && electron-builder --dir",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "fastify": "^5.6.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@mariozechner/pi-coding-agent": "latest",
     "@mariozechner/pi-tui": "latest",
+    "@types/node": "^24.8.1",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@typescript/native-preview": "^7.0.0-dev.20260421.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^38.3.0",
+    "electron-builder": "^26.0.12",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.4"
+    "vite": "^7.1.10",
+    "vitest": "^3.2.4",
+    "wait-on": "^9.0.1"
   }
 }

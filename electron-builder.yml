@@ -1,0 +1,13 @@
+appId: com.andybarilla.jackdaw
+productName: Jackdaw
+files:
+  - dist/**/*
+  - package.json
+extraMetadata:
+  main: dist/desktop/main.js
+directories:
+  buildResources: build
+mac:
+  category: public.app-category.developer-tools
+linux:
+  category: Development
