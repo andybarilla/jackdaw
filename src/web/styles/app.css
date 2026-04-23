@@ -1,19 +1,19 @@
 :root {
-  color-scheme: dark;
-  --bg-0: #0a0a0a;
-  --bg-1: #111111;
-  --bg-2: #161616;
-  --line: #262626;
-  --line-hi: #3a3a3a;
-  --fg-0: #fafaf7;
-  --fg-1: #d4d4d4;
-  --fg-3: #7a7a7a;
-  --accent: #ff4d00;
-  --success: #27c281;
-  --danger: #ff3d68;
-  --warning: #ffd60a;
-  --font-sans: "Satoshi", "Inter", system-ui, sans-serif;
-  --font-mono: "Commit Mono", "SFMono-Regular", ui-monospace, monospace;
+  color-scheme: light;
+  --page-bg: #f8f8f6;
+  --surface-bg: #ffffff;
+  --line: #e2e2e2;
+  --fg-0: #0F0F0F;
+  --fg-1: #6B6B6B;
+  --fg-3: #6B6B6B;
+  --accent: #CAFF33;
+  --success: #2f7d4b;
+  --danger: #b33a3a;
+  --warning: #8a6a00;
+  --font-sans: "IBM Plex Sans";
+  --font-mono: "IBM Plex Mono";
+  --border: 1.5px solid var(--line);
+  --radius: 8px;
 }
 
 * {
@@ -25,7 +25,7 @@ body,
 #root {
   margin: 0;
   min-height: 100%;
-  background: var(--bg-0);
+  background: var(--page-bg);
   color: var(--fg-1);
   font-family: var(--font-sans);
 }
@@ -43,9 +43,7 @@ textarea {
 .app-shell {
   min-height: 100vh;
   padding: 24px;
-  background:
-    radial-gradient(circle at top right, rgba(255, 77, 0, 0.08), transparent 30%),
-    var(--bg-0);
+  background: var(--page-bg);
 }
 
 .topbar {
@@ -53,7 +51,7 @@ textarea {
   justify-content: space-between;
   gap: 24px;
   align-items: end;
-  border-bottom: 1px solid var(--line);
+  border-bottom: var(--border);
   padding-bottom: 20px;
   margin-bottom: 24px;
 }
@@ -63,6 +61,12 @@ textarea {
   color: var(--fg-0);
   font-size: 32px;
   letter-spacing: -0.03em;
+}
+
+.workspace-title {
+  margin: 8px 0 0;
+  color: var(--fg-1);
+  font-size: 16px;
 }
 
 .topbar-meta {
@@ -90,10 +94,11 @@ textarea {
 }
 
 .panel {
-  background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent 22%), var(--bg-1);
-  border: 1px solid var(--line);
+  background: var(--surface-bg);
+  border: var(--border);
+  border-radius: var(--radius);
   min-height: 280px;
-  padding: 16px;
+  padding: 24px;
 }
 
 .panel-header {
@@ -105,12 +110,14 @@ textarea {
 }
 
 .status-pill {
-  border: 1px solid var(--line-hi);
+  border: var(--border);
+  border-radius: var(--radius);
   padding: 4px 8px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-family: var(--font-mono);
   font-size: 10px;
+  background: var(--surface-bg);
 }
 
 .status-loading,
@@ -137,7 +144,7 @@ textarea {
 }
 
 .health-card div {
-  border-top: 1px solid var(--line);
+  border-top: var(--border);
   padding-top: 12px;
 }
 
@@ -153,6 +160,66 @@ textarea {
   color: var(--fg-0);
 }
 
+.workspace-summary h2,
+.session-detail h2,
+.detail-section h3 {
+  margin: 0 0 12px;
+  color: var(--fg-0);
+}
+
+.workspace-stats,
+.session-facts {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0 0;
+}
+
+.workspace-stats div,
+.session-facts div {
+  border-top: var(--border);
+  padding-top: 12px;
+}
+
+.workspace-stats dt,
+.session-facts dt {
+  margin-bottom: 4px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.workspace-stats dd,
+.session-facts dd {
+  margin: 0;
+  color: var(--fg-0);
+}
+
+.detail-section {
+  margin-top: 20px;
+}
+
+.detail-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.compact {
+  gap: 10px;
+}
+
+.error-card {
+  border: var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  background: var(--surface-bg);
+}
+
+.error-title {
+  margin: 0 0 8px;
+  color: var(--fg-0);
+  font-weight: 600;
+}
+
 .placeholder-copy h2 {
   margin: 0 0 12px;
   color: var(--fg-0);
@@ -166,9 +233,10 @@ textarea {
 }
 
 .ghost-button {
-  background: transparent;
+  background: var(--surface-bg);
   color: var(--fg-1);
-  border: 1px solid var(--line-hi);
+  border: var(--border);
+  border-radius: var(--radius);
   padding: 8px 12px;
 }
 
@@ -187,11 +255,24 @@ textarea {
 }
 
 .session-card {
-  border: 1px solid var(--line);
-  background: var(--bg-2);
-  padding: 14px;
+  width: 100%;
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  padding: 24px;
   display: grid;
   gap: 10px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-card:hover,
+.session-card:focus-visible,
+.session-card.selected,
+.session-card[aria-pressed="true"] {
+  background: var(--page-bg);
+  outline: none;
 }
 
 .session-card-header {
@@ -203,6 +284,7 @@ textarea {
 
 .session-card strong {
   color: var(--fg-0);
+  font-weight: 600;
 }
 
 .session-card small {
