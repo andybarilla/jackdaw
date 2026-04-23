@@ -252,6 +252,51 @@ describe("InterventionPanel", () => {
     expect(screen.getAllByText("Route unavailable")[0]).toBeVisible();
   });
 
+  it("ignores older in-flight intervention completions within the same session", async () => {
+    const firstDeferredResult = createDeferredResult();
+    const secondDeferredResult = createDeferredResult();
+    const actions = createActions({
+      steerSession: vi.fn(async () => firstDeferredResult.promise),
+      followUpSession: vi.fn(async () => secondDeferredResult.promise),
+    });
+
+    render(<InterventionPanel session={SESSION} actions={actions} />);
+
+    fireEvent.change(screen.getByLabelText("Intervention text"), {
+      target: { value: "Handle the first request." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Steer" }));
+
+    fireEvent.change(screen.getByLabelText("Intervention text"), {
+      target: { value: "Use the newer request instead." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Follow-up" }));
+
+    await waitFor(() => {
+      expect(actions.steerSession).toHaveBeenCalledTimes(1);
+      expect(actions.followUpSession).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      secondDeferredResult.resolve(createResult("second completion"));
+      await secondDeferredResult.promise;
+    });
+
+    expect(screen.getByText("accepted-locally")).toBeVisible();
+    expect(screen.getByText("follow-up")).toBeVisible();
+    expect(screen.getByText("Use the newer request instead.")).toBeVisible();
+    expect(screen.getByText("second completion")).toBeVisible();
+
+    await act(async () => {
+      firstDeferredResult.resolve(createResult("first completion"));
+      await firstDeferredResult.promise;
+    });
+
+    expect(screen.queryByText("Handle the first request.")).toBeNull();
+    expect(screen.queryByText("first completion")).toBeNull();
+    expect(screen.getByText("Use the newer request instead.")).toBeVisible();
+  });
+
   it("ignores stale intervention completions that resolve during the next session commit before passive effects run", async () => {
     const deferredResult = createDeferredResult();
     const actions = createActions({
@@ -297,6 +342,57 @@ describe("InterventionPanel", () => {
     expect(screen.queryByText("accepted-locally")).toBeNull();
     expect(screen.queryByText("stale steer result")).toBeNull();
     expect(screen.getByText("No intervention recorded yet.")).toBeVisible();
+  });
+
+  it("only fires the latest spawn-session callback within the same session", async () => {
+    const firstDeferredResult = createDeferredResult();
+    const secondDeferredResult = createDeferredResult();
+    const onOpenSpawnSession = vi.fn();
+    const actions = createActions({
+      spawnSession: vi
+        .fn<WorkspaceActionHandlers["spawnSession"]>()
+        .mockImplementationOnce(async () => firstDeferredResult.promise)
+        .mockImplementationOnce(async () => secondDeferredResult.promise),
+    });
+
+    render(
+      <InterventionPanel
+        session={SESSION}
+        actions={actions}
+        onOpenSpawnSession={onOpenSpawnSession}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Spawn task"), {
+      target: { value: "First follow-on task" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Spawn session" }));
+
+    fireEvent.change(screen.getByLabelText("Spawn task"), {
+      target: { value: "Second follow-on task" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Spawn session" }));
+
+    await waitFor(() => {
+      expect(actions.spawnSession).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      secondDeferredResult.resolve(createResult("second spawn completion"));
+      await secondDeferredResult.promise;
+    });
+
+    expect(onOpenSpawnSession).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("second spawn completion")).toBeVisible();
+
+    await act(async () => {
+      firstDeferredResult.resolve(createResult("first spawn completion"));
+      await firstDeferredResult.promise;
+    });
+
+    expect(onOpenSpawnSession).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("first spawn completion")).toBeNull();
+    expect(screen.getByText("second spawn completion")).toBeVisible();
   });
 
   it("does not fire the spawn-session callback when the backend rejects the request", async () => {

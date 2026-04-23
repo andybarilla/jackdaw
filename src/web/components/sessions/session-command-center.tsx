@@ -49,6 +49,7 @@ export function SessionCommandCenter({
   const [shellCommand, setShellCommand] = React.useState<string>("");
   const [shellErrorMessage, setShellErrorMessage] = React.useState<string | undefined>(undefined);
   const activeSessionIdRef = React.useRef<string>(session.id);
+  const latestPinSummaryRequestIdRef = React.useRef<number>(0);
   activeSessionIdRef.current = session.id;
 
   React.useEffect(() => {
@@ -79,8 +80,10 @@ export function SessionCommandCenter({
     }
 
     const requestSessionId = session.id;
+    const requestId = latestPinSummaryRequestIdRef.current + 1;
+    latestPinSummaryRequestIdRef.current = requestId;
     const result = await actions.pinSummary({ sessionId: session.id, summary: frozenSummary });
-    if (activeSessionIdRef.current !== requestSessionId) {
+    if (activeSessionIdRef.current !== requestSessionId || latestPinSummaryRequestIdRef.current !== requestId) {
       return;
     }
 
@@ -101,8 +104,10 @@ export function SessionCommandCenter({
     }
 
     const requestSessionId = session.id;
+    const requestId = latestPinSummaryRequestIdRef.current + 1;
+    latestPinSummaryRequestIdRef.current = requestId;
     const result = await actions.pinSummary({ sessionId: session.id, summary: refreshedSummary });
-    if (activeSessionIdRef.current !== requestSessionId) {
+    if (activeSessionIdRef.current !== requestSessionId || latestPinSummaryRequestIdRef.current !== requestId) {
       return;
     }
 

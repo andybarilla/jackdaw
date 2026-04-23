@@ -44,6 +44,8 @@ export function InterventionPanel({
   const [spawnTask, setSpawnTask] = React.useState<string>("");
   const [actionFeedback, setActionFeedback] = React.useState<string | undefined>(undefined);
   const activeSessionIdRef = React.useRef<string>(session.id);
+  const latestInterventionRequestIdRef = React.useRef<number>(0);
+  const latestSpawnRequestIdRef = React.useRef<number>(0);
   activeSessionIdRef.current = session.id;
 
   React.useEffect(() => {
@@ -108,9 +110,11 @@ export function InterventionPanel({
   ): Promise<void> => {
     const trimmedText = interventionText.trim();
     const requestSessionId = session.id;
+    const requestId = latestInterventionRequestIdRef.current + 1;
+    latestInterventionRequestIdRef.current = requestId;
     const result = await resultPromise;
 
-    if (activeSessionIdRef.current !== requestSessionId) {
+    if (activeSessionIdRef.current !== requestSessionId || latestInterventionRequestIdRef.current !== requestId) {
       return;
     }
 
@@ -159,8 +163,10 @@ export function InterventionPanel({
 
   const handleAbort = React.useCallback(async (): Promise<void> => {
     const requestSessionId = session.id;
+    const requestId = latestInterventionRequestIdRef.current + 1;
+    latestInterventionRequestIdRef.current = requestId;
     const result = await actions.abortSession({ sessionId: session.id });
-    if (activeSessionIdRef.current !== requestSessionId) {
+    if (activeSessionIdRef.current !== requestSessionId || latestInterventionRequestIdRef.current !== requestId) {
       return;
     }
 
@@ -178,6 +184,8 @@ export function InterventionPanel({
 
   const handleSpawnSession = React.useCallback(async (): Promise<void> => {
     const requestSessionId = session.id;
+    const requestId = latestSpawnRequestIdRef.current + 1;
+    latestSpawnRequestIdRef.current = requestId;
     const task = spawnTask.trim() || `Follow ${session.name}`;
     const result = await actions.spawnSession({
       workspaceId: session.workspaceId,
@@ -190,7 +198,7 @@ export function InterventionPanel({
       linkedArtifactIds: session.linkedResources.artifactIds,
       linkedWorkItemIds: session.linkedResources.workItemIds,
     });
-    if (activeSessionIdRef.current !== requestSessionId) {
+    if (activeSessionIdRef.current !== requestSessionId || latestSpawnRequestIdRef.current !== requestId) {
       return;
     }
 

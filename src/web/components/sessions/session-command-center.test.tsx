@@ -331,6 +331,62 @@ describe("SessionCommandCenter", () => {
     expect(screen.getByText("Pinned summary replaced: The live summary is current.")).toBeVisible();
   });
 
+  it("ignores older in-flight pin summary completions within the same session", async () => {
+    const firstDeferredResult = createDeferredResult();
+    const secondDeferredResult = createDeferredResult();
+    const actions = createActions();
+    actions.pinSummary = vi
+      .fn<WorkspaceActionHandlers["pinSummary"]>()
+      .mockImplementationOnce(async () => firstDeferredResult.promise)
+      .mockImplementationOnce(async () => secondDeferredResult.promise);
+    const { rerender } = render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={{ ...SESSION, pinnedSummary: undefined, liveSummary: "Original live summary." }}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pin summary" }));
+
+    rerender(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={{ ...SESSION, pinnedSummary: undefined, liveSummary: "Updated live summary." }}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh summary" }));
+
+    await waitFor(() => {
+      expect(actions.pinSummary).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      secondDeferredResult.resolve(createSuccessResult("newest pin completion"));
+      await secondDeferredResult.promise;
+    });
+
+    let pinnedPanel = screen.getByLabelText("Pinned summary panel");
+    expect(within(pinnedPanel).getByText("Updated live summary.")).toBeVisible();
+    expect(screen.getByText("Pinned summary replaced: Updated live summary.")).toBeVisible();
+
+    await act(async () => {
+      firstDeferredResult.resolve(createSuccessResult("older pin completion"));
+      await firstDeferredResult.promise;
+    });
+
+    pinnedPanel = screen.getByLabelText("Pinned summary panel");
+    expect(within(pinnedPanel).queryByText("Original live summary.")).toBeNull();
+    expect(screen.queryByText("Pinned summary frozen: Original live summary.")).toBeNull();
+    expect(screen.getByText("Pinned summary replaced: Updated live summary.")).toBeVisible();
+  });
+
   it("ignores stale pin summary completions that resolve during the next session commit before passive effects run", async () => {
     const deferredResult = createDeferredResult();
     const actions = createActions();
