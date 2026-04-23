@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceArtifact } from "../../../shared/domain/artifact.js";
 import type { AttentionEvent } from "../../../shared/domain/attention.js";
@@ -180,9 +180,12 @@ describe("SessionCommandCenter", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Pin summary" }));
 
+    await waitFor(() => {
+      expect(actions.pinSummary).toHaveBeenCalledWith({ sessionId: "session-1", summary: "Original live summary." });
+    });
+
     const pinnedPanelBeforeUpdate = screen.getByLabelText("Pinned summary panel");
     expect(within(pinnedPanelBeforeUpdate).getByText("Original live summary.")).toBeVisible();
-    expect(actions.pinSummary).toHaveBeenCalledWith({ sessionId: "session-1", summary: "Original live summary." });
 
     rerender(
       <SessionCommandCenter
@@ -197,5 +200,29 @@ describe("SessionCommandCenter", () => {
     const pinnedPanel = screen.getByLabelText("Pinned summary panel");
     expect(within(pinnedPanel).getByText("Original live summary.")).toBeVisible();
     expect(screen.getByLabelText("Live summary panel")).toHaveTextContent("Updated live summary after more work.");
+  });
+
+  it("replaces the pinned summary with the current live summary when refresh summary is clicked", async () => {
+    const actions = createActions();
+
+    render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={SESSION}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh summary" }));
+
+    await waitFor(() => {
+      expect(actions.pinSummary).toHaveBeenCalledWith({ sessionId: "session-1", summary: "The live summary is current." });
+    });
+
+    const pinnedPanel = screen.getByLabelText("Pinned summary panel");
+    expect(within(pinnedPanel).getByText("The live summary is current.")).toBeVisible();
+    expect(screen.getByText("Pinned summary replaced: The live summary is current.")).toBeVisible();
   });
 });

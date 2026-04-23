@@ -1,4 +1,5 @@
 import React from "react";
+import type { AttentionEvent } from "../../../shared/domain/attention.js";
 import type {
   SessionIntervention,
   SessionInterventionKind,
@@ -8,22 +9,30 @@ import type { WorkspaceActionHandlers, WorkspaceActionResult } from "../../hooks
 
 export interface InterventionPanelProps {
   session: WorkspaceSession;
+  recentAttention?: AttentionEvent[];
   actions: WorkspaceActionHandlers;
   onMessage?: (message: string) => void;
   onOpenShellFallback?: () => void;
   onOpenSpawnSession?: () => void;
 }
 
-function hasObservedMeaningfulUpdate(session: WorkspaceSession, intervention: SessionIntervention): boolean {
-  if (session.latestMeaningfulUpdate === undefined) {
-    return false;
-  }
+function parseTimestamp(timestamp: string): number {
+  return new Date(timestamp).getTime();
+}
 
-  return session.updatedAt > intervention.requestedAt && session.latestMeaningfulUpdate !== intervention.text;
+function findObservedAttentionEvent(
+  recentAttention: AttentionEvent[],
+  intervention: SessionIntervention,
+): AttentionEvent | undefined {
+  const requestedAt = parseTimestamp(intervention.requestedAt);
+  return recentAttention.find((event) => {
+    return event.meaningful !== false && event.source !== "operator" && parseTimestamp(event.occurredAt) > requestedAt;
+  });
 }
 
 export function InterventionPanel({
   session,
+  recentAttention = [],
   actions,
   onMessage,
   onOpenShellFallback,
@@ -47,17 +56,20 @@ export function InterventionPanel({
         return current;
       }
 
-      if (hasLocalInterventionOverride && current.status === "pending-observation" && hasObservedMeaningfulUpdate(session, current)) {
+      const observedAttentionEvent = hasLocalInterventionOverride && current.status === "pending-observation"
+        ? findObservedAttentionEvent(recentAttention, current)
+        : undefined;
+      if (observedAttentionEvent !== undefined) {
         return {
           ...current,
           status: "observed",
-          observedAt: session.updatedAt,
+          observedAt: observedAttentionEvent.occurredAt,
         };
       }
 
       return current;
     });
-  }, [hasLocalInterventionOverride, session]);
+  }, [hasLocalInterventionOverride, recentAttention, session]);
 
   React.useEffect(() => {
     if (!hasLocalInterventionOverride || displayedIntervention?.status !== "accepted-locally") {
@@ -87,16 +99,17 @@ export function InterventionPanel({
       return;
     }
 
-    if (!hasObservedMeaningfulUpdate(session, displayedIntervention)) {
+    const observedAttentionEvent = findObservedAttentionEvent(recentAttention, displayedIntervention);
+    if (observedAttentionEvent === undefined) {
       return;
     }
 
     setDisplayedIntervention({
       ...displayedIntervention,
       status: "observed",
-      observedAt: session.updatedAt,
+      observedAt: observedAttentionEvent.occurredAt,
     });
-  }, [displayedIntervention, hasLocalInterventionOverride, session]);
+  }, [displayedIntervention, hasLocalInterventionOverride, recentAttention]);
 
   const handleIntervention = React.useCallback(async (
     kind: SessionInterventionKind,

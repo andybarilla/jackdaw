@@ -10,6 +10,12 @@ import { SessionHeader } from "./session-header.js";
 import { ShellFallbackDialog } from "./shell-fallback-dialog.js";
 import { SummaryPanel } from "./summary-panel.js";
 
+function getPinnedSummaryActionMessage(action: "pin" | "refresh", liveSummary: string): string {
+  return action === "refresh"
+    ? `Pinned summary replaced: ${liveSummary}`
+    : `Pinned summary frozen: ${liveSummary}`;
+}
+
 export interface SessionCommandCenterProps {
   workspace: Workspace;
   session: WorkspaceSession;
@@ -37,10 +43,11 @@ export function SessionCommandCenter({
 
   React.useEffect(() => {
     setMessage(undefined);
+    setPinnedSummary(session.pinnedSummary);
     setShellDialogOpen(false);
     setShellCommand("");
     setShellErrorMessage(undefined);
-  }, [session.id]);
+  }, [session.id, session.pinnedSummary]);
 
   React.useEffect(() => {
     setPinnedSummary((currentPinnedSummary) => currentPinnedSummary ?? session.pinnedSummary);
@@ -52,15 +59,38 @@ export function SessionCommandCenter({
   }, [recentAttention, session.id]);
 
   const handlePinSummary = React.useCallback(async (): Promise<void> => {
-    const frozenSummary = session.liveSummary;
-    setPinnedSummary(frozenSummary);
+    const frozenSummary = session.liveSummary.trim();
+    if (!frozenSummary) {
+      setMessage("No live summary available to pin.");
+      return;
+    }
+
     const result = await actions.pinSummary({ sessionId: session.id, summary: frozenSummary });
-    setMessage(result.message);
+    if (!result.ok) {
+      setMessage(result.message);
+      return;
+    }
+
+    setPinnedSummary(frozenSummary);
+    setMessage(getPinnedSummaryActionMessage("pin", frozenSummary));
   }, [actions, session.id, session.liveSummary]);
 
-  const handleRefreshSummary = React.useCallback((): void => {
-    setMessage("Live summary refreshed from the current session state.");
-  }, []);
+  const handleRefreshSummary = React.useCallback(async (): Promise<void> => {
+    const refreshedSummary = session.liveSummary.trim();
+    if (!refreshedSummary) {
+      setMessage("No live summary available to pin.");
+      return;
+    }
+
+    const result = await actions.pinSummary({ sessionId: session.id, summary: refreshedSummary });
+    if (!result.ok) {
+      setMessage(result.message);
+      return;
+    }
+
+    setPinnedSummary(refreshedSummary);
+    setMessage(getPinnedSummaryActionMessage("refresh", refreshedSummary));
+  }, [actions, session.id, session.liveSummary]);
 
   const handleShellSubmit = React.useCallback(async (): Promise<void> => {
     const trimmedCommand = shellCommand.trim();
@@ -94,10 +124,13 @@ export function SessionCommandCenter({
           onPinSummary={() => {
             void handlePinSummary();
           }}
-          onRefreshSummary={handleRefreshSummary}
+          onRefreshSummary={() => {
+            void handleRefreshSummary();
+          }}
         />
         <InterventionPanel
           session={session}
+          recentAttention={sessionAttention}
           actions={actions}
           onMessage={setMessage}
           onOpenShellFallback={() => {
