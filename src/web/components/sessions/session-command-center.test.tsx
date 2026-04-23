@@ -475,6 +475,224 @@ describe("SessionCommandCenter", () => {
     expect(screen.getByText("newest shell completion")).toBeVisible();
   });
 
+  it("does not let an older open-path completion overwrite newer shell fallback feedback in the same session", async () => {
+    const openPathDeferredResult = createDeferredResult();
+    const shellDeferredResult = createDeferredResult();
+    const actions = createActions();
+    actions.openPath = vi.fn(async () => openPathDeferredResult.promise);
+    actions.shellFallback = vi.fn(async () => shellDeferredResult.promise);
+
+    render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={SESSION}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open repo" }));
+
+    await waitFor(() => {
+      expect(actions.openPath).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Shell fallback" }));
+    fireEvent.change(screen.getByLabelText("Shell command"), { target: { value: "pwd" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run shell fallback" }));
+
+    await waitFor(() => {
+      expect(actions.shellFallback).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      shellDeferredResult.resolve(createSuccessResult("newer shell completion"));
+      await shellDeferredResult.promise;
+    });
+
+    expect(screen.getByText("newer shell completion")).toBeVisible();
+
+    await act(async () => {
+      openPathDeferredResult.resolve(createSuccessResult("older open completion"));
+      await openPathDeferredResult.promise;
+    });
+
+    expect(screen.queryByText("older open completion")).toBeNull();
+    expect(screen.getByText("newer shell completion")).toBeVisible();
+  });
+
+  it("does not let an older spawn completion overwrite newer shell feedback in the same session", async () => {
+    const spawnDeferredResult = createDeferredResult();
+    const shellDeferredResult = createDeferredResult();
+    const actions = createActions();
+    actions.spawnSession = vi.fn(async () => spawnDeferredResult.promise);
+    actions.shellFallback = vi.fn(async () => shellDeferredResult.promise);
+
+    render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={SESSION}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Spawn session" }));
+
+    await waitFor(() => {
+      expect(actions.spawnSession).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Shell fallback" }));
+    fireEvent.change(screen.getByLabelText("Shell command"), { target: { value: "pwd" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run shell fallback" }));
+
+    await waitFor(() => {
+      expect(actions.shellFallback).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      shellDeferredResult.resolve(createSuccessResult("newer shell completion"));
+      await shellDeferredResult.promise;
+    });
+
+    expect(screen.getByText("newer shell completion")).toBeVisible();
+
+    await act(async () => {
+      spawnDeferredResult.resolve(createSuccessResult("older spawn completion"));
+      await spawnDeferredResult.promise;
+    });
+
+    expect(screen.queryByText("older spawn completion")).toBeNull();
+    expect(screen.getByText("newer shell completion")).toBeVisible();
+  });
+
+  it("does not let an older pin completion overwrite newer steer feedback in the same session", async () => {
+    const pinDeferredResult = createDeferredResult();
+    const steerDeferredResult = createDeferredResult();
+    const actions = createActions();
+    actions.pinSummary = vi.fn(async () => pinDeferredResult.promise);
+    actions.steerSession = vi.fn(async () => steerDeferredResult.promise);
+
+    render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={{ ...SESSION, pinnedSummary: undefined, liveSummary: "Original live summary." }}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pin summary" }));
+
+    await waitFor(() => {
+      expect(actions.pinSummary).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.change(screen.getByLabelText("Intervention text"), {
+      target: { value: "Use the newer steering request instead." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Steer" }));
+
+    await waitFor(() => {
+      expect(actions.steerSession).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      steerDeferredResult.resolve(createSuccessResult("newer steer completion"));
+      await steerDeferredResult.promise;
+    });
+
+    expect(screen.getAllByText("newer steer completion").length).toBeGreaterThan(0);
+    expect(screen.getByText("Use the newer steering request instead.")).toBeVisible();
+
+    await act(async () => {
+      pinDeferredResult.resolve(createSuccessResult("older pin completion"));
+      await pinDeferredResult.promise;
+    });
+
+    expect(screen.queryByText("older pin completion")).toBeNull();
+    expect(screen.queryByText("Pinned summary frozen: Original live summary.")).toBeNull();
+    expect(screen.getAllByText("newer steer completion").length).toBeGreaterThan(0);
+  });
+
+  it("keeps mutation ordering and unrelated feedback when pinned-summary props change within the same session", async () => {
+    const firstOpenDeferredResult = createDeferredResult();
+    const secondOpenDeferredResult = createDeferredResult();
+    const actions = createActions();
+    actions.openPath = vi
+      .fn<WorkspaceActionHandlers["openPath"]>()
+      .mockImplementationOnce(async () => firstOpenDeferredResult.promise)
+      .mockImplementationOnce(async () => secondOpenDeferredResult.promise);
+
+    const { rerender } = render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={SESSION}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open repo" }));
+
+    await waitFor(() => {
+      expect(actions.openPath).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={{ ...SESSION, pinnedSummary: "Background pinned summary update." }}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    const pinnedPanelAfterFirstUpdate = screen.getByLabelText("Pinned summary panel");
+    expect(within(pinnedPanelAfterFirstUpdate).getByText("Background pinned summary update.")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open worktree" }));
+
+    await waitFor(() => {
+      expect(actions.openPath).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      secondOpenDeferredResult.resolve(createSuccessResult("newer open completion"));
+      await secondOpenDeferredResult.promise;
+    });
+
+    expect(screen.getByText("newer open completion")).toBeVisible();
+
+    rerender(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={{ ...SESSION, pinnedSummary: "Later pinned summary update." }}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    const pinnedPanelAfterSecondUpdate = screen.getByLabelText("Pinned summary panel");
+    expect(within(pinnedPanelAfterSecondUpdate).getByText("Later pinned summary update.")).toBeVisible();
+    expect(screen.getByText("newer open completion")).toBeVisible();
+
+    await act(async () => {
+      firstOpenDeferredResult.resolve(createSuccessResult("older open completion"));
+      await firstOpenDeferredResult.promise;
+    });
+
+    expect(screen.queryByText("older open completion")).toBeNull();
+    expect(screen.getByText("newer open completion")).toBeVisible();
+  });
+
   it("ignores stale pin summary completions that resolve during the next session commit before passive effects run", async () => {
     const deferredResult = createDeferredResult();
     const actions = createActions();

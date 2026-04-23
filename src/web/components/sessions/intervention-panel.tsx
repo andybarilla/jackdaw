@@ -14,6 +14,8 @@ export interface InterventionPanelProps {
   onMessage?: (message: string) => void;
   onOpenShellFallback?: () => void;
   onOpenSpawnSession?: () => void;
+  beginCommandMutation?: (sessionId: string) => number;
+  isLatestCommandMutation?: (sessionId: string, requestId: number) => boolean;
 }
 
 function parseTimestamp(timestamp: string): number {
@@ -37,6 +39,8 @@ export function InterventionPanel({
   onMessage,
   onOpenShellFallback,
   onOpenSpawnSession,
+  beginCommandMutation,
+  isLatestCommandMutation,
 }: InterventionPanelProps): React.JSX.Element {
   const [interventionText, setInterventionText] = React.useState<string>("");
   const [displayedIntervention, setDisplayedIntervention] = React.useState<SessionIntervention | undefined>(session.lastIntervention);
@@ -44,11 +48,11 @@ export function InterventionPanel({
   const [spawnTask, setSpawnTask] = React.useState<string>("");
   const [actionFeedback, setActionFeedback] = React.useState<string | undefined>(undefined);
   const activeSessionIdRef = React.useRef<string>(session.id);
-  const latestInterventionRequestIdRef = React.useRef<number>(0);
-  const latestSpawnRequestIdRef = React.useRef<number>(0);
+  const latestActionRequestIdRef = React.useRef<number>(0);
   activeSessionIdRef.current = session.id;
 
   React.useEffect(() => {
+    latestActionRequestIdRef.current = 0;
     setInterventionText("");
     setDisplayedIntervention(session.lastIntervention);
     setHasLocalInterventionOverride(false);
@@ -104,17 +108,33 @@ export function InterventionPanel({
     });
   }, [displayedIntervention, hasLocalInterventionOverride, recentAttention]);
 
+  const beginLocalActionRequest = React.useCallback((requestSessionId: string): number => {
+    if (activeSessionIdRef.current !== requestSessionId) {
+      return 0;
+    }
+
+    const requestId = latestActionRequestIdRef.current + 1;
+    latestActionRequestIdRef.current = requestId;
+    return requestId;
+  }, []);
+
+  const isLatestLocalActionRequest = React.useCallback((requestSessionId: string, requestId: number): boolean => {
+    return activeSessionIdRef.current === requestSessionId && latestActionRequestIdRef.current === requestId;
+  }, []);
+
+  const beginActionRequest = beginCommandMutation ?? beginLocalActionRequest;
+  const isLatestActionRequest = isLatestCommandMutation ?? isLatestLocalActionRequest;
+
   const handleIntervention = React.useCallback(async (
     kind: SessionInterventionKind,
     resultPromise: Promise<WorkspaceActionResult>,
   ): Promise<void> => {
     const trimmedText = interventionText.trim();
     const requestSessionId = session.id;
-    const requestId = latestInterventionRequestIdRef.current + 1;
-    latestInterventionRequestIdRef.current = requestId;
+    const requestId = beginActionRequest(requestSessionId);
     const result = await resultPromise;
 
-    if (activeSessionIdRef.current !== requestSessionId || latestInterventionRequestIdRef.current !== requestId) {
+    if (!isLatestActionRequest(requestSessionId, requestId)) {
       return;
     }
 
@@ -141,7 +161,7 @@ export function InterventionPanel({
       requestedAt: result.acceptedAt,
     });
     setInterventionText("");
-  }, [interventionText, onMessage, session.id]);
+  }, [beginActionRequest, interventionText, isLatestActionRequest, onMessage, session.id]);
 
   const handleSteer = React.useCallback(async (): Promise<void> => {
     const trimmedText = interventionText.trim();
@@ -163,10 +183,9 @@ export function InterventionPanel({
 
   const handleAbort = React.useCallback(async (): Promise<void> => {
     const requestSessionId = session.id;
-    const requestId = latestInterventionRequestIdRef.current + 1;
-    latestInterventionRequestIdRef.current = requestId;
+    const requestId = beginActionRequest(requestSessionId);
     const result = await actions.abortSession({ sessionId: session.id });
-    if (activeSessionIdRef.current !== requestSessionId || latestInterventionRequestIdRef.current !== requestId) {
+    if (!isLatestActionRequest(requestSessionId, requestId)) {
       return;
     }
 
@@ -180,12 +199,11 @@ export function InterventionPanel({
       requestedAt: result.acceptedAt,
       errorMessage: result.ok ? undefined : result.message,
     });
-  }, [actions, onMessage, session.id]);
+  }, [actions, beginActionRequest, isLatestActionRequest, onMessage, session.id]);
 
   const handleSpawnSession = React.useCallback(async (): Promise<void> => {
     const requestSessionId = session.id;
-    const requestId = latestSpawnRequestIdRef.current + 1;
-    latestSpawnRequestIdRef.current = requestId;
+    const requestId = beginActionRequest(requestSessionId);
     const task = spawnTask.trim() || `Follow ${session.name}`;
     const result = await actions.spawnSession({
       workspaceId: session.workspaceId,
@@ -198,7 +216,7 @@ export function InterventionPanel({
       linkedArtifactIds: session.linkedResources.artifactIds,
       linkedWorkItemIds: session.linkedResources.workItemIds,
     });
-    if (activeSessionIdRef.current !== requestSessionId || latestSpawnRequestIdRef.current !== requestId) {
+    if (!isLatestActionRequest(requestSessionId, requestId)) {
       return;
     }
 
@@ -207,7 +225,7 @@ export function InterventionPanel({
     if (result.ok) {
       onOpenSpawnSession?.();
     }
-  }, [actions, onMessage, onOpenSpawnSession, session, spawnTask]);
+  }, [actions, beginActionRequest, isLatestActionRequest, onMessage, onOpenSpawnSession, session, spawnTask]);
 
   return (
     <section className="panel command-panel intervention-panel">

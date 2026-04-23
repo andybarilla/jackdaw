@@ -10,37 +10,42 @@ export interface SessionHeaderProps {
   linkedArtifact?: WorkspaceArtifact;
   actions: WorkspaceActionHandlers;
   onMessage: (message: string) => void;
+  beginCommandMutation: (sessionId: string) => number;
+  isLatestCommandMutation: (sessionId: string, requestId: number) => boolean;
 }
 
-export function SessionHeader({ workspace, session, linkedArtifact, actions, onMessage }: SessionHeaderProps): React.JSX.Element {
-  const activeSessionIdRef = React.useRef<string>(session.id);
-  const latestOpenPathRequestIdRef = React.useRef<number>(0);
-  activeSessionIdRef.current = session.id;
+export function SessionHeader({
+  workspace,
+  session,
+  linkedArtifact,
+  actions,
+  onMessage,
+  beginCommandMutation,
+  isLatestCommandMutation,
+}: SessionHeaderProps): React.JSX.Element {
 
   const handleOpenRepo = React.useCallback(async (): Promise<void> => {
     const requestSessionId = session.id;
-    const requestId = latestOpenPathRequestIdRef.current + 1;
-    latestOpenPathRequestIdRef.current = requestId;
+    const requestId = beginCommandMutation(requestSessionId);
     const result = await actions.openPath({ workspaceId: workspace.id, path: session.repoRoot }, session.id);
-    if (activeSessionIdRef.current !== requestSessionId || latestOpenPathRequestIdRef.current !== requestId) {
+    if (!isLatestCommandMutation(requestSessionId, requestId)) {
       return;
     }
 
     onMessage(result.message);
-  }, [actions, onMessage, session.id, session.repoRoot, workspace.id]);
+  }, [actions, beginCommandMutation, isLatestCommandMutation, onMessage, session.id, session.repoRoot, workspace.id]);
 
   const handleOpenWorktree = React.useCallback(async (): Promise<void> => {
     const path = session.worktree ?? session.cwd;
     const requestSessionId = session.id;
-    const requestId = latestOpenPathRequestIdRef.current + 1;
-    latestOpenPathRequestIdRef.current = requestId;
+    const requestId = beginCommandMutation(requestSessionId);
     const result = await actions.openPath({ workspaceId: workspace.id, path }, session.id);
-    if (activeSessionIdRef.current !== requestSessionId || latestOpenPathRequestIdRef.current !== requestId) {
+    if (!isLatestCommandMutation(requestSessionId, requestId)) {
       return;
     }
 
     onMessage(result.message);
-  }, [actions, onMessage, session.cwd, session.id, session.worktree, workspace.id]);
+  }, [actions, beginCommandMutation, isLatestCommandMutation, onMessage, session.cwd, session.id, session.worktree, workspace.id]);
 
   const handleOpenArtifact = React.useCallback(async (): Promise<void> => {
     if (linkedArtifact?.filePath === undefined) {
@@ -48,15 +53,14 @@ export function SessionHeader({ workspace, session, linkedArtifact, actions, onM
     }
 
     const requestSessionId = session.id;
-    const requestId = latestOpenPathRequestIdRef.current + 1;
-    latestOpenPathRequestIdRef.current = requestId;
+    const requestId = beginCommandMutation(requestSessionId);
     const result = await actions.openPath({ workspaceId: workspace.id, path: linkedArtifact.filePath }, session.id);
-    if (activeSessionIdRef.current !== requestSessionId || latestOpenPathRequestIdRef.current !== requestId) {
+    if (!isLatestCommandMutation(requestSessionId, requestId)) {
       return;
     }
 
     onMessage(result.message);
-  }, [actions, linkedArtifact?.filePath, onMessage, session.id, workspace.id]);
+  }, [actions, beginCommandMutation, isLatestCommandMutation, linkedArtifact?.filePath, onMessage, session.id, workspace.id]);
 
   return (
     <section className="panel session-command-header">

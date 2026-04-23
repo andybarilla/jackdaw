@@ -395,6 +395,56 @@ describe("InterventionPanel", () => {
     expect(screen.getByText("second spawn completion")).toBeVisible();
   });
 
+  it("does not let an older spawn completion overwrite newer steer feedback in the same session", async () => {
+    const spawnDeferredResult = createDeferredResult();
+    const steerDeferredResult = createDeferredResult();
+    const onOpenSpawnSession = vi.fn();
+    const actions = createActions({
+      spawnSession: vi.fn(async () => spawnDeferredResult.promise),
+      steerSession: vi.fn(async () => steerDeferredResult.promise),
+    });
+
+    render(
+      <InterventionPanel
+        session={SESSION}
+        actions={actions}
+        onOpenSpawnSession={onOpenSpawnSession}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Spawn session" }));
+
+    await waitFor(() => {
+      expect(actions.spawnSession).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.change(screen.getByLabelText("Intervention text"), {
+      target: { value: "Use the newer steering request." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Steer" }));
+
+    await waitFor(() => {
+      expect(actions.steerSession).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      steerDeferredResult.resolve(createResult("newer steer completion"));
+      await steerDeferredResult.promise;
+    });
+
+    expect(screen.getByText("Use the newer steering request.")).toBeVisible();
+    expect(screen.getByText("newer steer completion")).toBeVisible();
+
+    await act(async () => {
+      spawnDeferredResult.resolve(createResult("older spawn completion"));
+      await spawnDeferredResult.promise;
+    });
+
+    expect(onOpenSpawnSession).not.toHaveBeenCalled();
+    expect(screen.queryByText("older spawn completion")).toBeNull();
+    expect(screen.getByText("newer steer completion")).toBeVisible();
+  });
+
   it("does not fire the spawn-session callback when the backend rejects the request", async () => {
     const onOpenSpawnSession = vi.fn();
     const actions = createActions({

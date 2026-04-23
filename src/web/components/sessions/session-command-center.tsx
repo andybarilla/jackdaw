@@ -49,20 +49,20 @@ export function SessionCommandCenter({
   const [shellCommand, setShellCommand] = React.useState<string>("");
   const [shellErrorMessage, setShellErrorMessage] = React.useState<string | undefined>(undefined);
   const activeSessionIdRef = React.useRef<string>(session.id);
-  const latestPinSummaryRequestIdRef = React.useRef<number>(0);
-  const latestShellFallbackRequestIdRef = React.useRef<number>(0);
+  const latestCommandMutationRequestIdRef = React.useRef<number>(0);
   activeSessionIdRef.current = session.id;
 
   React.useEffect(() => {
+    latestCommandMutationRequestIdRef.current = 0;
     setMessage(undefined);
     setPinnedSummary(session.pinnedSummary);
     setShellDialogOpen(false);
     setShellCommand("");
     setShellErrorMessage(undefined);
-  }, [session.id, session.pinnedSummary]);
+  }, [session.id]);
 
   React.useEffect(() => {
-    setPinnedSummary((currentPinnedSummary) => currentPinnedSummary ?? session.pinnedSummary);
+    setPinnedSummary(session.pinnedSummary);
   }, [session.pinnedSummary]);
 
   const linkedArtifacts = React.useMemo<WorkspaceArtifact[]>(() => linkedArtifactsForSession(session, artifacts), [artifacts, session]);
@@ -73,6 +73,20 @@ export function SessionCommandCenter({
     return recentAttention.filter((event) => event.sessionId === session.id).slice(0, 5);
   }, [recentAttention, session.id]);
 
+  const beginCommandMutation = React.useCallback((requestSessionId: string): number => {
+    if (activeSessionIdRef.current !== requestSessionId) {
+      return 0;
+    }
+
+    const requestId = latestCommandMutationRequestIdRef.current + 1;
+    latestCommandMutationRequestIdRef.current = requestId;
+    return requestId;
+  }, []);
+
+  const isLatestCommandMutation = React.useCallback((requestSessionId: string, requestId: number): boolean => {
+    return activeSessionIdRef.current === requestSessionId && latestCommandMutationRequestIdRef.current === requestId;
+  }, []);
+
   const handlePinSummary = React.useCallback(async (): Promise<void> => {
     const frozenSummary = session.liveSummary.trim();
     if (!frozenSummary) {
@@ -81,10 +95,9 @@ export function SessionCommandCenter({
     }
 
     const requestSessionId = session.id;
-    const requestId = latestPinSummaryRequestIdRef.current + 1;
-    latestPinSummaryRequestIdRef.current = requestId;
+    const requestId = beginCommandMutation(requestSessionId);
     const result = await actions.pinSummary({ sessionId: session.id, summary: frozenSummary });
-    if (activeSessionIdRef.current !== requestSessionId || latestPinSummaryRequestIdRef.current !== requestId) {
+    if (!isLatestCommandMutation(requestSessionId, requestId)) {
       return;
     }
 
@@ -95,7 +108,7 @@ export function SessionCommandCenter({
 
     setPinnedSummary(frozenSummary);
     setMessage(getPinnedSummaryActionMessage("pin", frozenSummary));
-  }, [actions, session.id, session.liveSummary]);
+  }, [actions, beginCommandMutation, isLatestCommandMutation, session.id, session.liveSummary]);
 
   const handleRefreshSummary = React.useCallback(async (): Promise<void> => {
     const refreshedSummary = session.liveSummary.trim();
@@ -105,10 +118,9 @@ export function SessionCommandCenter({
     }
 
     const requestSessionId = session.id;
-    const requestId = latestPinSummaryRequestIdRef.current + 1;
-    latestPinSummaryRequestIdRef.current = requestId;
+    const requestId = beginCommandMutation(requestSessionId);
     const result = await actions.pinSummary({ sessionId: session.id, summary: refreshedSummary });
-    if (activeSessionIdRef.current !== requestSessionId || latestPinSummaryRequestIdRef.current !== requestId) {
+    if (!isLatestCommandMutation(requestSessionId, requestId)) {
       return;
     }
 
@@ -119,7 +131,7 @@ export function SessionCommandCenter({
 
     setPinnedSummary(refreshedSummary);
     setMessage(getPinnedSummaryActionMessage("refresh", refreshedSummary));
-  }, [actions, session.id, session.liveSummary]);
+  }, [actions, beginCommandMutation, isLatestCommandMutation, session.id, session.liveSummary]);
 
   const handleShellSubmit = React.useCallback(async (): Promise<void> => {
     const trimmedCommand = shellCommand.trim();
@@ -129,10 +141,9 @@ export function SessionCommandCenter({
     }
 
     const requestSessionId = session.id;
-    const requestId = latestShellFallbackRequestIdRef.current + 1;
-    latestShellFallbackRequestIdRef.current = requestId;
+    const requestId = beginCommandMutation(requestSessionId);
     const result = await actions.shellFallback({ sessionId: session.id, command: trimmedCommand });
-    if (activeSessionIdRef.current !== requestSessionId || latestShellFallbackRequestIdRef.current !== requestId) {
+    if (!isLatestCommandMutation(requestSessionId, requestId)) {
       return;
     }
 
@@ -140,7 +151,7 @@ export function SessionCommandCenter({
     setShellErrorMessage(undefined);
     setShellDialogOpen(false);
     setShellCommand("");
-  }, [actions, session.id, shellCommand]);
+  }, [actions, beginCommandMutation, isLatestCommandMutation, session.id, shellCommand]);
 
   return (
     <section className="session-command-center" aria-label="Session command center">
@@ -150,6 +161,8 @@ export function SessionCommandCenter({
         linkedArtifact={openableLinkedArtifact}
         actions={actions}
         onMessage={setMessage}
+        beginCommandMutation={beginCommandMutation}
+        isLatestCommandMutation={isLatestCommandMutation}
       />
 
       <div className="command-center-grid">
@@ -172,6 +185,8 @@ export function SessionCommandCenter({
           onOpenShellFallback={() => {
             setShellDialogOpen(true);
           }}
+          beginCommandMutation={beginCommandMutation}
+          isLatestCommandMutation={isLatestCommandMutation}
         />
         <RecentEventsPanel session={session} recentAttention={sessionAttention} linkedArtifacts={linkedArtifacts} />
       </div>
