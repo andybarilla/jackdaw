@@ -1,4 +1,3 @@
-import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
@@ -22,6 +21,16 @@ const WORKSPACE_SUMMARIES: WorkspaceSummaryDto[] = [
     sessionCount: 3,
     attentionBand: "needs-operator",
     updatedAt: "2026-04-23T12:00:00.000Z",
+  },
+  {
+    id: "ws-ops",
+    name: "Ops Workspace",
+    description: "Secondary operations workspace",
+    repoRootCount: 1,
+    worktreeCount: 1,
+    sessionCount: 2,
+    attentionBand: "active",
+    updatedAt: "2026-04-23T12:10:00.000Z",
   },
 ];
 
@@ -143,6 +152,82 @@ const WORKSPACE_DETAIL: WorkspaceDetailDto = {
   ],
 };
 
+const WORKSPACE_DETAIL_WITH_PREFERRED_RUNNING_SESSION: WorkspaceDetailDto = {
+  ...WORKSPACE_DETAIL,
+  workspace: {
+    ...WORKSPACE_DETAIL.workspace,
+    preferences: {
+      ...WORKSPACE_DETAIL.workspace.preferences,
+      selectedSessionId: "session-running",
+    },
+  },
+};
+
+const OPS_WORKSPACE_DETAIL: WorkspaceDetailDto = {
+  ...WORKSPACE_DETAIL,
+  workspace: {
+    ...WORKSPACE_DETAIL.workspace,
+    id: "ws-ops",
+    name: "Ops Workspace",
+    description: "Secondary operations workspace",
+    repoRoots: [{ id: "repo-ops", path: "/repos/ops", name: "ops", defaultBranch: "main" }],
+    worktrees: [{ id: "wt-ops", repoRootId: "repo-ops", path: "/worktrees/ops-live", branch: "ops/live" }],
+    sessionIds: ["ops-awaiting", "ops-idle"],
+    artifactIds: [],
+    preferences: { selectedSessionId: "session-running", attentionView: "all", detailView: "summary" },
+    optionalIntegrations: { hqProjectId: "hq-ops" },
+    updatedAt: "2026-04-23T12:10:00.000Z",
+  },
+  sessions: [
+    {
+      ...WORKSPACE_DETAIL.sessions[0],
+      id: "ops-awaiting",
+      workspaceId: "ws-ops",
+      name: "Ops operator follow-up",
+      repoRoot: "/repos/ops",
+      cwd: "/repos/ops",
+      branch: "ops/handoff",
+      liveSummary: "Waiting on rollout approval.",
+      pinnedSummary: "Need release sign-off.",
+      latestMeaningfulUpdate: "Waiting on rollout approval.",
+      currentActivity: "Paused for operations review",
+      recentFiles: [{ path: "ops/runbook.md", operation: "edited", timestamp: "2026-04-23T12:05:00.000Z" }],
+      linkedResources: { artifactIds: [], workItemIds: [], reviewIds: [] },
+      lastIntervention: {
+        kind: "follow-up",
+        status: "pending-observation",
+        text: "Approve the rollout window",
+        requestedAt: "2026-04-23T12:04:00.000Z",
+      },
+    },
+    {
+      ...WORKSPACE_DETAIL.sessions[2],
+      id: "ops-idle",
+      workspaceId: "ws-ops",
+      name: "Ops cleanup",
+      repoRoot: "/repos/ops",
+      cwd: "/repos/ops/docs",
+      branch: "ops/cleanup",
+      liveSummary: "Ops notes archived.",
+      latestMeaningfulUpdate: "Ops notes archived.",
+    },
+  ],
+  artifacts: [],
+  recentAttention: [
+    {
+      id: "attention-ops-1",
+      sessionId: "ops-awaiting",
+      workspaceId: "ws-ops",
+      band: "needs-operator",
+      title: "Ops approval required",
+      detail: "Approve the rollout window",
+      occurredAt: "2026-04-23T12:04:00.000Z",
+      source: "operator",
+      meaningful: true,
+    },
+  ],
+};
+
 function createJsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
     headers: { "Content-Type": "application/json" },
@@ -152,12 +237,8 @@ function createJsonResponse(body: unknown, init?: ResponseInit): Response {
 
 function mockFetchImplementation(overrides?: {
   workspacesResponse?: Response;
-  workspaceDetailResponse?: Response;
-  workspaceDetailResponses?: Response[];
+  workspaceDetailResponses?: Record<string, Response>;
 }): void {
-  const workspaceDetailResponses = overrides?.workspaceDetailResponses;
-  let workspaceDetailResponseIndex = 0;
-
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL): Promise<Response> => {
     const url = String(input);
 
@@ -169,14 +250,21 @@ function mockFetchImplementation(overrides?: {
       return overrides?.workspacesResponse ?? createJsonResponse(WORKSPACE_SUMMARIES, { status: 200 });
     }
 
-    if (url.endsWith("/workspaces/ws-demo")) {
-      const nextWorkspaceDetailResponse = workspaceDetailResponses?.[workspaceDetailResponseIndex];
-      if (nextWorkspaceDetailResponse !== undefined) {
-        workspaceDetailResponseIndex += 1;
-        return nextWorkspaceDetailResponse;
+    const detailUrlMatch = url.match(/\/workspaces\/([^/]+)$/);
+    if (detailUrlMatch !== null) {
+      const workspaceId = detailUrlMatch[1];
+      const workspaceDetailResponse = overrides?.workspaceDetailResponses?.[workspaceId];
+      if (workspaceDetailResponse !== undefined) {
+        return workspaceDetailResponse;
       }
 
-      return overrides?.workspaceDetailResponse ?? createJsonResponse(WORKSPACE_DETAIL, { status: 200 });
+      if (workspaceId === "ws-demo") {
+        return createJsonResponse(WORKSPACE_DETAIL, { status: 200 });
+      }
+
+      if (workspaceId === "ws-ops") {
+        return createJsonResponse(OPS_WORKSPACE_DETAIL, { status: 200 });
+      }
     }
 
     throw new Error(`Unexpected fetch: ${url}`);
@@ -266,76 +354,48 @@ describe("App", () => {
     expect(within(detailPanel).getByText("src/service/demo-state.ts")).toBeVisible();
   });
 
-  it("falls back to the first remaining session when the next detail payload drops the selected session", async () => {
-    const refreshedWorkspaceDetail: WorkspaceDetailDto = {
-      ...WORKSPACE_DETAIL,
-      workspace: {
-        ...WORKSPACE_DETAIL.workspace,
-        sessionIds: ["session-awaiting", "session-idle"],
-        updatedAt: "2026-04-23T12:05:00.000Z",
-      },
-      sessions: [WORKSPACE_DETAIL.sessions[0], WORKSPACE_DETAIL.sessions[2]],
-    };
-
+  it("falls back to the first remaining session when the seeded preferred session is missing after a controlled remount", async () => {
     mockFetchImplementation({
-      workspaceDetailResponse: createJsonResponse(WORKSPACE_DETAIL, { status: 200 }),
+      workspaceDetailResponses: {
+        "ws-demo": createJsonResponse(WORKSPACE_DETAIL_WITH_PREFERRED_RUNNING_SESSION, { status: 200 }),
+        "ws-ops": createJsonResponse(OPS_WORKSPACE_DETAIL, { status: 200 }),
+      },
     });
 
     const firstRender = render(<App />);
-    const initialAttentionRail = await screen.findByRole("list", { name: "Attention rail" });
-    const removedSelection = within(initialAttentionRail).getByRole("button", { name: /Service read model/i });
 
-    fireEvent.click(removedSelection);
+    expect(await screen.findByRole("heading", { name: "Demo Workspace" })).toBeVisible();
 
-    await waitFor(() => {
-      expect(removedSelection).toHaveAttribute("aria-pressed", "true");
-    });
+    const firstAttentionRail = screen.getByRole("list", { name: "Attention rail" });
+    const preferredSelection = within(firstAttentionRail).getByRole("button", { name: /Service read model/i });
+    expect(preferredSelection).toHaveAttribute("aria-pressed", "true");
 
     firstRender.unmount();
     vi.restoreAllMocks();
 
     mockFetchImplementation({
-      workspaceDetailResponse: createJsonResponse(refreshedWorkspaceDetail, { status: 200 }),
+      workspacesResponse: createJsonResponse([WORKSPACE_SUMMARIES[1], WORKSPACE_SUMMARIES[0]], { status: 200 }),
+      workspaceDetailResponses: {
+        "ws-demo": createJsonResponse(WORKSPACE_DETAIL_WITH_PREFERRED_RUNNING_SESSION, { status: 200 }),
+        "ws-ops": createJsonResponse(OPS_WORKSPACE_DETAIL, { status: 200 }),
+      },
     });
-
-    const actualUseState = React.useState;
-    let undefinedStateCallCount = 0;
-
-    const mockUseState: typeof React.useState = <T,>(...args: [] | [T | (() => T)]) => {
-      const hasInitialState = args.length === 1;
-      const initialState = hasInitialState ? args[0] : undefined;
-
-      if (hasInitialState && initialState === undefined) {
-        undefinedStateCallCount += 1;
-        if (undefinedStateCallCount === 2) {
-          return actualUseState("session-running" as T);
-        }
-      }
-
-      if (hasInitialState) {
-        return actualUseState(args[0]);
-      }
-
-      return actualUseState<T | undefined>();
-    };
-
-    vi.spyOn(React, "useState").mockImplementation(mockUseState);
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Demo Workspace" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Ops Workspace" })).toBeVisible();
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /Service read model/i })).not.toBeInTheDocument();
     });
 
     const refreshedAttentionRail = screen.getByRole("list", { name: "Attention rail" });
-    const fallbackSelection = within(refreshedAttentionRail).getByRole("button", { name: /Operator follow-up/i });
+    const fallbackSelection = within(refreshedAttentionRail).getByRole("button", { name: /Ops operator follow-up/i });
 
     expect(fallbackSelection).toHaveAttribute("aria-pressed", "true");
 
     const detailPanel = screen.getByLabelText("Selected session detail panel");
-    expect(within(detailPanel).getByRole("heading", { name: "Operator follow-up" })).toBeVisible();
-    expect(within(detailPanel).getByText("Need approval before continuing.")).toBeVisible();
+    expect(within(detailPanel).getByRole("heading", { name: "Ops operator follow-up" })).toBeVisible();
+    expect(within(detailPanel).getByText("Need release sign-off.")).toBeVisible();
   });
 
   it("renders a workspace error card while health still loads normally when workspace fetch fails", async () => {

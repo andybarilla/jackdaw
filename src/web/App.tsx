@@ -161,6 +161,12 @@ export function App(): React.JSX.Element {
             return currentSelectedSessionId;
           }
 
+          const preferredSelectedSessionId = data.workspace.preferences.selectedSessionId;
+          const hasPreferredSelection = data.sessions.some((session) => session.id === preferredSelectedSessionId);
+          if (hasPreferredSelection) {
+            return preferredSelectedSessionId;
+          }
+
           return data.sessions[0]?.id;
         });
       } catch (error) {
