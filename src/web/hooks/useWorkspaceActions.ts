@@ -14,7 +14,7 @@ export interface WorkspaceActionResult {
   ok: boolean;
   acceptedAt: string;
   message: string;
-  mode: "remote" | "local-fallback";
+  mode: "remote" | "local-fallback" | "unavailable";
 }
 
 export interface WorkspaceActionHandlers {
@@ -40,12 +40,12 @@ function createImmediateErrorResult(message: string): WorkspaceActionResult {
   };
 }
 
-function createLocalFallbackResult(actionLabel: string): WorkspaceActionResult {
+function createUnavailableResult(message: string): WorkspaceActionResult {
   return {
-    ok: true,
+    ok: false,
     acceptedAt: new Date().toISOString(),
-    message: `${actionLabel} accepted locally while service mutations remain read-only.`,
-    mode: "local-fallback",
+    message,
+    mode: "unavailable",
   };
 }
 
@@ -89,9 +89,9 @@ export function useWorkspaceActions(serviceBaseUrl: string): WorkspaceActionHand
       });
 
       if ([404, 405, 501].includes(response.status)) {
-        const localFallbackResult = createLocalFallbackResult(actionLabel);
-        setState({ lastResult: localFallbackResult });
-        return localFallbackResult;
+        const unavailableResult = createUnavailableResult(await getResponseErrorMessage(response, `${actionLabel} unavailable`));
+        setState({ lastResult: unavailableResult });
+        return unavailableResult;
       }
 
       if (!response.ok) {
@@ -122,15 +122,13 @@ export function useWorkspaceActions(serviceBaseUrl: string): WorkspaceActionHand
       setState({ lastResult: result });
       return result;
     } catch (error) {
-      const localFallbackResult = createLocalFallbackResult(actionLabel);
-      const networkErrorResult: WorkspaceActionResult = {
-        ...localFallbackResult,
-        message: error instanceof Error
-          ? `${localFallbackResult.message} Network error: ${error.message}`
-          : localFallbackResult.message,
-      };
-      setState({ lastResult: networkErrorResult });
-      return networkErrorResult;
+      const unavailableResult = createUnavailableResult(
+        error instanceof Error
+          ? `${actionLabel} unavailable. Network error: ${error.message}`
+          : `${actionLabel} unavailable.`,
+      );
+      setState({ lastResult: unavailableResult });
+      return unavailableResult;
     }
   }, [serviceBaseUrl]);
 

@@ -355,4 +355,50 @@ describe("SessionCommandCenter", () => {
     expect(screen.queryByText("Pinned summary frozen: The live summary is current.")).toBeNull();
     expect(screen.queryByText("stale pin result")).toBeNull();
   });
+
+  it("ignores stale open-path completions from the header after switching sessions", async () => {
+    const deferredResult = createDeferredResult();
+    const actions = createActions();
+    actions.openPath = vi.fn(async () => deferredResult.promise);
+    const secondSession: WorkspaceSession = {
+      ...SESSION,
+      id: "session-2",
+      name: "Review another session",
+      repoRoot: "/repos/second-session",
+      worktree: "/worktrees/second-session",
+      cwd: "/worktrees/second-session",
+      updatedAt: "2026-04-23T12:15:00.000Z",
+    };
+    const { rerender } = render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={SESSION}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open repo" }));
+
+    await act(async () => {
+      rerender(
+        <SessionCommandCenter
+          workspace={WORKSPACE}
+          session={secondSession}
+          artifacts={ARTIFACTS}
+          recentAttention={ATTENTION_EVENTS}
+          actions={actions}
+        />,
+      );
+    });
+
+    await act(async () => {
+      deferredResult.resolve(createSuccessResult("stale open result"));
+      await deferredResult.promise;
+    });
+
+    expect(screen.queryByText("stale open result")).toBeNull();
+    expect(screen.queryByText("opened")).toBeNull();
+  });
 });
