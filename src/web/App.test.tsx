@@ -153,7 +153,11 @@ function createJsonResponse(body: unknown, init?: ResponseInit): Response {
 function mockFetchImplementation(overrides?: {
   workspacesResponse?: Response;
   workspaceDetailResponse?: Response;
+  workspaceDetailResponses?: Response[];
 }): void {
+  const workspaceDetailResponses = overrides?.workspaceDetailResponses;
+  let workspaceDetailResponseIndex = 0;
+
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL): Promise<Response> => {
     const url = String(input);
 
@@ -166,6 +170,12 @@ function mockFetchImplementation(overrides?: {
     }
 
     if (url.endsWith("/workspaces/ws-demo")) {
+      const nextWorkspaceDetailResponse = workspaceDetailResponses?.[workspaceDetailResponseIndex];
+      if (nextWorkspaceDetailResponse !== undefined) {
+        workspaceDetailResponseIndex += 1;
+        return nextWorkspaceDetailResponse;
+      }
+
       return overrides?.workspaceDetailResponse ?? createJsonResponse(WORKSPACE_DETAIL, { status: 200 });
     }
 
@@ -254,6 +264,51 @@ describe("App", () => {
     expect(within(detailPanel).getByText("Editing demo-state.ts")).toBeVisible();
     expect(within(detailPanel).getByText("edit")).toBeVisible();
     expect(within(detailPanel).getByText("src/service/demo-state.ts")).toBeVisible();
+  });
+
+  it("falls back to the first remaining session when a refetch drops the selected session", async () => {
+    const refreshedWorkspaceDetail: WorkspaceDetailDto = {
+      ...WORKSPACE_DETAIL,
+      workspace: {
+        ...WORKSPACE_DETAIL.workspace,
+        sessionIds: ["session-awaiting", "session-idle"],
+        updatedAt: "2026-04-23T12:05:00.000Z",
+      },
+      sessions: [WORKSPACE_DETAIL.sessions[0], WORKSPACE_DETAIL.sessions[2]],
+    };
+
+    mockFetchImplementation({
+      workspaceDetailResponses: [
+        createJsonResponse(WORKSPACE_DETAIL, { status: 200 }),
+        createJsonResponse(refreshedWorkspaceDetail, { status: 200 }),
+      ],
+    });
+
+    render(<App />);
+
+    const attentionRail = await screen.findByRole("list", { name: "Attention rail" });
+    const removedSelection = within(attentionRail).getByRole("button", { name: /Service read model/i });
+
+    fireEvent.click(removedSelection);
+
+    await waitFor(() => {
+      expect(removedSelection).toHaveAttribute("aria-pressed", "true");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh workspace" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /Service read model/i })).not.toBeInTheDocument();
+    });
+
+    const refreshedAttentionRail = screen.getByRole("list", { name: "Attention rail" });
+    const fallbackSelection = within(refreshedAttentionRail).getByRole("button", { name: /Operator follow-up/i });
+
+    expect(fallbackSelection).toHaveAttribute("aria-pressed", "true");
+
+    const detailPanel = screen.getByLabelText("Selected session detail panel");
+    expect(within(detailPanel).getByRole("heading", { name: "Operator follow-up" })).toBeVisible();
+    expect(within(detailPanel).getByText("Need approval before continuing.")).toBeVisible();
   });
 
   it("renders a workspace error card while health still loads normally when workspace fetch fails", async () => {

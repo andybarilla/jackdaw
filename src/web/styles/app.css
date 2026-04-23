@@ -101,11 +101,6 @@ textarea {
   padding: 16px;
 }
 
-.attention-panel,
-.session-detail-panel {
-  min-height: 360px;
-}
-
 .panel-header {
   display: flex;
   justify-content: space-between;

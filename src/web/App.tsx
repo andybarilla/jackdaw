@@ -80,6 +80,7 @@ export function App(): React.JSX.Element {
   const [workspaceDetail, setWorkspaceDetail] = React.useState<Loadable<WorkspaceDetailDto>>({ status: "loading" });
   const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState<string | undefined>(undefined);
   const [selectedSessionId, setSelectedSessionId] = React.useState<string | undefined>(undefined);
+  const [workspaceDetailRequestVersion, setWorkspaceDetailRequestVersion] = React.useState<number>(0);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -177,7 +178,7 @@ export function App(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [selectedWorkspaceId, workspaceSummaries.status]);
+  }, [selectedWorkspaceId, workspaceSummaries.status, workspaceDetailRequestVersion]);
 
   const selectedWorkspaceSummary = findSelectedWorkspaceSummary(workspaceSummaries, selectedWorkspaceId);
   const selectedSession = findSelectedSession(workspaceDetail, selectedSessionId);
@@ -237,7 +238,14 @@ export function App(): React.JSX.Element {
         <section className="panel" aria-label="Workspace summary panel">
           <div className="panel-header">
             <p className="eyebrow">Workspace</p>
-            <button className="ghost-button">platform-auth</button>
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={selectedWorkspaceId === undefined || workspaceDetail.status === "loading"}
+              onClick={(): void => setWorkspaceDetailRequestVersion((currentVersion: number) => currentVersion + 1)}
+            >
+              Refresh workspace
+            </button>
           </div>
           {workspaceSummaries.status === "loading" && <p>Loading workspace…</p>}
           {workspaceErrorMessage !== undefined && (
