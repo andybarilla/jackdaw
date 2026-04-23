@@ -1,0 +1,355 @@
+/* ============================================================
+   What the Flock — Design tokens
+   Colors, typography, spacing, and semantic classes.
+   ============================================================ */
+
+/* ---------- Fonts ---------- */
+/* Brand sans: Satoshi (local .otf). Mono: Commit Mono (local .otf). */
+
+@font-face {
+  font-family: 'Commit Mono';
+  src: url('fonts/CommitMono-400-Regular.otf') format('opentype');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Commit Mono';
+  src: url('fonts/CommitMono-400-Italic.otf') format('opentype');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Commit Mono';
+  src: url('fonts/CommitMono-700-Regular.otf') format('opentype');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Commit Mono';
+  src: url('fonts/CommitMono-700-Italic.otf') format('opentype');
+  font-weight: 700; font-style: italic; font-display: swap;
+}
+
+@font-face {
+  font-family: 'Satoshi';
+  src: url('fonts/Satoshi-Light.otf') format('opentype');
+  font-weight: 300; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('fonts/Satoshi-LightItalic.otf') format('opentype');
+  font-weight: 300; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('fonts/Satoshi-Regular.otf') format('opentype');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('fonts/Satoshi-Italic.otf') format('opentype');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('fonts/Satoshi-Medium.otf') format('opentype');
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('fonts/Satoshi-MediumItalic.otf') format('opentype');
+  font-weight: 500; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('fonts/Satoshi-Bold.otf') format('opentype');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('fonts/Satoshi-BoldItalic.otf') format('opentype');
+  font-weight: 700; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('fonts/Satoshi-Black.otf') format('opentype');
+  font-weight: 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Satoshi';
+  src: url('fonts/Satoshi-BlackItalic.otf') format('opentype');
+  font-weight: 900; font-style: italic; font-display: swap;
+}
+
+/* ============================================================
+   TOKENS — default (dark)
+   ============================================================ */
+:root {
+  /* Neutral ramp (dark-first). 0 = deepest bg, 9 = brightest fg. */
+  --bg-0: #0A0A0A;   /* canvas */
+  --bg-1: #111111;   /* card */
+  --bg-2: #161616;   /* card hover / raised */
+  --bg-3: #1C1C1C;   /* input bg */
+  --bg-4: #232323;   /* menu / popover */
+
+  --line:    #262626;   /* default hairline */
+  --line-hi: #3A3A3A;   /* hover / focus-within hairline */
+
+  --fg-4: #5A5A5A;   /* disabled text, faint labels */
+  --fg-3: #7A7A7A;   /* tertiary text, metadata */
+  --fg-2: #A6A6A6;   /* secondary text */
+  --fg-1: #D4D4D4;   /* primary body */
+  --fg-0: #FAFAF7;   /* headlines, high-emphasis */
+
+  /* Accent — brutalist orange-red */
+  --accent:       #FF4D00;
+  --accent-hover: #FF6A2B;
+  --accent-press: #E54500;
+  --accent-fg:    #0A0A0A;   /* fg on accent bg */
+  --accent-15:    rgba(255, 77, 0, 0.15);
+  --accent-25:    rgba(255, 77, 0, 0.25);
+  --accent-40:    rgba(255, 77, 0, 0.40);
+
+  /* Semantic */
+  --success: #FF4D00;   /* accent = running / healthy in context */
+  --warning: #FFD60A;
+  --danger:  #FF3D68;
+  --info:    #00E5FF;
+
+  /* Selection */
+  --selection-bg: rgba(255, 77, 0, 0.25);
+
+  /* ---------- Type stacks ---------- */
+  --font-sans: 'Satoshi', 'Inter Tight', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono: 'Commit Mono', 'JetBrains Mono', 'Berkeley Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ---------- Type scale (px) ---------- */
+  --fs-xs:   11px;
+  --fs-sm:   12px;
+  --fs-base: 14px;
+  --fs-md:   16px;
+  --fs-lg:   18px;
+  --fs-xl:   22px;
+  --fs-2xl:  28px;
+  --fs-3xl:  36px;
+  --fs-4xl:  48px;
+  --fs-5xl:  64px;
+  --fs-6xl:  80px;
+  --fs-7xl:  96px;
+  --fs-8xl:  128px;
+
+  /* Weights */
+  --fw-regular: 400;
+  --fw-medium:  500;
+  --fw-semi:    600;
+  --fw-bold:    700;
+
+  /* Line heights */
+  --lh-tight:   0.95;
+  --lh-snug:    1.1;
+  --lh-normal:  1.4;
+  --lh-relaxed: 1.55;
+
+  /* Letter spacing */
+  --ls-tightest: -0.04em;
+  --ls-tighter:  -0.025em;
+  --ls-tight:    -0.015em;
+  --ls-normal:   0;
+  --ls-wide:     0.02em;
+  --ls-mono:     0;
+
+  /* ---------- Spacing (4px base) ---------- */
+  --s-0:  0;
+  --s-1:  4px;
+  --s-2:  8px;
+  --s-3:  12px;
+  --s-4:  16px;
+  --s-5:  20px;
+  --s-6:  24px;
+  --s-8:  32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+  --s-20: 80px;
+  --s-24: 96px;
+  --s-32: 128px;
+
+  /* ---------- Radii ---------- */
+  --r-0: 0;     /* default — brutalist */
+  --r-full: 9999px;   /* for the dot indicator only */
+
+  /* ---------- Borders ---------- */
+  --bw: 1px;
+
+  /* ---------- Motion ---------- */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur:      160ms;
+  --dur-slow: 240ms;
+
+  /* ---------- Z-index ---------- */
+  --z-nav:     100;
+  --z-overlay: 800;
+  --z-modal:   900;
+  --z-toast:   1000;
+
+  /* Max widths */
+  --mw-prose: 65ch;
+  --mw-page: 1280px;
+}
+
+/* ============================================================
+   LIGHT MODE
+   Applied via [data-theme="light"] on <html> or any ancestor.
+   ============================================================ */
+[data-theme="light"] {
+  --bg-0: #FAFAF7;
+  --bg-1: #FFFFFF;
+  --bg-2: #F2F2EE;
+  --bg-3: #ECECE8;
+  --bg-4: #FFFFFF;
+
+  --line:    #E0E0DC;
+  --line-hi: #C4C4C0;
+
+  --fg-4: #A8A8A4;
+  --fg-3: #7A7A76;
+  --fg-2: #55554F;
+  --fg-1: #2A2A26;
+  --fg-0: #0A0A0A;
+
+  --accent-fg: #FAFAF7;
+}
+
+/* ============================================================
+   GLOBAL BASE
+   ============================================================ */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-0);
+  color: var(--fg-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01", "cv11";
+}
+
+::selection {
+  background: var(--selection-bg);
+  color: var(--fg-0);
+}
+
+/* ============================================================
+   SEMANTIC TYPE CLASSES
+   Use these instead of raw sizes where you can.
+   ============================================================ */
+
+.t-display {
+  font-family: var(--font-sans);
+  font-size: var(--fs-7xl);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-tightest);
+  color: var(--fg-0);
+}
+
+.t-h1 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-5xl);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-tightest);
+  color: var(--fg-0);
+}
+
+.t-h2 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--ls-tighter);
+  color: var(--fg-0);
+}
+
+.t-h3 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--ls-tight);
+  color: var(--fg-0);
+}
+
+.t-h4 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--ls-tight);
+  color: var(--fg-0);
+}
+
+.t-lead {
+  font-family: var(--font-sans);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-relaxed);
+  color: var(--fg-1);
+}
+
+.t-body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-relaxed);
+  color: var(--fg-1);
+}
+
+.t-body-sm {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-normal);
+  color: var(--fg-2);
+}
+
+.t-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+  color: var(--fg-3);
+}
+
+.t-meta {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--fg-3);
+}
+
+.t-code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-3);
+  padding: 1px 6px;
+  color: var(--fg-1);
+}
+
+.t-mono {
+  font-family: var(--font-mono);
+}
+
+/* ============================================================
+   UTILITIES — use judiciously
+   ============================================================ */
+.hairline { border: var(--bw) solid var(--line); }
+.bg-1 { background: var(--bg-1); }
+.bg-2 { background: var(--bg-2); }
+.fg-0 { color: var(--fg-0); }
+.fg-2 { color: var(--fg-2); }
+.fg-3 { color: var(--fg-3); }
+.accent { color: var(--accent); }

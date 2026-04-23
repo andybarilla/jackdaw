@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 56" fill="none">
+  <g transform="translate(0,4)">
+    
+    <path d="M6 14 L18 4 L30 14" stroke="#FF4D00" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter"></path>
+    <path d="M30 20 L30 36 Q30 46 20 46 L10 46" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="square" stroke-linejoin="miter"></path>
+  </g>
+  <text x="48" y="38" fill="currentColor" font-family="&#39;Inter Tight&#39;, &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" letter-spacing="-0.6">
+    Jackdaw
+  </text>
+</svg>

@@ -171,4 +171,18 @@ describe("renderOverviewLines", () => {
 
     expect(lines[0]).toContain("· files src/ui/dashboard.ts +1");
   });
+
+  it("shows compact session tags in the overview", () => {
+    const lines = renderOverviewLines([
+      session({
+        id: "running",
+        name: "Tagged Session",
+        status: "running",
+        summary: "Polishing the dashboard",
+        tags: ["ui", "prototype", "left-nav"],
+      }),
+    ], "running");
+
+    expect(lines[0]).toContain("· tags #ui #prototype +1");
+  });
 });

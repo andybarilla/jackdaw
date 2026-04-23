@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 56" fill="none">
+  <g transform="translate(4,8)">
+    
+    <path d="M0 36 L0 14 L6 14 L6 8 L12 8 L12 14 L18 14 L18 8 L24 8 L24 14 L30 14 L30 36 Z" stroke="currentColor" stroke-width="3" fill="none" stroke-linejoin="miter"></path>
+    <line x1="3" y1="20" x2="27" y2="20" stroke="#FF4D00" stroke-width="3"></line>
+  </g>
+  <text x="48" y="38" fill="currentColor" font-family="&#39;Inter Tight&#39;, &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" letter-spacing="-0.6">
+    Rook
+  </text>
+</svg>

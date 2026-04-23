@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en" data-screen-label="Jackdaw — Operator Workbench">
+<head>
+  <meta charset="utf-8">
+  <title>Jackdaw — Operator Workbench</title>
+  <link rel="icon" href="assets/logo/favicon.svg">
+  <link rel="stylesheet" href="colors_and_type.css">
+  <style>
+    @keyframes wtf-pulse {
+      0%   { box-shadow: 0 0 0 0   rgba(255,77,0,0.50); }
+      100% { box-shadow: 0 0 0 8px rgba(255,77,0,0);    }
+    }
+    @keyframes wtf-pulse-warn {
+      0%   { box-shadow: 0 0 0 0   rgba(255,214,10,0.55); }
+      100% { box-shadow: 0 0 0 8px rgba(255,214,10,0);    }
+    }
+    @keyframes wtf-pulse-danger {
+      0%   { box-shadow: 0 0 0 0   rgba(255,61,104,0.55); }
+      100% { box-shadow: 0 0 0 8px rgba(255,61,104,0);    }
+    }
+    @keyframes wtf-fade-in {
+      from { opacity: 0; transform: translateY(2px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes wtf-marquee {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(250%); }
+    }
+    html, body { height: 100%; overflow: hidden; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #232323; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-corner { background: transparent; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline: none; border-color: var(--accent) !important;
+    }
+    .hover-row:hover { background: var(--bg-1) !important; }
+    .hover-row-2:hover { background: var(--bg-2) !important; }
+    .hover-border:hover { border-color: var(--line-hi) !important; }
+    .nav-chip:hover { color: var(--fg-0) !important; }
+    .btn-ghost:hover { background: var(--bg-2) !important; border-color: var(--line-hi) !important; }
+    .btn-primary:hover { background: var(--accent-hover) !important; }
+    .btn-danger:hover { background: #FF5478 !important; }
+    .fade-in { animation: wtf-fade-in 160ms var(--ease-out); }
+    .text-strike { text-decoration: line-through; text-decoration-color: var(--fg-4); }
+  </style>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" src="src/primitives.jsx"></script>
+  <script type="text/babel" src="src/data.jsx"></script>
+  <script type="text/babel" src="src/shell.jsx"></script>
+  <script type="text/babel" src="src/home.jsx"></script>
+  <script type="text/babel" src="src/session.jsx"></script>
+  <script type="text/babel" src="src/explorer.jsx"></script>
+  <script type="text/babel" src="src/artifact.jsx"></script>
+  <script type="text/babel" src="src/settings.jsx"></script>
+  <script type="text/babel" src="src/states.jsx"></script>
+  <script type="text/babel" src="src/app.jsx"></script>
+</body>
+</html>

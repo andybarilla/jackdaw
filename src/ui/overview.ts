@@ -18,9 +18,10 @@ export function renderOverviewLines(sessions: WorkbenchSession[], selectedSessio
     const selected = session.id === selectedSessionId ? ">" : " ";
     const badge = formatStatusBadge(session.status);
     const reason = summarizeAttentionReason(session);
+    const tags = summarizeTags(session);
     const files = summarizeRecentFiles(session);
     const connection = session.connectionState === "historical" ? "historical" : undefined;
-    return `${selected} ${badge} ${session.name} · ${reason}${files ? ` · ${files}` : ""}${connection ? ` · ${connection}` : ""}`;
+    return `${selected} ${badge} ${session.name} · ${reason}${tags ? ` · ${tags}` : ""}${files ? ` · ${files}` : ""}${connection ? ` · ${connection}` : ""}`;
   });
 }
 
@@ -51,6 +52,15 @@ function summarizeAttentionReason(session: WorkbenchSession): string {
     return preferredSummary ? `${compact(preferredSummary)} · ${completionContext}` : completionContext;
   }
   return compact(preferredSummary || `updated ${relativeTime(session.lastUpdateAt)}`);
+}
+
+function summarizeTags(session: WorkbenchSession): string | undefined {
+  if (!session.tags || session.tags.length === 0) return undefined;
+
+  const [first, second, ...rest] = session.tags;
+  const visibleTags = [first, second].filter(Boolean).map((tag) => `#${compact(tag, 12)}`);
+  if (rest.length === 0) return `tags ${visibleTags.join(" ")}`;
+  return `tags ${visibleTags.join(" ")} +${rest.length}`;
 }
 
 function summarizeRecentFiles(session: WorkbenchSession): string | undefined {

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 64" fill="none">
+  
+  <g transform="translate(0,0)">
+    <path d="M8 24 L32 8 L56 24" stroke="currentColor" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"></path>
+    <path d="M8 38 L32 22 L56 38" stroke="currentColor" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter" opacity="0.55"></path>
+    <path d="M8 52 L32 36 L56 52" stroke="#FF4D00" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"></path>
+  </g>
+  
+  <text x="80" y="40" fill="currentColor" font-family="&#39;Inter Tight&#39;, &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif" font-size="26" font-weight="600" letter-spacing="-0.8">
+    WHAT THE FLOCK
+  </text>
+</svg>
