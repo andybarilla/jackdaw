@@ -31,6 +31,15 @@ export interface WorkspaceActionsState {
   lastResult?: WorkspaceActionResult;
 }
 
+function createImmediateErrorResult(message: string): WorkspaceActionResult {
+  return {
+    ok: false,
+    acceptedAt: new Date().toISOString(),
+    message,
+    mode: "remote",
+  };
+}
+
 function createLocalFallbackResult(actionLabel: string): WorkspaceActionResult {
   return {
     ok: true,
@@ -144,7 +153,9 @@ export function useWorkspaceActions(serviceBaseUrl: string): WorkspaceActionHand
     },
     openPath: async (command: OpenPathCommand, sessionId?: string): Promise<WorkspaceActionResult> => {
       if (sessionId === undefined) {
-        return runMutation(`/workspaces/${command.workspaceId}/open-path`, "Open path", command);
+        const result = createImmediateErrorResult("Open path requires a session context.");
+        setState({ lastResult: result });
+        return result;
       }
 
       return runMutation(`/sessions/${sessionId}/open-path`, "Open path", command);

@@ -43,8 +43,10 @@ export function InterventionPanel({
   const [hasLocalInterventionOverride, setHasLocalInterventionOverride] = React.useState<boolean>(false);
   const [spawnTask, setSpawnTask] = React.useState<string>("");
   const [actionFeedback, setActionFeedback] = React.useState<string | undefined>(undefined);
+  const activeSessionIdRef = React.useRef<string>(session.id);
 
   React.useEffect(() => {
+    activeSessionIdRef.current = session.id;
     setInterventionText("");
     setDisplayedIntervention(session.lastIntervention);
     setHasLocalInterventionOverride(false);
@@ -105,7 +107,12 @@ export function InterventionPanel({
     resultPromise: Promise<WorkspaceActionResult>,
   ): Promise<void> => {
     const trimmedText = interventionText.trim();
+    const requestSessionId = session.id;
     const result = await resultPromise;
+
+    if (activeSessionIdRef.current !== requestSessionId) {
+      return;
+    }
 
     setActionFeedback(result.message);
     onMessage?.(result.message);
@@ -130,7 +137,7 @@ export function InterventionPanel({
       requestedAt: result.acceptedAt,
     });
     setInterventionText("");
-  }, [interventionText, onMessage]);
+  }, [interventionText, onMessage, session.id]);
 
   const handleSteer = React.useCallback(async (): Promise<void> => {
     const trimmedText = interventionText.trim();
@@ -151,7 +158,12 @@ export function InterventionPanel({
   }, [actions, handleIntervention, interventionText, session.id]);
 
   const handleAbort = React.useCallback(async (): Promise<void> => {
+    const requestSessionId = session.id;
     const result = await actions.abortSession({ sessionId: session.id });
+    if (activeSessionIdRef.current !== requestSessionId) {
+      return;
+    }
+
     setActionFeedback(result.message);
     onMessage?.(result.message);
     setHasLocalInterventionOverride(true);
@@ -165,6 +177,7 @@ export function InterventionPanel({
   }, [actions, onMessage, session.id]);
 
   const handleSpawnSession = React.useCallback(async (): Promise<void> => {
+    const requestSessionId = session.id;
     const task = spawnTask.trim() || `Follow ${session.name}`;
     const result = await actions.spawnSession({
       workspaceId: session.workspaceId,
@@ -177,6 +190,10 @@ export function InterventionPanel({
       linkedArtifactIds: session.linkedResources.artifactIds,
       linkedWorkItemIds: session.linkedResources.workItemIds,
     });
+    if (activeSessionIdRef.current !== requestSessionId) {
+      return;
+    }
+
     setActionFeedback(result.message);
     onMessage?.(result.message);
     onOpenSpawnSession?.();

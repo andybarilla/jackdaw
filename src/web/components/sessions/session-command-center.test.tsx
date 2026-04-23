@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceArtifact } from "../../../shared/domain/artifact.js";
 import type { AttentionEvent } from "../../../shared/domain/attention.js";
@@ -126,6 +126,23 @@ function createActions(): WorkspaceActionHandlers {
     pinSummary: vi.fn(async () => createSuccessResult("pinned")),
     openPath: vi.fn(async () => createSuccessResult("opened")),
     shellFallback: vi.fn(async () => createSuccessResult("shell")),
+  };
+}
+
+function createDeferredResult(): {
+  promise: Promise<WorkspaceActionResult>;
+  resolve: (result: WorkspaceActionResult) => void;
+} {
+  let resolvePromise: ((result: WorkspaceActionResult) => void) | undefined;
+  const promise = new Promise<WorkspaceActionResult>((resolve) => {
+    resolvePromise = resolve;
+  });
+
+  return {
+    promise,
+    resolve: (result: WorkspaceActionResult) => {
+      resolvePromise?.(result);
+    },
   };
 }
 
@@ -290,5 +307,52 @@ describe("SessionCommandCenter", () => {
     const pinnedPanel = screen.getByLabelText("Pinned summary panel");
     expect(within(pinnedPanel).getByText("The live summary is current.")).toBeVisible();
     expect(screen.getByText("Pinned summary replaced: The live summary is current.")).toBeVisible();
+  });
+
+  it("ignores stale pin summary completions after switching sessions", async () => {
+    const deferredResult = createDeferredResult();
+    const actions = createActions();
+    actions.pinSummary = vi.fn(async () => deferredResult.promise);
+    const secondSession: WorkspaceSession = {
+      ...SESSION,
+      id: "session-2",
+      name: "Review another session",
+      pinnedSummary: "Pinned summary for session B.",
+      liveSummary: "Session B live summary.",
+      updatedAt: "2026-04-23T12:15:00.000Z",
+    };
+    const { rerender } = render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={SESSION}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pin summary" }));
+
+    await act(async () => {
+      rerender(
+        <SessionCommandCenter
+          workspace={WORKSPACE}
+          session={secondSession}
+          artifacts={ARTIFACTS}
+          recentAttention={ATTENTION_EVENTS}
+          actions={actions}
+        />,
+      );
+    });
+
+    await act(async () => {
+      deferredResult.resolve(createSuccessResult("stale pin result"));
+      await deferredResult.promise;
+    });
+
+    const pinnedPanel = screen.getByLabelText("Pinned summary panel");
+    expect(within(pinnedPanel).getByText("Pinned summary for session B.")).toBeVisible();
+    expect(screen.queryByText("Pinned summary frozen: The live summary is current.")).toBeNull();
+    expect(screen.queryByText("stale pin result")).toBeNull();
   });
 });

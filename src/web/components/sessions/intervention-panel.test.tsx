@@ -61,6 +61,23 @@ function createActions(overrides?: Partial<WorkspaceActionHandlers>): WorkspaceA
   };
 }
 
+function createDeferredResult(): {
+  promise: Promise<WorkspaceActionResult>;
+  resolve: (result: WorkspaceActionResult) => void;
+} {
+  let resolvePromise: ((result: WorkspaceActionResult) => void) | undefined;
+  const promise = new Promise<WorkspaceActionResult>((resolve) => {
+    resolvePromise = resolve;
+  });
+
+  return {
+    promise,
+    resolve: (result: WorkspaceActionResult) => {
+      resolvePromise?.(result);
+    },
+  };
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -219,5 +236,39 @@ describe("InterventionPanel", () => {
 
     expect(await screen.findByText("failed-locally")).toBeVisible();
     expect(screen.getAllByText("Route unavailable")[0]).toBeVisible();
+  });
+
+  it("ignores stale intervention completions after the selected session changes", async () => {
+    const deferredResult = createDeferredResult();
+    const actions = createActions({
+      steerSession: vi.fn(async () => deferredResult.promise),
+    });
+    const secondSession: WorkspaceSession = {
+      ...SESSION,
+      id: "session-2",
+      name: "Newly selected session",
+      liveSummary: "A different session is selected.",
+      updatedAt: "2026-04-23T12:10:00.000Z",
+    };
+    const { rerender } = render(<InterventionPanel session={SESSION} actions={actions} />);
+
+    fireEvent.change(screen.getByLabelText("Intervention text"), {
+      target: { value: "Finish the stale request." },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Steer" }));
+
+    await act(async () => {
+      rerender(<InterventionPanel session={secondSession} actions={actions} />);
+    });
+
+    await act(async () => {
+      deferredResult.resolve(createResult("stale steer result"));
+      await deferredResult.promise;
+    });
+
+    expect(screen.queryByText("accepted-locally")).toBeNull();
+    expect(screen.queryByText("stale steer result")).toBeNull();
+    expect(screen.getByText("No intervention recorded yet.")).toBeVisible();
   });
 });

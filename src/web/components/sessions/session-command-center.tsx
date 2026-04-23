@@ -48,8 +48,10 @@ export function SessionCommandCenter({
   const [shellDialogOpen, setShellDialogOpen] = React.useState<boolean>(false);
   const [shellCommand, setShellCommand] = React.useState<string>("");
   const [shellErrorMessage, setShellErrorMessage] = React.useState<string | undefined>(undefined);
+  const activeSessionIdRef = React.useRef<string>(session.id);
 
   React.useEffect(() => {
+    activeSessionIdRef.current = session.id;
     setMessage(undefined);
     setPinnedSummary(session.pinnedSummary);
     setShellDialogOpen(false);
@@ -76,7 +78,12 @@ export function SessionCommandCenter({
       return;
     }
 
+    const requestSessionId = session.id;
     const result = await actions.pinSummary({ sessionId: session.id, summary: frozenSummary });
+    if (activeSessionIdRef.current !== requestSessionId) {
+      return;
+    }
+
     if (!result.ok) {
       setMessage(result.message);
       return;
@@ -93,7 +100,12 @@ export function SessionCommandCenter({
       return;
     }
 
+    const requestSessionId = session.id;
     const result = await actions.pinSummary({ sessionId: session.id, summary: refreshedSummary });
+    if (activeSessionIdRef.current !== requestSessionId) {
+      return;
+    }
+
     if (!result.ok) {
       setMessage(result.message);
       return;
@@ -110,7 +122,12 @@ export function SessionCommandCenter({
       return;
     }
 
+    const requestSessionId = session.id;
     const result = await actions.shellFallback({ sessionId: session.id, command: trimmedCommand });
+    if (activeSessionIdRef.current !== requestSessionId) {
+      return;
+    }
+
     setMessage(result.message);
     setShellErrorMessage(undefined);
     setShellDialogOpen(false);
