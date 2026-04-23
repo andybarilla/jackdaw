@@ -387,6 +387,94 @@ describe("SessionCommandCenter", () => {
     expect(screen.getByText("Pinned summary replaced: Updated live summary.")).toBeVisible();
   });
 
+  it("ignores older in-flight open-path completions within the same session", async () => {
+    const firstDeferredResult = createDeferredResult();
+    const secondDeferredResult = createDeferredResult();
+    const actions = createActions();
+    actions.openPath = vi
+      .fn<WorkspaceActionHandlers["openPath"]>()
+      .mockImplementationOnce(async () => firstDeferredResult.promise)
+      .mockImplementationOnce(async () => secondDeferredResult.promise);
+
+    render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={SESSION}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open repo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open worktree" }));
+
+    await waitFor(() => {
+      expect(actions.openPath).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      secondDeferredResult.resolve(createSuccessResult("newest open completion"));
+      await secondDeferredResult.promise;
+    });
+
+    expect(screen.getByText("newest open completion")).toBeVisible();
+
+    await act(async () => {
+      firstDeferredResult.resolve(createSuccessResult("older open completion"));
+      await firstDeferredResult.promise;
+    });
+
+    expect(screen.queryByText("older open completion")).toBeNull();
+    expect(screen.getByText("newest open completion")).toBeVisible();
+  });
+
+  it("ignores older in-flight shell fallback completions within the same session", async () => {
+    const firstDeferredResult = createDeferredResult();
+    const secondDeferredResult = createDeferredResult();
+    const actions = createActions();
+    actions.shellFallback = vi
+      .fn<WorkspaceActionHandlers["shellFallback"]>()
+      .mockImplementationOnce(async () => firstDeferredResult.promise)
+      .mockImplementationOnce(async () => secondDeferredResult.promise);
+
+    render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={SESSION}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Shell fallback" }));
+    fireEvent.change(screen.getByLabelText("Shell command"), { target: { value: "ls" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run shell fallback" }));
+    fireEvent.change(screen.getByLabelText("Shell command"), { target: { value: "pwd" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run shell fallback" }));
+
+    await waitFor(() => {
+      expect(actions.shellFallback).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      secondDeferredResult.resolve(createSuccessResult("newest shell completion"));
+      await secondDeferredResult.promise;
+    });
+
+    expect(screen.getByText("newest shell completion")).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Shell fallback" })).toBeNull();
+
+    await act(async () => {
+      firstDeferredResult.resolve(createSuccessResult("older shell completion"));
+      await firstDeferredResult.promise;
+    });
+
+    expect(screen.queryByText("older shell completion")).toBeNull();
+    expect(screen.getByText("newest shell completion")).toBeVisible();
+  });
+
   it("ignores stale pin summary completions that resolve during the next session commit before passive effects run", async () => {
     const deferredResult = createDeferredResult();
     const actions = createActions();

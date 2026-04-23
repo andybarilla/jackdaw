@@ -50,6 +50,7 @@ export function SessionCommandCenter({
   const [shellErrorMessage, setShellErrorMessage] = React.useState<string | undefined>(undefined);
   const activeSessionIdRef = React.useRef<string>(session.id);
   const latestPinSummaryRequestIdRef = React.useRef<number>(0);
+  const latestShellFallbackRequestIdRef = React.useRef<number>(0);
   activeSessionIdRef.current = session.id;
 
   React.useEffect(() => {
@@ -128,8 +129,10 @@ export function SessionCommandCenter({
     }
 
     const requestSessionId = session.id;
+    const requestId = latestShellFallbackRequestIdRef.current + 1;
+    latestShellFallbackRequestIdRef.current = requestId;
     const result = await actions.shellFallback({ sessionId: session.id, command: trimmedCommand });
-    if (activeSessionIdRef.current !== requestSessionId) {
+    if (activeSessionIdRef.current !== requestSessionId || latestShellFallbackRequestIdRef.current !== requestId) {
       return;
     }
 

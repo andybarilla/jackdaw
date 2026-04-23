@@ -14,12 +14,15 @@ export interface SessionHeaderProps {
 
 export function SessionHeader({ workspace, session, linkedArtifact, actions, onMessage }: SessionHeaderProps): React.JSX.Element {
   const activeSessionIdRef = React.useRef<string>(session.id);
+  const latestOpenPathRequestIdRef = React.useRef<number>(0);
   activeSessionIdRef.current = session.id;
 
   const handleOpenRepo = React.useCallback(async (): Promise<void> => {
     const requestSessionId = session.id;
+    const requestId = latestOpenPathRequestIdRef.current + 1;
+    latestOpenPathRequestIdRef.current = requestId;
     const result = await actions.openPath({ workspaceId: workspace.id, path: session.repoRoot }, session.id);
-    if (activeSessionIdRef.current !== requestSessionId) {
+    if (activeSessionIdRef.current !== requestSessionId || latestOpenPathRequestIdRef.current !== requestId) {
       return;
     }
 
@@ -29,8 +32,10 @@ export function SessionHeader({ workspace, session, linkedArtifact, actions, onM
   const handleOpenWorktree = React.useCallback(async (): Promise<void> => {
     const path = session.worktree ?? session.cwd;
     const requestSessionId = session.id;
+    const requestId = latestOpenPathRequestIdRef.current + 1;
+    latestOpenPathRequestIdRef.current = requestId;
     const result = await actions.openPath({ workspaceId: workspace.id, path }, session.id);
-    if (activeSessionIdRef.current !== requestSessionId) {
+    if (activeSessionIdRef.current !== requestSessionId || latestOpenPathRequestIdRef.current !== requestId) {
       return;
     }
 
@@ -43,8 +48,10 @@ export function SessionHeader({ workspace, session, linkedArtifact, actions, onM
     }
 
     const requestSessionId = session.id;
+    const requestId = latestOpenPathRequestIdRef.current + 1;
+    latestOpenPathRequestIdRef.current = requestId;
     const result = await actions.openPath({ workspaceId: workspace.id, path: linkedArtifact.filePath }, session.id);
-    if (activeSessionIdRef.current !== requestSessionId) {
+    if (activeSessionIdRef.current !== requestSessionId || latestOpenPathRequestIdRef.current !== requestId) {
       return;
     }
 
