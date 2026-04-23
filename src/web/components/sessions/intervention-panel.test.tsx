@@ -344,6 +344,64 @@ describe("InterventionPanel", () => {
     expect(screen.getByText("No intervention recorded yet.")).toBeVisible();
   });
 
+  it("keeps new-session intervention completions live when the next session acts before passive effects run", async () => {
+    const firstDeferredResult = createDeferredResult();
+    const secondDeferredResult = createDeferredResult();
+    const actions = createActions({
+      abortSession: vi
+        .fn<WorkspaceActionHandlers["abortSession"]>()
+        .mockImplementationOnce(async () => firstDeferredResult.promise)
+        .mockImplementationOnce(async () => secondDeferredResult.promise),
+    });
+    const secondSession: WorkspaceSession = {
+      ...SESSION,
+      id: "session-2",
+      name: "Newly selected session",
+      liveSummary: "A different session is selected.",
+      updatedAt: "2026-04-23T12:10:00.000Z",
+    };
+    const { rerender } = render(<InterventionPanelHarness session={SESSION} actions={actions} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Abort" }));
+
+    await waitFor(() => {
+      expect(actions.abortSession).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      rerender(
+        <InterventionPanelHarness
+          session={secondSession}
+          actions={actions}
+          onSessionCommit={() => {
+            const abortButton = screen.getByRole("button", { name: "Abort" });
+            abortButton.click();
+          }}
+        />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(actions.abortSession).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      secondDeferredResult.resolve(createResult("current session abort result"));
+      await secondDeferredResult.promise;
+    });
+
+    expect(screen.getByText("accepted-locally")).toBeVisible();
+    expect(screen.getByText("current session abort result")).toBeVisible();
+
+    await act(async () => {
+      firstDeferredResult.resolve(createResult("stale abort result"));
+      await firstDeferredResult.promise;
+    });
+
+    expect(screen.queryByText("stale abort result")).toBeNull();
+    expect(screen.getByText("current session abort result")).toBeVisible();
+  });
+
   it("only fires the latest spawn-session callback within the same session", async () => {
     const firstDeferredResult = createDeferredResult();
     const secondDeferredResult = createDeferredResult();

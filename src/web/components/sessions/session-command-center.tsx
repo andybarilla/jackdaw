@@ -53,7 +53,6 @@ export function SessionCommandCenter({
   activeSessionIdRef.current = session.id;
 
   React.useEffect(() => {
-    latestCommandMutationRequestIdRef.current = 0;
     setMessage(undefined);
     setPinnedSummary(session.pinnedSummary);
     setShellDialogOpen(false);
@@ -62,8 +61,12 @@ export function SessionCommandCenter({
   }, [session.id]);
 
   React.useEffect(() => {
+    if (session.pinnedSummary === undefined) {
+      return;
+    }
+
     setPinnedSummary(session.pinnedSummary);
-  }, [session.pinnedSummary]);
+  }, [session.id, session.pinnedSummary]);
 
   const linkedArtifacts = React.useMemo<WorkspaceArtifact[]>(() => linkedArtifactsForSession(session, artifacts), [artifacts, session]);
   const openableLinkedArtifact = React.useMemo<WorkspaceArtifact | undefined>(() => {

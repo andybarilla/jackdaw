@@ -307,6 +307,39 @@ describe("SessionCommandCenter", () => {
     expect(screen.getByLabelText("Live summary panel")).toHaveTextContent("Updated live summary after more work.");
   });
 
+  it("preserves the local pinned summary when a same-session rerender sends an undefined pinned summary", async () => {
+    const actions = createActions();
+    const { rerender } = render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={{ ...SESSION, pinnedSummary: "Older pinned summary.", liveSummary: "New local summary." }}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pin summary" }));
+
+    await waitFor(() => {
+      expect(actions.pinSummary).toHaveBeenCalledWith({ sessionId: "session-1", summary: "New local summary." });
+    });
+
+    rerender(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={{ ...SESSION, pinnedSummary: undefined, liveSummary: "Parent rerendered with stale data." }}
+        artifacts={ARTIFACTS}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    const pinnedPanel = screen.getByLabelText("Pinned summary panel");
+    expect(within(pinnedPanel).getByText("New local summary.")).toBeVisible();
+    expect(within(pinnedPanel).queryByText("Older pinned summary.")).toBeNull();
+  });
+
   it("replaces the pinned summary with the current live summary when refresh summary is clicked", async () => {
     const actions = createActions();
 
@@ -778,5 +811,63 @@ describe("SessionCommandCenter", () => {
 
     expect(screen.queryByText("stale open result")).toBeNull();
     expect(screen.queryByText("opened")).toBeNull();
+  });
+
+  it("keeps new-session completions live when the next session starts an action before passive effects run", async () => {
+    const firstDeferredResult = createDeferredResult();
+    const secondDeferredResult = createDeferredResult();
+    const actions = createActions();
+    actions.openPath = vi
+      .fn<WorkspaceActionHandlers["openPath"]>()
+      .mockImplementationOnce(async () => firstDeferredResult.promise)
+      .mockImplementationOnce(async () => secondDeferredResult.promise);
+    const secondSession: WorkspaceSession = {
+      ...SESSION,
+      id: "session-2",
+      name: "Review another session",
+      repoRoot: "/repos/second-session",
+      worktree: "/worktrees/second-session",
+      cwd: "/worktrees/second-session",
+      updatedAt: "2026-04-23T12:15:00.000Z",
+    };
+    const { rerender } = render(<SessionCommandCenterHarness session={SESSION} actions={actions} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open repo" }));
+
+    await waitFor(() => {
+      expect(actions.openPath).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      rerender(
+        <SessionCommandCenterHarness
+          session={secondSession}
+          actions={actions}
+          onSessionCommit={() => {
+            const openWorktreeButton = screen.getByRole("button", { name: "Open worktree" });
+            openWorktreeButton.click();
+          }}
+        />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(actions.openPath).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      secondDeferredResult.resolve(createSuccessResult("current session open result"));
+      await secondDeferredResult.promise;
+    });
+
+    expect(screen.getByText("current session open result")).toBeVisible();
+
+    await act(async () => {
+      firstDeferredResult.resolve(createSuccessResult("stale open result"));
+      await firstDeferredResult.promise;
+    });
+
+    expect(screen.queryByText("stale open result")).toBeNull();
+    expect(screen.getByText("current session open result")).toBeVisible();
   });
 });

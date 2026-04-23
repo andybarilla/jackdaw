@@ -52,7 +52,6 @@ export function InterventionPanel({
   activeSessionIdRef.current = session.id;
 
   React.useEffect(() => {
-    latestActionRequestIdRef.current = 0;
     setInterventionText("");
     setDisplayedIntervention(session.lastIntervention);
     setHasLocalInterventionOverride(false);
