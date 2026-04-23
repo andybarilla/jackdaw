@@ -1,6 +1,6 @@
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
 import type { HealthResponse } from "../shared/transport/api.js";
 import type { WorkspaceDetailDto, WorkspaceSummaryDto } from "../shared/transport/dto.js";
@@ -173,6 +173,10 @@ function mockFetchImplementation(overrides?: {
   });
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("App", () => {
   it("renders both health and workspace loading states before fetches resolve", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise<Response>(() => undefined));
@@ -183,33 +187,73 @@ describe("App", () => {
     expect(screen.getByText("Loading workspace…")).toBeVisible();
   });
 
-  it("renders the workspace, ordered sessions, and first-session details after successful fetches", async () => {
+  it("renders the fetched workspace, keeps rail order, and selects the first session by default", async () => {
     mockFetchImplementation();
 
     render(<App />);
 
-    expect(await screen.findByText("Demo Workspace")).toBeVisible();
-    expect(screen.getByText("Operator follow-up")).toBeVisible();
-    expect(screen.getByText("Service read model")).toBeVisible();
-    expect(screen.getByText("Archive cleanup")).toBeVisible();
-    expect(screen.getByText("Need approval before continuing.")).toBeVisible();
-    expect(screen.getByText("Paused for operator reply")).toBeVisible();
-    expect(screen.getByText("src/web/App.tsx")).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Demo Workspace" })).toBeVisible();
+    const attentionRail = await screen.findByRole("list", { name: "Attention rail" });
+
+    expect(screen.queryByText("GUI foundation is live")).not.toBeInTheDocument();
+    expect(screen.getByText("Read-only demo workspace")).toBeVisible();
+    expect(screen.getByText("needs-operator")).toBeVisible();
+    expect(screen.getByText("3 sessions")).toBeVisible();
+
+    const sessionButtons = within(attentionRail).getAllByRole("button");
+    expect(sessionButtons).toHaveLength(3);
+    expect(sessionButtons.map((button) => button.textContent)).toEqual([
+      expect.stringContaining("Operator follow-up"),
+      expect.stringContaining("Service read model"),
+      expect.stringContaining("Archive cleanup"),
+    ]);
+
+    const firstSessionButton = within(attentionRail).getByRole("button", { name: /Operator follow-up/i });
+    expect(firstSessionButton).toHaveAttribute("aria-pressed", "true");
+
+    const detailPanel = screen.getByLabelText("Selected session detail panel");
+    expect(within(detailPanel).getByRole("heading", { name: "Operator follow-up" })).toBeVisible();
+    expect(within(detailPanel).getAllByText("awaiting-input")).toHaveLength(2);
+    expect(within(detailPanel).getByText("Waiting for product direction.")).toBeVisible();
+    expect(within(detailPanel).getByText("Need approval before continuing.")).toBeVisible();
+    expect(within(detailPanel).getAllByText("/repos/jackdaw")).toHaveLength(2);
+    expect(within(detailPanel).getByText("feat/live-workspace")).toBeVisible();
+    expect(within(detailPanel).getByText("Paused for operator reply")).toBeVisible();
+    expect(within(detailPanel).getByText("chat")).toBeVisible();
+    expect(within(detailPanel).getByText("src/web/App.tsx")).toBeVisible();
+    expect(within(detailPanel).getByText("src/service/server.ts")).toBeVisible();
+    expect(within(detailPanel).getByText("follow-up")).toBeVisible();
+    expect(within(detailPanel).getByText("pending-observation")).toBeVisible();
+    expect(within(detailPanel).getByText("Confirm API contract changes")).toBeVisible();
   });
 
-  it("updates the detail panel when a different session row is clicked", async () => {
+  it("updates the selected row and detail panel when a different session is clicked", async () => {
     mockFetchImplementation();
 
     render(<App />);
 
-    await screen.findByText("Demo Workspace");
-    fireEvent.click(screen.getByText("Service read model"));
+    const attentionRail = await screen.findByRole("list", { name: "Attention rail" });
+    const initialSelection = within(attentionRail).getByRole("button", { name: /Operator follow-up/i });
+    const nextSelection = within(attentionRail).getByRole("button", { name: /Service read model/i });
+
+    expect(initialSelection).toHaveAttribute("aria-pressed", "true");
+    expect(nextSelection).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(nextSelection);
 
     await waitFor(() => {
-      expect(screen.getByText("Implementing deterministic service fixtures.")).toBeVisible();
+      expect(nextSelection).toHaveAttribute("aria-pressed", "true");
     });
-    expect(screen.getByText("Editing demo-state.ts")).toBeVisible();
-    expect(screen.getByText("src/service/demo-state.ts")).toBeVisible();
+    expect(initialSelection).toHaveAttribute("aria-pressed", "false");
+
+    const detailPanel = screen.getByLabelText("Selected session detail panel");
+    expect(within(detailPanel).getByRole("heading", { name: "Service read model" })).toBeVisible();
+    expect(within(detailPanel).getByText("Implementing deterministic service fixtures.")).toBeVisible();
+    expect(within(detailPanel).getAllByText("/repos/hq")).toHaveLength(2);
+    expect(within(detailPanel).getByText("feat/service-read-model")).toBeVisible();
+    expect(within(detailPanel).getByText("Editing demo-state.ts")).toBeVisible();
+    expect(within(detailPanel).getByText("edit")).toBeVisible();
+    expect(within(detailPanel).getByText("src/service/demo-state.ts")).toBeVisible();
   });
 
   it("renders a workspace error card while health still loads normally when workspace fetch fails", async () => {
@@ -220,6 +264,6 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText("Healthy")).toBeVisible();
-    expect(await screen.findByText("Workspace fetch failed")).toBeVisible();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Workspace fetch failed");
   });
 });
