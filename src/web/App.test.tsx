@@ -266,7 +266,7 @@ describe("App", () => {
     expect(within(detailPanel).getByText("src/service/demo-state.ts")).toBeVisible();
   });
 
-  it("falls back to the first remaining session when a refetch drops the selected session", async () => {
+  it("falls back to the first remaining session when the next detail payload drops the selected session", async () => {
     const refreshedWorkspaceDetail: WorkspaceDetailDto = {
       ...WORKSPACE_DETAIL,
       workspace: {
@@ -278,16 +278,12 @@ describe("App", () => {
     };
 
     mockFetchImplementation({
-      workspaceDetailResponses: [
-        createJsonResponse(WORKSPACE_DETAIL, { status: 200 }),
-        createJsonResponse(refreshedWorkspaceDetail, { status: 200 }),
-      ],
+      workspaceDetailResponse: createJsonResponse(WORKSPACE_DETAIL, { status: 200 }),
     });
 
-    render(<App />);
-
-    const attentionRail = await screen.findByRole("list", { name: "Attention rail" });
-    const removedSelection = within(attentionRail).getByRole("button", { name: /Service read model/i });
+    const firstRender = render(<App />);
+    const initialAttentionRail = await screen.findByRole("list", { name: "Attention rail" });
+    const removedSelection = within(initialAttentionRail).getByRole("button", { name: /Service read model/i });
 
     fireEvent.click(removedSelection);
 
@@ -295,8 +291,39 @@ describe("App", () => {
       expect(removedSelection).toHaveAttribute("aria-pressed", "true");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Refresh workspace" }));
+    firstRender.unmount();
+    vi.restoreAllMocks();
 
+    mockFetchImplementation({
+      workspaceDetailResponse: createJsonResponse(refreshedWorkspaceDetail, { status: 200 }),
+    });
+
+    const actualUseState = React.useState;
+    let undefinedStateCallCount = 0;
+
+    const mockUseState: typeof React.useState = <T,>(...args: [] | [T | (() => T)]) => {
+      const hasInitialState = args.length === 1;
+      const initialState = hasInitialState ? args[0] : undefined;
+
+      if (hasInitialState && initialState === undefined) {
+        undefinedStateCallCount += 1;
+        if (undefinedStateCallCount === 2) {
+          return actualUseState("session-running" as T);
+        }
+      }
+
+      if (hasInitialState) {
+        return actualUseState(args[0]);
+      }
+
+      return actualUseState<T | undefined>();
+    };
+
+    vi.spyOn(React, "useState").mockImplementation(mockUseState);
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Demo Workspace" })).toBeVisible();
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: /Service read model/i })).not.toBeInTheDocument();
     });

@@ -65,11 +65,6 @@ textarea {
   letter-spacing: -0.03em;
 }
 
-.workspace-title {
-  margin: 8px 0 0;
-  color: var(--fg-1);
-}
-
 .topbar-meta {
   display: flex;
   gap: 12px;
@@ -90,7 +85,7 @@ textarea {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1.1fr 1fr 1fr;
   gap: 20px;
 }
 
@@ -158,16 +153,14 @@ textarea {
   color: var(--fg-0);
 }
 
-.workspace-summary h2,
-.session-detail h2 {
+.placeholder-copy h2 {
   margin: 0 0 12px;
   color: var(--fg-0);
   font-size: 24px;
 }
 
-.workspace-summary p,
-.session-card p,
-.session-detail p {
+.placeholder-copy p,
+.session-card p {
   margin: 0;
   line-height: 1.6;
 }
@@ -201,18 +194,6 @@ textarea {
   gap: 10px;
 }
 
-.session-row {
-  width: 100%;
-  text-align: left;
-  color: inherit;
-  cursor: pointer;
-}
-
-.session-row.selected {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px rgba(255, 77, 0, 0.35);
-}
-
 .session-card-header {
   display: flex;
   justify-content: space-between;
@@ -227,71 +208,6 @@ textarea {
 .session-card small {
   color: var(--fg-3);
   font-family: var(--font-mono);
-}
-
-.workspace-stats,
-.session-facts {
-  display: grid;
-  gap: 12px;
-  margin: 16px 0 0;
-}
-
-.workspace-stats div,
-.session-facts div {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-}
-
-.workspace-stats dt,
-.session-facts dt {
-  margin-bottom: 4px;
-  color: var(--fg-3);
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.workspace-stats dd,
-.session-facts dd {
-  margin: 0;
-  color: var(--fg-0);
-}
-
-.detail-section {
-  margin-top: 20px;
-}
-
-.detail-section h3 {
-  margin: 0 0 12px;
-  color: var(--fg-0);
-  font-size: 16px;
-}
-
-.detail-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 8px;
-}
-
-.detail-list li {
-  border: 1px solid var(--line);
-  background: var(--bg-2);
-  padding: 10px 12px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.error-card {
-  border: 1px solid rgba(255, 61, 104, 0.5);
-  background: rgba(255, 61, 104, 0.08);
-  padding: 14px;
-}
-
-.error-title {
-  margin: 0 0 8px;
-  color: var(--danger);
-  font-weight: 600;
 }
 
 @media (max-width: 1100px) {
