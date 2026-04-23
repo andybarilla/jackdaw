@@ -130,6 +130,72 @@ function createActions(): WorkspaceActionHandlers {
 }
 
 describe("SessionCommandCenter", () => {
+  it("opens the first file-backed linked artifact when earlier linked artifacts have no file path", async () => {
+    const actions = createActions();
+    const artifacts: WorkspaceArtifact[] = [
+      {
+        id: "artifact-review",
+        workspaceId: "ws-demo",
+        kind: "review-report",
+        title: "Task 8 review state",
+        filePath: "reviews/task-8.md",
+        linkedSessionIds: ["session-1"],
+        linkedWorkItemIds: [],
+        createdAt: "2026-04-23T11:30:00.000Z",
+        updatedAt: "2026-04-23T11:40:00.000Z",
+      },
+      {
+        id: "artifact-plan",
+        workspaceId: "ws-demo",
+        kind: "plan",
+        title: "Workspace GUI successor plan",
+        linkedSessionIds: ["session-1"],
+        linkedWorkItemIds: ["task-8"],
+        createdAt: "2026-04-23T11:20:00.000Z",
+        updatedAt: "2026-04-23T11:20:00.000Z",
+      },
+      {
+        id: "artifact-spec",
+        workspaceId: "ws-demo",
+        kind: "spec",
+        title: "Session command center spec",
+        filePath: "docs/specs/session-command-center.md",
+        linkedSessionIds: ["session-1"],
+        linkedWorkItemIds: ["task-8"],
+        createdAt: "2026-04-23T11:10:00.000Z",
+        updatedAt: "2026-04-23T11:15:00.000Z",
+      },
+    ];
+
+    render(
+      <SessionCommandCenter
+        workspace={WORKSPACE}
+        session={{
+          ...SESSION,
+          linkedResources: {
+            ...SESSION.linkedResources,
+            artifactIds: ["artifact-plan", "artifact-spec", "artifact-review"],
+          },
+        }}
+        artifacts={artifacts}
+        recentAttention={ATTENTION_EVENTS}
+        actions={actions}
+      />,
+    );
+
+    const openLinkedArtifactButton = screen.getByRole("button", { name: "Open linked artifact" });
+    expect(openLinkedArtifactButton).toBeEnabled();
+
+    fireEvent.click(openLinkedArtifactButton);
+
+    await waitFor(() => {
+      expect(actions.openPath).toHaveBeenCalledWith(
+        { workspaceId: "ws-demo", path: "docs/specs/session-command-center.md" },
+        "session-1",
+      );
+    });
+  });
+
   it("renders understanding and intervention context in one screen", () => {
     const actions = createActions();
 

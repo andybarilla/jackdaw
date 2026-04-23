@@ -45,31 +45,20 @@ export function InterventionPanel({
   const [actionFeedback, setActionFeedback] = React.useState<string | undefined>(undefined);
 
   React.useEffect(() => {
-    if (session.lastIntervention !== undefined) {
-      setDisplayedIntervention(session.lastIntervention);
-      setHasLocalInterventionOverride(false);
+    setInterventionText("");
+    setDisplayedIntervention(session.lastIntervention);
+    setHasLocalInterventionOverride(false);
+    setSpawnTask("");
+    setActionFeedback(undefined);
+  }, [session.id]);
+
+  React.useEffect(() => {
+    if (hasLocalInterventionOverride) {
       return;
     }
 
-    setDisplayedIntervention((current) => {
-      if (current === undefined) {
-        return current;
-      }
-
-      const observedAttentionEvent = hasLocalInterventionOverride && current.status === "pending-observation"
-        ? findObservedAttentionEvent(recentAttention, current)
-        : undefined;
-      if (observedAttentionEvent !== undefined) {
-        return {
-          ...current,
-          status: "observed",
-          observedAt: observedAttentionEvent.occurredAt,
-        };
-      }
-
-      return current;
-    });
-  }, [hasLocalInterventionOverride, recentAttention, session]);
+    setDisplayedIntervention(session.lastIntervention);
+  }, [hasLocalInterventionOverride, session.lastIntervention]);
 
   React.useEffect(() => {
     if (!hasLocalInterventionOverride || displayedIntervention?.status !== "accepted-locally") {

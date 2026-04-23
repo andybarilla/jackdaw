@@ -25,7 +25,15 @@ export interface SessionCommandCenterProps {
 }
 
 function linkedArtifactsForSession(session: WorkspaceSession, artifacts: WorkspaceArtifact[]): WorkspaceArtifact[] {
-  return artifacts.filter((artifact) => session.linkedResources.artifactIds.includes(artifact.id));
+  const artifactsById = new Map<string, WorkspaceArtifact>(artifacts.map((artifact) => [artifact.id, artifact]));
+  return session.linkedResources.artifactIds.flatMap((artifactId) => {
+    const artifact = artifactsById.get(artifactId);
+    return artifact === undefined ? [] : [artifact];
+  });
+}
+
+function firstFileBackedArtifact(linkedArtifacts: WorkspaceArtifact[]): WorkspaceArtifact | undefined {
+  return linkedArtifacts.find((artifact) => artifact.filePath !== undefined);
 }
 
 export function SessionCommandCenter({
@@ -54,6 +62,9 @@ export function SessionCommandCenter({
   }, [session.pinnedSummary]);
 
   const linkedArtifacts = React.useMemo<WorkspaceArtifact[]>(() => linkedArtifactsForSession(session, artifacts), [artifacts, session]);
+  const openableLinkedArtifact = React.useMemo<WorkspaceArtifact | undefined>(() => {
+    return firstFileBackedArtifact(linkedArtifacts);
+  }, [linkedArtifacts]);
   const sessionAttention = React.useMemo<AttentionEvent[]>(() => {
     return recentAttention.filter((event) => event.sessionId === session.id).slice(0, 5);
   }, [recentAttention, session.id]);
@@ -111,7 +122,7 @@ export function SessionCommandCenter({
       <SessionHeader
         workspace={workspace}
         session={session}
-        linkedArtifact={linkedArtifacts[0]}
+        linkedArtifact={openableLinkedArtifact}
         actions={actions}
         onMessage={setMessage}
       />

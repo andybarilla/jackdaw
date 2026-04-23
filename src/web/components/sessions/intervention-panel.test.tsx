@@ -66,6 +66,53 @@ afterEach(() => {
 });
 
 describe("InterventionPanel", () => {
+  it("resets session-scoped draft and intervention state when the session changes", async () => {
+    vi.useFakeTimers();
+    const actions = createActions();
+    const firstSession: WorkspaceSession = {
+      ...SESSION,
+      lastIntervention: {
+        kind: "steer",
+        status: "pending-observation",
+        text: "Finish the review fixes before lunch.",
+        requestedAt: "2026-04-23T11:39:00.000Z",
+      },
+    };
+    const secondSession: WorkspaceSession = {
+      ...SESSION,
+      id: "session-2",
+      name: "Fresh session",
+      lastIntervention: undefined,
+      updatedAt: "2026-04-23T12:05:00.000Z",
+    };
+    const { rerender } = render(<InterventionPanel session={firstSession} actions={actions} />);
+
+    fireEvent.change(screen.getByLabelText("Intervention text"), {
+      target: { value: "This draft should not leak." },
+    });
+    fireEvent.change(screen.getByLabelText("Spawn task"), {
+      target: { value: "Follow-up task draft" },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Abort" }));
+    });
+
+    expect(screen.getByText("accepted-locally")).toBeVisible();
+    expect(screen.getByDisplayValue("This draft should not leak.")).toBeVisible();
+    expect(screen.getByDisplayValue("Follow-up task draft")).toBeVisible();
+
+    await act(async () => {
+      rerender(<InterventionPanel session={secondSession} actions={actions} />);
+    });
+
+    expect(screen.getByText("No intervention recorded yet.")).toBeVisible();
+    expect(screen.queryByText("accepted-locally")).toBeNull();
+    expect(screen.queryByText("Finish the review fixes before lunch.")).toBeNull();
+    expect(screen.getByLabelText("Intervention text")).toHaveValue("");
+    expect(screen.getByLabelText("Spawn task")).toHaveValue("");
+  });
+
   it("moves a successful intervention from accepted locally to pending observation to observed after later meaningful non-operator activity", async () => {
     vi.useFakeTimers();
     const actions = createActions();
