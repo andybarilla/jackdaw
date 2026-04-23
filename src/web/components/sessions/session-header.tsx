@@ -14,10 +14,7 @@ export interface SessionHeaderProps {
 
 export function SessionHeader({ workspace, session, linkedArtifact, actions, onMessage }: SessionHeaderProps): React.JSX.Element {
   const activeSessionIdRef = React.useRef<string>(session.id);
-
-  React.useEffect(() => {
-    activeSessionIdRef.current = session.id;
-  }, [session.id]);
+  activeSessionIdRef.current = session.id;
 
   const handleOpenRepo = React.useCallback(async (): Promise<void> => {
     const requestSessionId = session.id;

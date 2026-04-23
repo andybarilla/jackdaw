@@ -49,9 +49,9 @@ export function SessionCommandCenter({
   const [shellCommand, setShellCommand] = React.useState<string>("");
   const [shellErrorMessage, setShellErrorMessage] = React.useState<string | undefined>(undefined);
   const activeSessionIdRef = React.useRef<string>(session.id);
+  activeSessionIdRef.current = session.id;
 
   React.useEffect(() => {
-    activeSessionIdRef.current = session.id;
     setMessage(undefined);
     setPinnedSummary(session.pinnedSummary);
     setShellDialogOpen(false);

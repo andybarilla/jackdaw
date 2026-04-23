@@ -1,5 +1,5 @@
 import React from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceSession } from "../../../shared/domain/session.js";
 import { InterventionPanel } from "./intervention-panel.js";
@@ -76,6 +76,20 @@ function createDeferredResult(): {
       resolvePromise?.(result);
     },
   };
+}
+
+interface InterventionPanelHarnessProps {
+  session: WorkspaceSession;
+  actions: WorkspaceActionHandlers;
+  onSessionCommit?: () => void;
+}
+
+function InterventionPanelHarness({ session, actions, onSessionCommit }: InterventionPanelHarnessProps): React.JSX.Element {
+  React.useLayoutEffect(() => {
+    onSessionCommit?.();
+  }, [onSessionCommit, session.id]);
+
+  return <InterventionPanel session={session} actions={actions} />;
 }
 
 afterEach(() => {
@@ -238,7 +252,7 @@ describe("InterventionPanel", () => {
     expect(screen.getAllByText("Route unavailable")[0]).toBeVisible();
   });
 
-  it("ignores stale intervention completions after the selected session changes", async () => {
+  it("ignores stale intervention completions that resolve during the next session commit before passive effects run", async () => {
     const deferredResult = createDeferredResult();
     const actions = createActions({
       steerSession: vi.fn(async () => deferredResult.promise),
@@ -250,7 +264,7 @@ describe("InterventionPanel", () => {
       liveSummary: "A different session is selected.",
       updatedAt: "2026-04-23T12:10:00.000Z",
     };
-    const { rerender } = render(<InterventionPanel session={SESSION} actions={actions} />);
+    const { rerender } = render(<InterventionPanelHarness session={SESSION} actions={actions} />);
 
     fireEvent.change(screen.getByLabelText("Intervention text"), {
       target: { value: "Finish the stale request." },
@@ -258,17 +272,50 @@ describe("InterventionPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Steer" }));
 
-    await act(async () => {
-      rerender(<InterventionPanel session={secondSession} actions={actions} />);
+    await waitFor(() => {
+      expect(actions.steerSession).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      rerender(
+        <InterventionPanelHarness
+          session={secondSession}
+          actions={actions}
+          onSessionCommit={() => {
+            queueMicrotask(() => {
+              deferredResult.resolve(createResult("stale steer result"));
+            });
+          }}
+        />,
+      );
     });
 
     await act(async () => {
-      deferredResult.resolve(createResult("stale steer result"));
       await deferredResult.promise;
     });
 
     expect(screen.queryByText("accepted-locally")).toBeNull();
     expect(screen.queryByText("stale steer result")).toBeNull();
     expect(screen.getByText("No intervention recorded yet.")).toBeVisible();
+  });
+
+  it("does not fire the spawn-session callback when the backend rejects the request", async () => {
+    const onOpenSpawnSession = vi.fn();
+    const actions = createActions({
+      spawnSession: vi.fn(async () => createResult("Spawn failed", false)),
+    });
+
+    render(
+      <InterventionPanel
+        session={SESSION}
+        actions={actions}
+        onOpenSpawnSession={onOpenSpawnSession}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Spawn session" }));
+
+    expect(await screen.findByText("Spawn failed")).toBeVisible();
+    expect(onOpenSpawnSession).not.toHaveBeenCalled();
   });
 });

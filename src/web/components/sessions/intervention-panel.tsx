@@ -44,9 +44,9 @@ export function InterventionPanel({
   const [spawnTask, setSpawnTask] = React.useState<string>("");
   const [actionFeedback, setActionFeedback] = React.useState<string | undefined>(undefined);
   const activeSessionIdRef = React.useRef<string>(session.id);
+  activeSessionIdRef.current = session.id;
 
   React.useEffect(() => {
-    activeSessionIdRef.current = session.id;
     setInterventionText("");
     setDisplayedIntervention(session.lastIntervention);
     setHasLocalInterventionOverride(false);
@@ -196,7 +196,9 @@ export function InterventionPanel({
 
     setActionFeedback(result.message);
     onMessage?.(result.message);
-    onOpenSpawnSession?.();
+    if (result.ok) {
+      onOpenSpawnSession?.();
+    }
   }, [actions, onMessage, onOpenSpawnSession, session, spawnTask]);
 
   return (
