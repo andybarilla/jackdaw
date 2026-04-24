@@ -90,18 +90,23 @@ export class WorkspaceRegistry {
   }
 
   async createWorkspace(input: CreateWorkspaceRecordInput): Promise<WorkspaceDetailRecord> {
-    const workspace = createWorkspace({
+    let workspace = createWorkspace({
       id: input.id,
       name: input.name,
       description: input.description,
       repoRoots: input.repoRoots ?? [],
-      worktrees: input.worktrees ?? [],
+      worktrees: [],
       sessionIds: [],
       artifactIds: [],
       preferences: {},
       createdAt: input.createdAt,
       updatedAt: input.updatedAt,
     });
+
+    for (const worktree of input.worktrees ?? []) {
+      workspace = this.repoRegistry.addWorktree(workspace, worktree);
+    }
+
     const workspaceDetail: WorkspaceDetailRecord = {
       workspace,
       sessions: [],

@@ -374,9 +374,15 @@ function assertWorkspaceLinks(
   sessions: readonly WorkspaceSession[],
   artifacts: readonly WorkspaceArtifact[],
 ): void {
+  const repoRootIds = new Set<string>(workspace.repoRoots.map((repoRoot) => repoRoot.id));
   const sessionIds = new Set<string>(sessions.map((session) => session.id));
   const artifactIds = new Set<string>(artifacts.map((artifact) => artifact.id));
 
+  for (const worktree of workspace.worktrees) {
+    if (!repoRootIds.has(worktree.repoRootId)) {
+      throw new TypeError(`Persisted workspace state worktree ${worktree.id} references missing repo root ${worktree.repoRootId}`);
+    }
+  }
   for (const sessionId of workspace.sessionIds) {
     if (!sessionIds.has(sessionId)) {
       throw new TypeError(`Persisted workspace state references missing session ${sessionId}`);
@@ -387,14 +393,37 @@ function assertWorkspaceLinks(
       throw new TypeError(`Persisted workspace state references missing artifact ${artifactId}`);
     }
   }
+  if (workspace.preferences.selectedSessionId !== undefined && !sessionIds.has(workspace.preferences.selectedSessionId)) {
+    throw new TypeError(
+      `Persisted workspace state preferences.selectedSessionId references missing session ${workspace.preferences.selectedSessionId}`,
+    );
+  }
+  if (workspace.preferences.selectedArtifactId !== undefined && !artifactIds.has(workspace.preferences.selectedArtifactId)) {
+    throw new TypeError(
+      `Persisted workspace state preferences.selectedArtifactId references missing artifact ${workspace.preferences.selectedArtifactId}`,
+    );
+  }
   for (const session of sessions) {
     if (!workspace.sessionIds.includes(session.id)) {
       throw new TypeError(`Persisted workspace state session ${session.id} is not linked from workspace.sessionIds`);
+    }
+    for (const artifactId of session.linkedResources.artifactIds) {
+      if (!artifactIds.has(artifactId)) {
+        throw new TypeError(`Persisted workspace state session ${session.id} references missing artifact ${artifactId}`);
+      }
     }
   }
   for (const artifact of artifacts) {
     if (!workspace.artifactIds.includes(artifact.id)) {
       throw new TypeError(`Persisted workspace state artifact ${artifact.id} is not linked from workspace.artifactIds`);
+    }
+    if (artifact.sourceSessionId !== undefined && !sessionIds.has(artifact.sourceSessionId)) {
+      throw new TypeError(`Persisted workspace state artifact ${artifact.id} references missing source session ${artifact.sourceSessionId}`);
+    }
+    for (const sessionId of artifact.linkedSessionIds) {
+      if (!sessionIds.has(sessionId)) {
+        throw new TypeError(`Persisted workspace state artifact ${artifact.id} references missing linked session ${sessionId}`);
+      }
     }
   }
 }

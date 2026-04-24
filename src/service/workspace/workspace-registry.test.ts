@@ -165,6 +165,28 @@ describe("WorkspaceRegistry", () => {
     });
   });
 
+  it("rejects workspace creation when a worktree points to a missing repo root", async () => {
+    const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
+    directories.push(appDataDir);
+    process.env.JACKDAW_APP_DATA_DIR = appDataDir;
+
+    const registry = await WorkspaceRegistry.load();
+
+    await expect(() => registry.createWorkspace({
+      id: "ws-1",
+      name: "Workspace 1",
+      repoRoots: [repoRoot],
+      worktrees: [
+        {
+          ...worktree,
+          repoRootId: "missing-repo-root",
+        },
+      ],
+      createdAt: "2026-04-24T10:00:00.000Z",
+      updatedAt: "2026-04-24T10:00:00.000Z",
+    })).rejects.toThrow(/missing repo root/i);
+  });
+
   it("updates workspace metadata without losing persisted local state", async () => {
     const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
     directories.push(appDataDir);

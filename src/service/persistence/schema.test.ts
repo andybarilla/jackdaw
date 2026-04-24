@@ -171,4 +171,69 @@ describe("service persistence schema", () => {
       }),
     ).toThrow(/session-1/i);
   });
+
+  it("rejects workspace state with a worktree linked to a missing repo root", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        workspace: {
+          ...persistedWorkspaceState.workspace,
+          worktrees: [
+            {
+              ...persistedWorkspaceState.workspace.worktrees[0],
+              repoRootId: "missing-repo-root",
+            },
+          ],
+        },
+      }),
+    ).toThrow(/missing-repo-root/i);
+  });
+
+  it("rejects workspace state with preferences linked to missing records", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        workspace: {
+          ...persistedWorkspaceState.workspace,
+          preferences: {
+            ...persistedWorkspaceState.workspace.preferences,
+            selectedSessionId: "missing-session",
+            selectedArtifactId: "missing-artifact",
+          },
+        },
+      }),
+    ).toThrow(/missing-session|missing-artifact/i);
+  });
+
+  it("rejects workspace state with dangling session artifact references", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        sessions: [
+          {
+            ...persistedWorkspaceState.sessions[0],
+            linkedResources: {
+              ...persistedWorkspaceState.sessions[0].linkedResources,
+              artifactIds: ["missing-artifact"],
+            },
+          },
+        ],
+      }),
+    ).toThrow(/missing-artifact/i);
+  });
+
+  it("rejects workspace state with dangling artifact session references", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        artifacts: [
+          {
+            ...persistedWorkspaceState.artifacts[0],
+            sourceSessionId: "missing-session",
+            linkedSessionIds: ["missing-session"],
+          },
+        ],
+      }),
+    ).toThrow(/missing-session/i);
+  });
 });
