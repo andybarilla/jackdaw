@@ -287,14 +287,6 @@ textarea:focus-visible {
   padding: 16px;
 }
 
-.session-tab-strip {
-  display: flex;
-  gap: 8px;
-  overflow: auto;
-  margin-bottom: 14px;
-}
-
-.session-tab-strip button,
 .ghost-button,
 .danger-button,
 .dialog-actions button {
@@ -303,7 +295,6 @@ textarea:focus-visible {
   padding: 8px 10px;
 }
 
-.session-tab.selected,
 .ghost-button:hover,
 .session-row:hover,
 .workspace-selector:hover {
