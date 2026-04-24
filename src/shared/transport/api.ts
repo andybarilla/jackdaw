@@ -1,11 +1,14 @@
 import type {
   CreateSessionDto,
+  AddWorkspaceRepoDto,
   CreateWorkspaceDto,
   FollowUpSessionDto,
   MutationResponseDto,
   OpenPathDto,
   PinSummaryDto,
   SessionsListDto,
+  UpdateWorkspaceDto,
+  WorkspaceStreamEventDto,
   ShellFallbackDto,
   SteerSessionDto,
   WorkspaceDetailDto,
@@ -15,6 +18,7 @@ import type {
 export interface HealthResponse {
   ok: boolean;
   service: "jackdaw-service";
+  version: string;
   appDataDir: string;
   timestamp: string;
 }
@@ -37,6 +41,14 @@ export interface ApiContract {
     response: WorkspaceDetailDto;
   };
   "GET /workspaces/:workspaceId": {
+    response: WorkspaceDetailDto;
+  };
+  "PATCH /workspaces/:workspaceId": {
+    body: UpdateWorkspaceDto;
+    response: WorkspaceDetailDto;
+  };
+  "POST /workspaces/:workspaceId/repos": {
+    body: AddWorkspaceRepoDto;
     response: WorkspaceDetailDto;
   };
   "GET /workspaces/:workspaceId/sessions": {
@@ -68,5 +80,8 @@ export interface ApiContract {
   "POST /sessions/:sessionId/shell": {
     body: ShellFallbackDto;
     response: MutationResponseDto;
+  };
+  "GET /workspaces/:workspaceId/events": {
+    response: WorkspaceStreamEventDto;
   };
 }

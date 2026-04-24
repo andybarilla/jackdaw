@@ -8,6 +8,7 @@ import type { WorkspaceDetailDto, WorkspaceSummaryDto } from "../shared/transpor
 const HEALTH_RESPONSE: HealthResponse = {
   ok: true,
   service: "jackdaw-service",
+  version: "0.1.0",
   appDataDir: "/tmp/jackdaw",
   timestamp: "2026-04-23T12:00:00.000Z",
 };

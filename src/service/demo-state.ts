@@ -4,12 +4,31 @@ import {
   type AttentionEvent,
 } from "../shared/domain/attention.js";
 import type { WorkspaceArtifact } from "../shared/domain/artifact.js";
-import type { WorkspaceSession } from "../shared/domain/session.js";
-import type { Workspace } from "../shared/domain/workspace.js";
 import type {
+  WorkspaceSession,
+  WorkspaceSessionStatus,
+} from "../shared/domain/session.js";
+import type { Workspace, WorkspaceRepoRoot } from "../shared/domain/workspace.js";
+import type {
+  AddWorkspaceRepoDto,
+  ArtifactLinkedEventDto,
+  CreateSessionDto,
+  CreateWorkspaceDto,
+  FollowUpSessionDto,
+  InterventionChangedEventDto,
+  MutationResponseDto,
+  OpenPathDto,
+  PinSummaryDto,
+  SessionRecentFilesUpdatedEventDto,
+  SessionStatusChangedEventDto,
+  SessionSummaryUpdatedEventDto,
   SessionsListDto,
+  SteerSessionDto,
+  UpdateWorkspaceDto,
   WorkspaceDetailDto,
   WorkspaceSummaryDto,
+  WorkspaceUpdatedEventDto,
+  WorkspaceStreamEventDto,
 } from "../shared/transport/dto.js";
 import { summarizeWorkspace } from "../shared/transport/dto.js";
 
@@ -213,46 +232,508 @@ const DEMO_ATTENTION_EVENTS: AttentionEvent[] = [
   },
 ];
 
-function listOrderedSessions(): WorkspaceSession[] {
-  const sessionById: Map<string, WorkspaceSession> = new Map<string, WorkspaceSession>();
-  for (const session of DEMO_SESSIONS) {
-    sessionById.set(session.id, session);
-  }
+export interface DemoMutationEvent {
+  workspaceId: string;
+  event: WorkspaceStreamEventDto;
+}
 
-  return DEMO_SESSIONS
-    .map((session: WorkspaceSession, index: number) => ({
-      candidate: createAttentionCandidate(session, index),
-      session,
-    }))
-    .sort((left, right) => compareAttentionCandidates(left.candidate, right.candidate))
-    .map(({ session }: { session: WorkspaceSession }) => sessionById.get(session.id) ?? session);
+export interface DemoStateStore {
+  listWorkspaces(): WorkspaceSummaryDto[];
+  getWorkspaceDetail(workspaceId: string): WorkspaceDetailDto | undefined;
+  getWorkspaceSessions(workspaceId: string): SessionsListDto | undefined;
+  createWorkspace(input: CreateWorkspaceDto): { detail: WorkspaceDetailDto; events: DemoMutationEvent[] };
+  updateWorkspace(workspaceId: string, input: UpdateWorkspaceDto): { detail: WorkspaceDetailDto; events: DemoMutationEvent[] } | undefined;
+  addWorkspaceRepo(workspaceId: string, input: AddWorkspaceRepoDto): { detail: WorkspaceDetailDto; events: DemoMutationEvent[] } | undefined;
+  createWorkspaceSession(workspaceId: string, input: CreateSessionDto): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined;
+  steerSession(sessionId: string, input: SteerSessionDto): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined;
+  followUpSession(sessionId: string, input: FollowUpSessionDto): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined;
+  abortSession(sessionId: string): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined;
+  pinSessionSummary(sessionId: string, input: PinSummaryDto): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined;
+  openSessionPath(sessionId: string, input: OpenPathDto): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined;
+  runSessionShell(sessionId: string, command: string): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined;
+}
+
+interface MutableDemoState {
+  workspaces: Map<string, Workspace>;
+  sessions: Map<string, WorkspaceSession>;
+  artifacts: Map<string, WorkspaceArtifact>;
+  recentAttention: AttentionEvent[];
+  workspaceCounter: number;
+  repoCounter: number;
+  sessionCounter: number;
+}
+
+export function createDemoStateStore(): DemoStateStore {
+  const state: MutableDemoState = {
+    workspaces: new Map<string, Workspace>([[DEMO_WORKSPACE.id, structuredClone(DEMO_WORKSPACE)]]),
+    sessions: new Map<string, WorkspaceSession>(DEMO_SESSIONS.map((session) => [session.id, structuredClone(session)])),
+    artifacts: new Map<string, WorkspaceArtifact>(DEMO_ARTIFACTS.map((artifact) => [artifact.id, structuredClone(artifact)])),
+    recentAttention: structuredClone(DEMO_ATTENTION_EVENTS),
+    workspaceCounter: 1,
+    repoCounter: DEMO_WORKSPACE.repoRoots.length,
+    sessionCounter: DEMO_SESSIONS.length,
+  };
+
+  const listOrderedSessions = (workspaceId: string): WorkspaceSession[] => {
+    const workspace = state.workspaces.get(workspaceId);
+    if (workspace === undefined) {
+      return [];
+    }
+
+    return workspace.sessionIds
+      .map((sessionId) => state.sessions.get(sessionId))
+      .filter((session): session is WorkspaceSession => session !== undefined)
+      .map((session, index) => ({
+        candidate: createAttentionCandidate(session, index),
+        session,
+      }))
+      .sort((left, right) => compareAttentionCandidates(left.candidate, right.candidate))
+      .map(({ session }) => structuredClone(session));
+  };
+
+  const getWorkspaceDetail = (workspaceId: string): WorkspaceDetailDto | undefined => {
+    const workspace = state.workspaces.get(workspaceId);
+    if (workspace === undefined) {
+      return undefined;
+    }
+
+    const artifacts = workspace.artifactIds
+      .map((artifactId) => state.artifacts.get(artifactId))
+      .filter((artifact): artifact is WorkspaceArtifact => artifact !== undefined)
+      .map((artifact) => structuredClone(artifact));
+
+    return {
+      workspace: structuredClone(workspace),
+      sessions: listOrderedSessions(workspaceId),
+      artifacts,
+      recentAttention: state.recentAttention
+        .filter((event) => event.workspaceId === workspaceId)
+        .map((event) => structuredClone(event)),
+    };
+  };
+
+  const makeWorkspaceUpdatedEvent = (workspaceId: string, updatedAt: string): WorkspaceStreamEventDto => ({
+    version: 1,
+    type: "workspace.updated",
+    payload: {
+      workspaceId,
+      updatedAt,
+    } satisfies WorkspaceUpdatedEventDto,
+  });
+
+  const makeStatusChangedEvent = (
+    workspaceId: string,
+    sessionId: string,
+    status: WorkspaceSessionStatus,
+    changedAt: string,
+  ): WorkspaceStreamEventDto => ({
+    version: 1,
+    type: "session.status-changed",
+    payload: {
+      workspaceId,
+      sessionId,
+      status,
+      changedAt,
+    } satisfies SessionStatusChangedEventDto,
+  });
+
+  const makeSummaryUpdatedEvent = (
+    session: WorkspaceSession,
+    updatedAt: string,
+  ): WorkspaceStreamEventDto => ({
+    version: 1,
+    type: "session.summary-updated",
+    payload: {
+      workspaceId: session.workspaceId,
+      sessionId: session.id,
+      liveSummary: session.liveSummary,
+      pinnedSummary: session.pinnedSummary,
+      updatedAt,
+    } satisfies SessionSummaryUpdatedEventDto,
+  });
+
+  const makeRecentFilesEvent = (
+    session: WorkspaceSession,
+    updatedAt: string,
+  ): WorkspaceStreamEventDto => ({
+    version: 1,
+    type: "session.recent-files-updated",
+    payload: {
+      workspaceId: session.workspaceId,
+      sessionId: session.id,
+      files: structuredClone(session.recentFiles),
+      updatedAt,
+    } satisfies SessionRecentFilesUpdatedEventDto,
+  });
+
+  const makeInterventionEvent = (
+    session: WorkspaceSession,
+    updatedAt: string,
+  ): WorkspaceStreamEventDto => ({
+    version: 1,
+    type: "session.intervention-changed",
+    payload: {
+      workspaceId: session.workspaceId,
+      sessionId: session.id,
+      intervention: session.lastIntervention,
+      updatedAt,
+    } satisfies InterventionChangedEventDto,
+  });
+
+  const makeArtifactLinkedEvent = (
+    workspaceId: string,
+    artifactId: string,
+    linkedAt: string,
+    sessionId?: string,
+  ): WorkspaceStreamEventDto => ({
+    version: 1,
+    type: "artifact.linked",
+    payload: {
+      workspaceId,
+      artifactId,
+      sessionId,
+      linkedAt,
+    } satisfies ArtifactLinkedEventDto,
+  });
+
+  const touchWorkspace = (workspaceId: string, updatedAt: string): Workspace | undefined => {
+    const workspace = state.workspaces.get(workspaceId);
+    if (workspace === undefined) {
+      return undefined;
+    }
+
+    workspace.updatedAt = updatedAt;
+    return workspace;
+  };
+
+  const findSession = (sessionId: string): WorkspaceSession | undefined => {
+    return state.sessions.get(sessionId);
+  };
+
+  const createAcceptedResponse = (acceptedAt: string): MutationResponseDto => ({
+    result: {
+      ok: true,
+      acceptedAt,
+    },
+  });
+
+  return {
+    listWorkspaces(): WorkspaceSummaryDto[] {
+      return Array.from(state.workspaces.values()).map((workspace) => summarizeWorkspace(workspace, listOrderedSessions(workspace.id)));
+    },
+
+    getWorkspaceDetail,
+
+    getWorkspaceSessions(workspaceId: string): SessionsListDto | undefined {
+      const workspace = state.workspaces.get(workspaceId);
+      if (workspace === undefined) {
+        return undefined;
+      }
+
+      return {
+        workspaceId,
+        sessions: listOrderedSessions(workspaceId),
+      };
+    },
+
+    createWorkspace(input: CreateWorkspaceDto): { detail: WorkspaceDetailDto; events: DemoMutationEvent[] } {
+      state.workspaceCounter += 1;
+      const createdAt = new Date().toISOString();
+      const workspaceId = `ws-${state.workspaceCounter}`;
+      const repoRoots: WorkspaceRepoRoot[] = (input.repoRoots ?? []).map((repoPath, index) => ({
+        id: `repo-${state.repoCounter + index + 1}`,
+        path: repoPath,
+        name: repoPath.split("/").filter(Boolean).at(-1) ?? `repo-${index + 1}`,
+      }));
+      state.repoCounter += repoRoots.length;
+
+      const workspace: Workspace = {
+        id: workspaceId,
+        name: input.name,
+        description: input.description,
+        repoRoots,
+        worktrees: [],
+        sessionIds: [],
+        artifactIds: [],
+        preferences: {},
+        createdAt,
+        updatedAt: createdAt,
+      };
+
+      state.workspaces.set(workspaceId, workspace);
+      return {
+        detail: getWorkspaceDetail(workspaceId) as WorkspaceDetailDto,
+        events: [{
+          workspaceId,
+          event: makeWorkspaceUpdatedEvent(workspaceId, createdAt),
+        }],
+      };
+    },
+
+    updateWorkspace(workspaceId: string, input: UpdateWorkspaceDto): { detail: WorkspaceDetailDto; events: DemoMutationEvent[] } | undefined {
+      const workspace = state.workspaces.get(workspaceId);
+      if (workspace === undefined) {
+        return undefined;
+      }
+
+      const updatedAt = new Date().toISOString();
+      workspace.name = input.name ?? workspace.name;
+      workspace.description = input.description ?? workspace.description;
+      workspace.preferences = input.preferences === undefined
+        ? workspace.preferences
+        : { ...workspace.preferences, ...input.preferences };
+      workspace.updatedAt = updatedAt;
+
+      return {
+        detail: getWorkspaceDetail(workspaceId) as WorkspaceDetailDto,
+        events: [{
+          workspaceId,
+          event: makeWorkspaceUpdatedEvent(workspaceId, updatedAt),
+        }],
+      };
+    },
+
+    addWorkspaceRepo(workspaceId: string, input: AddWorkspaceRepoDto): { detail: WorkspaceDetailDto; events: DemoMutationEvent[] } | undefined {
+      const workspace = state.workspaces.get(workspaceId);
+      if (workspace === undefined) {
+        return undefined;
+      }
+
+      state.repoCounter += 1;
+      workspace.repoRoots.push({
+        id: `repo-${state.repoCounter}`,
+        path: input.path,
+        name: input.name ?? input.path.split("/").filter(Boolean).at(-1) ?? `repo-${state.repoCounter}`,
+        defaultBranch: input.defaultBranch,
+      });
+
+      const updatedAt = new Date().toISOString();
+      workspace.updatedAt = updatedAt;
+      return {
+        detail: getWorkspaceDetail(workspaceId) as WorkspaceDetailDto,
+        events: [{
+          workspaceId,
+          event: makeWorkspaceUpdatedEvent(workspaceId, updatedAt),
+        }],
+      };
+    },
+
+    createWorkspaceSession(workspaceId: string, input: CreateSessionDto): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined {
+      const workspace = state.workspaces.get(workspaceId);
+      if (workspace === undefined) {
+        return undefined;
+      }
+
+      state.sessionCounter += 1;
+      const acceptedAt = new Date().toISOString();
+      const sessionId = `ses-${state.sessionCounter}`;
+      const session: WorkspaceSession = {
+        id: sessionId,
+        workspaceId,
+        name: input.name ?? input.task,
+        repoRoot: input.repoRoot ?? input.cwd,
+        worktree: input.worktree,
+        cwd: input.cwd,
+        branch: input.branch,
+        runtime: {
+          agent: input.agent ?? "implementer",
+          model: input.model ?? "sonnet",
+          runtime: "pi",
+        },
+        status: "running",
+        liveSummary: `Created session for: ${input.task}`,
+        latestMeaningfulUpdate: `Accepted session request for ${input.task}.`,
+        currentActivity: "Queued in deterministic demo runtime.",
+        recentFiles: [],
+        linkedResources: {
+          artifactIds: structuredClone(input.linkedArtifactIds ?? []),
+          workItemIds: structuredClone(input.linkedWorkItemIds ?? []),
+          reviewIds: [],
+        },
+        connectionState: "live",
+        startedAt: acceptedAt,
+        updatedAt: acceptedAt,
+      };
+
+      workspace.sessionIds.push(sessionId);
+      state.sessions.set(sessionId, session);
+      touchWorkspace(workspaceId, acceptedAt);
+
+      const events: DemoMutationEvent[] = [
+        { workspaceId, event: makeWorkspaceUpdatedEvent(workspaceId, acceptedAt) },
+        { workspaceId, event: makeStatusChangedEvent(workspaceId, sessionId, session.status, acceptedAt) },
+        { workspaceId, event: makeSummaryUpdatedEvent(session, acceptedAt) },
+      ];
+
+      for (const artifactId of session.linkedResources.artifactIds) {
+        events.push({ workspaceId, event: makeArtifactLinkedEvent(workspaceId, artifactId, acceptedAt, sessionId) });
+      }
+
+      return {
+        response: createAcceptedResponse(acceptedAt),
+        events,
+      };
+    },
+
+    steerSession(sessionId: string, input: SteerSessionDto): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined {
+      const session = findSession(sessionId);
+      if (session === undefined) {
+        return undefined;
+      }
+
+      const acceptedAt = new Date().toISOString();
+      session.lastIntervention = {
+        kind: "steer",
+        status: "accepted-locally",
+        text: input.text,
+        requestedAt: acceptedAt,
+      };
+      session.status = "running";
+      session.liveSummary = input.text;
+      session.updatedAt = acceptedAt;
+      touchWorkspace(session.workspaceId, acceptedAt);
+
+      return {
+        response: createAcceptedResponse(acceptedAt),
+        events: [
+          { workspaceId: session.workspaceId, event: makeInterventionEvent(session, acceptedAt) },
+          { workspaceId: session.workspaceId, event: makeStatusChangedEvent(session.workspaceId, session.id, session.status, acceptedAt) },
+          { workspaceId: session.workspaceId, event: makeSummaryUpdatedEvent(session, acceptedAt) },
+        ],
+      };
+    },
+
+    followUpSession(sessionId: string, input: FollowUpSessionDto): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined {
+      const session = findSession(sessionId);
+      if (session === undefined) {
+        return undefined;
+      }
+
+      const acceptedAt = new Date().toISOString();
+      session.lastIntervention = {
+        kind: "follow-up",
+        status: "pending-observation",
+        text: input.text,
+        requestedAt: acceptedAt,
+      };
+      session.latestMeaningfulUpdate = input.text;
+      session.updatedAt = acceptedAt;
+      touchWorkspace(session.workspaceId, acceptedAt);
+
+      return {
+        response: createAcceptedResponse(acceptedAt),
+        events: [
+          { workspaceId: session.workspaceId, event: makeInterventionEvent(session, acceptedAt) },
+          { workspaceId: session.workspaceId, event: makeSummaryUpdatedEvent(session, acceptedAt) },
+        ],
+      };
+    },
+
+    abortSession(sessionId: string): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined {
+      const session = findSession(sessionId);
+      if (session === undefined) {
+        return undefined;
+      }
+
+      const acceptedAt = new Date().toISOString();
+      session.lastIntervention = {
+        kind: "abort",
+        status: "accepted-locally",
+        text: "Abort requested by operator.",
+        requestedAt: acceptedAt,
+      };
+      session.status = "failed";
+      session.latestMeaningfulUpdate = "Abort requested by operator.";
+      session.updatedAt = acceptedAt;
+      touchWorkspace(session.workspaceId, acceptedAt);
+
+      return {
+        response: createAcceptedResponse(acceptedAt),
+        events: [
+          { workspaceId: session.workspaceId, event: makeInterventionEvent(session, acceptedAt) },
+          { workspaceId: session.workspaceId, event: makeStatusChangedEvent(session.workspaceId, session.id, session.status, acceptedAt) },
+        ],
+      };
+    },
+
+    pinSessionSummary(sessionId: string, input: PinSummaryDto): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined {
+      const session = findSession(sessionId);
+      if (session === undefined) {
+        return undefined;
+      }
+
+      const acceptedAt = new Date().toISOString();
+      session.pinnedSummary = input.summary;
+      session.updatedAt = acceptedAt;
+      touchWorkspace(session.workspaceId, acceptedAt);
+
+      return {
+        response: createAcceptedResponse(acceptedAt),
+        events: [{
+          workspaceId: session.workspaceId,
+          event: makeSummaryUpdatedEvent(session, acceptedAt),
+        }],
+      };
+    },
+
+    openSessionPath(sessionId: string, input: OpenPathDto): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined {
+      const session = findSession(sessionId);
+      if (session === undefined) {
+        return undefined;
+      }
+
+      const acceptedAt = new Date().toISOString();
+      session.recentFiles = [
+        {
+          path: input.path,
+          operation: "edited" as const,
+          timestamp: acceptedAt,
+        },
+        ...session.recentFiles,
+      ].slice(0, 10);
+      session.updatedAt = acceptedAt;
+      touchWorkspace(session.workspaceId, acceptedAt);
+
+      return {
+        response: createAcceptedResponse(acceptedAt),
+        events: [{
+          workspaceId: session.workspaceId,
+          event: makeRecentFilesEvent(session, acceptedAt),
+        }],
+      };
+    },
+
+    runSessionShell(sessionId: string, command: string): { response: MutationResponseDto; events: DemoMutationEvent[] } | undefined {
+      const session = findSession(sessionId);
+      if (session === undefined) {
+        return undefined;
+      }
+
+      const acceptedAt = new Date().toISOString();
+      session.currentActivity = `Shell fallback requested: ${command}`;
+      session.liveSummary = `Shell fallback queued: ${command}`;
+      session.updatedAt = acceptedAt;
+      touchWorkspace(session.workspaceId, acceptedAt);
+
+      return {
+        response: createAcceptedResponse(acceptedAt),
+        events: [{
+          workspaceId: session.workspaceId,
+          event: makeSummaryUpdatedEvent(session, acceptedAt),
+        }],
+      };
+    },
+  };
 }
 
 export function listDemoWorkspaceSummaries(): WorkspaceSummaryDto[] {
-  const sessions: WorkspaceSession[] = listOrderedSessions();
-  return [summarizeWorkspace(DEMO_WORKSPACE, sessions)];
+  return createDemoStateStore().listWorkspaces();
 }
 
 export function getDemoWorkspaceDetail(workspaceId: string): WorkspaceDetailDto | undefined {
-  if (workspaceId !== DEMO_WORKSPACE_ID) {
-    return undefined;
-  }
-
-  return {
-    workspace: DEMO_WORKSPACE,
-    sessions: listOrderedSessions(),
-    artifacts: DEMO_ARTIFACTS,
-    recentAttention: DEMO_ATTENTION_EVENTS,
-  };
+  return createDemoStateStore().getWorkspaceDetail(workspaceId);
 }
 
 export function getDemoWorkspaceSessions(workspaceId: string): SessionsListDto | undefined {
-  if (workspaceId !== DEMO_WORKSPACE_ID) {
-    return undefined;
-  }
-
-  return {
-    workspaceId: DEMO_WORKSPACE_ID,
-    sessions: listOrderedSessions(),
-  };
+  return createDemoStateStore().getWorkspaceSessions(workspaceId);
 }

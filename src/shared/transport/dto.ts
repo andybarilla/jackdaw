@@ -44,6 +44,18 @@ export interface CreateWorkspaceDto {
   repoRoots?: string[];
 }
 
+export interface UpdateWorkspaceDto {
+  name?: string;
+  description?: string;
+  preferences?: Workspace["preferences"];
+}
+
+export interface AddWorkspaceRepoDto {
+  path: string;
+  name?: string;
+  defaultBranch?: string;
+}
+
 export type CreateSessionDto = SpawnSessionCommand;
 export type SteerSessionDto = SteerSessionCommand;
 export type FollowUpSessionDto = FollowUpSessionCommand;

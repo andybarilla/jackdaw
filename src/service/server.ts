@@ -1,47 +1,42 @@
 import Fastify, { type FastifyInstance } from "fastify";
-import type { HealthResponse } from "../shared/transport/api.js";
-import {
-  getDemoWorkspaceDetail,
-  getDemoWorkspaceSessions,
-  listDemoWorkspaceSummaries,
-} from "./demo-state.js";
+import { registerHealthRoutes } from "./api/routes/health.js";
+import { registerWorkspaceRoutes } from "./api/routes/workspaces.js";
+import { registerSessionRoutes } from "./api/routes/sessions.js";
+import { registerArtifactRoutes } from "./api/routes/artifacts.js";
+import { registerSettingsRoutes } from "./api/routes/settings.js";
+import { createWorkspaceEventBus } from "./api/sse/event-bus.js";
+import { registerWorkspaceStreamRoutes } from "./api/sse/workspace-stream.js";
+import { createDemoStateStore, type DemoStateStore } from "./demo-state.js";
 
 export interface ServiceServerOptions {
   appDataDir: string;
+  version?: string;
+  store?: DemoStateStore;
 }
 
 export function createServer(options: ServiceServerOptions): FastifyInstance {
   const app = Fastify({ logger: true });
+  const store = options.store ?? createDemoStateStore();
+  const eventBus = createWorkspaceEventBus();
+  const version = options.version ?? "0.1.0";
 
-  app.get("/health", async (): Promise<HealthResponse> => {
-    return {
-      ok: true,
-      service: "jackdaw-service",
-      appDataDir: options.appDataDir,
-      timestamp: new Date().toISOString(),
-    };
+  void app.register(registerHealthRoutes, {
+    appDataDir: options.appDataDir,
+    version,
   });
-
-  app.get("/workspaces", async () => {
-    return listDemoWorkspaceSummaries();
+  void app.register(registerWorkspaceRoutes, {
+    store,
+    eventBus,
   });
-
-  app.get<{ Params: { workspaceId: string } }>("/workspaces/:workspaceId", async (request, reply) => {
-    const detail = getDemoWorkspaceDetail(request.params.workspaceId);
-    if (!detail) {
-      return reply.code(404).send({ error: "Workspace not found" });
-    }
-
-    return detail;
+  void app.register(registerSessionRoutes, {
+    store,
+    eventBus,
   });
-
-  app.get<{ Params: { workspaceId: string } }>("/workspaces/:workspaceId/sessions", async (request, reply) => {
-    const sessions = getDemoWorkspaceSessions(request.params.workspaceId);
-    if (!sessions) {
-      return reply.code(404).send({ error: "Workspace not found" });
-    }
-
-    return sessions;
+  void app.register(registerArtifactRoutes);
+  void app.register(registerSettingsRoutes);
+  void app.register(registerWorkspaceStreamRoutes, {
+    store,
+    eventBus,
   });
 
   return app;
