@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import type { DemoStateStore } from "../../demo-state.js";
+import type { WorkspaceService } from "../../workspace/workspace-service.js";
 import type { WorkspaceEventBus, WorkspaceEventEnvelope } from "./event-bus.js";
 import type { WorkspaceSnapshotEventDto, WorkspaceStreamEventDto } from "../../../shared/transport/dto.js";
 
 export interface WorkspaceStreamRoutesOptions {
-  store: DemoStateStore;
+  workspaceService: Promise<WorkspaceService>;
   eventBus: WorkspaceEventBus;
 }
 
@@ -13,7 +13,8 @@ export async function registerWorkspaceStreamRoutes(
   options: WorkspaceStreamRoutesOptions,
 ): Promise<void> {
   app.get<{ Params: { workspaceId: string } }>("/workspaces/:workspaceId/events", async (request, reply) => {
-    const detail = options.store.getWorkspaceDetail(request.params.workspaceId);
+    const workspaceService = await options.workspaceService;
+    const detail = await workspaceService.getWorkspaceDetail(request.params.workspaceId);
     if (detail === undefined) {
       return reply.code(404).send({ error: "Workspace not found" });
     }
@@ -75,12 +76,12 @@ export async function registerWorkspaceStreamRoutes(
       }
     };
 
-    const createSnapshotEvent = (): WorkspaceStreamEventDto => ({
+    const createSnapshotEvent = async (): Promise<WorkspaceStreamEventDto> => ({
       version: 1,
       type: "workspace.snapshot",
       payload: {
         workspaceId: request.params.workspaceId,
-        detail: options.store.getWorkspaceDetail(request.params.workspaceId) ?? detail,
+        detail: await workspaceService.getWorkspaceDetail(request.params.workspaceId) ?? detail,
         emittedAt: new Date().toISOString(),
       } satisfies WorkspaceSnapshotEventDto,
     });
@@ -92,7 +93,10 @@ export async function registerWorkspaceStreamRoutes(
     if (typeof lastEventIdHeader === "string" && lastEventIdHeader.length > 0) {
       const replay = options.eventBus.replaySince(request.params.workspaceId, lastEventIdHeader);
       if (replay === undefined || !replay.canReplay) {
-        const snapshotEnvelope = options.eventBus.createTransientEvent(request.params.workspaceId, createSnapshotEvent());
+        const snapshotEnvelope = options.eventBus.createTransientEvent(
+          request.params.workspaceId,
+          await createSnapshotEvent(),
+        );
         if (!trySendEnvelope(snapshotEnvelope)) {
           return;
         }
@@ -104,7 +108,10 @@ export async function registerWorkspaceStreamRoutes(
         }
       }
     } else {
-      const snapshotEnvelope = options.eventBus.createTransientEvent(request.params.workspaceId, createSnapshotEvent());
+      const snapshotEnvelope = options.eventBus.createTransientEvent(
+        request.params.workspaceId,
+        await createSnapshotEvent(),
+      );
       if (!trySendEnvelope(snapshotEnvelope)) {
         return;
       }

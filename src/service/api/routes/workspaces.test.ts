@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createServer } from "../../server.js";
-import { DEMO_WORKSPACE_ID } from "../../demo-state.js";
+import {
+  createEmptyServiceState,
+  createSeededServiceState,
+  removeSeededServiceState,
+  TEST_WORKSPACE_ID,
+} from "../../test-helpers.js";
 import type {
   WorkspaceDetailDto,
   WorkspaceSummaryDto,
@@ -9,9 +14,12 @@ import type {
 import type { HealthResponse } from "../../../shared/transport/api.js";
 
 let app: FastifyInstance | undefined;
+let appDataDir: string | undefined;
 
-async function createTestServer(): Promise<FastifyInstance> {
-  app = createServer({ appDataDir: "/tmp/jackdaw-test" });
+async function createTestServer(seed: boolean = true): Promise<FastifyInstance> {
+  const serviceState = seed ? await createSeededServiceState() : await createEmptyServiceState();
+  appDataDir = serviceState.appDataDir;
+  app = createServer({ appDataDir });
   await app.ready();
   return app;
 }
@@ -20,6 +28,11 @@ afterEach(async () => {
   if (app !== undefined) {
     await app.close();
     app = undefined;
+  }
+
+  if (appDataDir !== undefined) {
+    await removeSeededServiceState(appDataDir);
+    appDataDir = undefined;
   }
 });
 
@@ -54,11 +67,11 @@ describe("workspace routes", () => {
 
     const body = response.json<WorkspaceSummaryDto[]>();
 
-    expect(body[0]?.id).toBe(DEMO_WORKSPACE_ID);
+    expect(body[0]?.id).toBe(TEST_WORKSPACE_ID);
   });
 
   it("creates a workspace and returns its detail", async () => {
-    const server = await createTestServer();
+    const server = await createTestServer(false);
 
     const createResponse = await server.inject({
       method: "POST",
@@ -105,7 +118,7 @@ describe("workspace routes", () => {
 
     const repoResponse = await server.inject({
       method: "POST",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}/repos`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}/repos`,
       payload: {
         defaultBranch: "main",
       },
@@ -119,7 +132,7 @@ describe("workspace routes", () => {
 
     const patchResponse = await server.inject({
       method: "PATCH",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}`,
       payload: {
         name: "Renamed demo workspace",
         description: "Updated by route test",
@@ -137,7 +150,7 @@ describe("workspace routes", () => {
 
     const repoResponse = await server.inject({
       method: "POST",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}/repos`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}/repos`,
       payload: {
         path: "/workspace/another-repo",
         name: "another-repo",
@@ -159,14 +172,14 @@ describe("workspace routes", () => {
 
     const response = await server.inject({
       method: "GET",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}`,
     });
 
     expect(response.statusCode).toBe(200);
 
     const body = response.json<WorkspaceDetailDto>();
 
-    expect(body.workspace.id).toBe(DEMO_WORKSPACE_ID);
+    expect(body.workspace.id).toBe(TEST_WORKSPACE_ID);
     expect(body.sessions[0]?.status).toBe("awaiting-input");
   });
 

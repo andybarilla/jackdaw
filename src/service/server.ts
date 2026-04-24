@@ -6,7 +6,7 @@ import { registerArtifactRoutes } from "./api/routes/artifacts.js";
 import { registerSettingsRoutes } from "./api/routes/settings.js";
 import { createWorkspaceEventBus } from "./api/sse/event-bus.js";
 import { registerWorkspaceStreamRoutes } from "./api/sse/workspace-stream.js";
-import { createDemoStateStore, type DemoStateStore } from "./demo-state.js";
+import { WorkspaceService } from "./workspace/workspace-service.js";
 
 const DEV_ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
   "http://127.0.0.1:5173",
@@ -28,7 +28,7 @@ function getAllowedDevelopmentOrigin(origin: string | undefined): string | undef
 export interface ServiceServerOptions {
   appDataDir: string;
   version?: string;
-  store?: DemoStateStore;
+  workspaceService?: WorkspaceService;
 }
 
 export function createServer(options: ServiceServerOptions): FastifyInstance {
@@ -54,26 +54,32 @@ export function createServer(options: ServiceServerOptions): FastifyInstance {
     }
   });
 
-  const store = options.store ?? createDemoStateStore();
+  const workspaceServicePromise = options.workspaceService === undefined
+    ? WorkspaceService.load({ appDataDir: options.appDataDir })
+    : Promise.resolve(options.workspaceService);
   const eventBus = createWorkspaceEventBus();
   const version = options.version ?? "0.1.0";
+
+  app.addHook("onReady", async () => {
+    await workspaceServicePromise;
+  });
 
   void app.register(registerHealthRoutes, {
     appDataDir: options.appDataDir,
     version,
   });
   void app.register(registerWorkspaceRoutes, {
-    store,
+    workspaceService: workspaceServicePromise,
     eventBus,
   });
   void app.register(registerSessionRoutes, {
-    store,
+    workspaceService: workspaceServicePromise,
     eventBus,
   });
   void app.register(registerArtifactRoutes);
   void app.register(registerSettingsRoutes);
   void app.register(registerWorkspaceStreamRoutes, {
-    store,
+    workspaceService: workspaceServicePromise,
     eventBus,
   });
 

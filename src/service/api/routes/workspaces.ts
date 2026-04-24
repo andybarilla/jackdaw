@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { DemoStateStore } from "../../demo-state.js";
+import type { WorkspaceService } from "../../workspace/workspace-service.js";
 import type { WorkspaceEventBus } from "../sse/event-bus.js";
 import type {
   AddWorkspaceRepoDto,
@@ -10,7 +10,7 @@ import type {
 } from "../../../shared/transport/dto.js";
 
 export interface WorkspaceRoutesOptions {
-  store: DemoStateStore;
+  workspaceService: Promise<WorkspaceService>;
   eventBus: WorkspaceEventBus;
 }
 
@@ -69,7 +69,8 @@ const addWorkspaceRepoBodySchema = {
 
 export async function registerWorkspaceRoutes(app: FastifyInstance, options: WorkspaceRoutesOptions): Promise<void> {
   app.get("/workspaces", async (): Promise<WorkspaceSummaryDto[]> => {
-    return options.store.listWorkspaces();
+    const workspaceService = await options.workspaceService;
+    return workspaceService.listWorkspaces();
   });
 
   app.post<{ Body: CreateWorkspaceDto }>(
@@ -80,12 +81,13 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, options: Wor
       },
     },
     async (request, reply): Promise<WorkspaceDetailDto> => {
-      const createdWorkspace = options.store.createWorkspace(request.body);
+      const workspaceService = await options.workspaceService;
+      const createdWorkspace = await workspaceService.createWorkspace(request.body);
       for (const { workspaceId, event } of createdWorkspace.events) {
         options.eventBus.publish(workspaceId, event);
       }
 
-      return reply.code(201).send(createdWorkspace.detail);
+      return reply.code(201).send(createdWorkspace.payload);
     },
   );
 
@@ -97,7 +99,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, options: Wor
       },
     },
     async (request, reply) => {
-      const detail = options.store.getWorkspaceDetail(request.params.workspaceId);
+      const workspaceService = await options.workspaceService;
+      const detail = await workspaceService.getWorkspaceDetail(request.params.workspaceId);
       if (detail === undefined) {
         return reply.code(404).send({ error: "Workspace not found" });
       }
@@ -115,7 +118,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, options: Wor
       },
     },
     async (request, reply) => {
-      const updatedWorkspace = options.store.updateWorkspace(request.params.workspaceId, request.body);
+      const workspaceService = await options.workspaceService;
+      const updatedWorkspace = await workspaceService.updateWorkspace(request.params.workspaceId, request.body);
       if (updatedWorkspace === undefined) {
         return reply.code(404).send({ error: "Workspace not found" });
       }
@@ -124,7 +128,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, options: Wor
         options.eventBus.publish(workspaceId, event);
       }
 
-      return updatedWorkspace.detail;
+      return updatedWorkspace.payload;
     },
   );
 
@@ -137,7 +141,8 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, options: Wor
       },
     },
     async (request, reply) => {
-      const updatedWorkspace = options.store.addWorkspaceRepo(request.params.workspaceId, request.body);
+      const workspaceService = await options.workspaceService;
+      const updatedWorkspace = await workspaceService.addWorkspaceRepo(request.params.workspaceId, request.body);
       if (updatedWorkspace === undefined) {
         return reply.code(404).send({ error: "Workspace not found" });
       }
@@ -146,7 +151,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, options: Wor
         options.eventBus.publish(workspaceId, event);
       }
 
-      return updatedWorkspace.detail;
+      return updatedWorkspace.payload;
     },
   );
 }

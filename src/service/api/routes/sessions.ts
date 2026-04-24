@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { DemoStateStore } from "../../demo-state.js";
+import type { WorkspaceService } from "../../workspace/workspace-service.js";
 import type { WorkspaceEventBus } from "../sse/event-bus.js";
 import type {
   CreateSessionDto,
@@ -13,7 +13,7 @@ import type {
 } from "../../../shared/transport/dto.js";
 
 export interface SessionRoutesOptions {
-  store: DemoStateStore;
+  workspaceService: Promise<WorkspaceService>;
   eventBus: WorkspaceEventBus;
 }
 
@@ -117,7 +117,8 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
       },
     },
     async (request, reply) => {
-      const sessions = options.store.getWorkspaceSessions(request.params.workspaceId);
+      const workspaceService = await options.workspaceService;
+      const sessions = await workspaceService.getWorkspaceSessions(request.params.workspaceId);
       if (sessions === undefined) {
         return reply.code(404).send({ error: "Workspace not found" });
       }
@@ -139,7 +140,8 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "workspaceId must match the route parameter" });
       }
 
-      const createdSession = options.store.createWorkspaceSession(request.params.workspaceId, request.body);
+      const workspaceService = await options.workspaceService;
+      const createdSession = await workspaceService.createWorkspaceSession(request.params.workspaceId, request.body);
       if (createdSession === undefined) {
         return reply.code(404).send({ error: "Workspace not found" });
       }
@@ -148,7 +150,7 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         options.eventBus.publish(workspaceId, event);
       }
 
-      return reply.code(202).send(createdSession.response);
+      return reply.code(202).send(createdSession.payload);
     },
   );
 
@@ -165,7 +167,8 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "sessionId must match the route parameter" });
       }
 
-      const mutation = options.store.steerSession(request.params.sessionId, request.body);
+      const workspaceService = await options.workspaceService;
+      const mutation = await workspaceService.steerSession(request.params.sessionId, request.body);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
@@ -174,7 +177,7 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         options.eventBus.publish(workspaceId, event);
       }
 
-      return reply.code(202).send(mutation.response);
+      return reply.code(202).send(mutation.payload);
     },
   );
 
@@ -191,7 +194,8 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "sessionId must match the route parameter" });
       }
 
-      const mutation = options.store.followUpSession(request.params.sessionId, request.body);
+      const workspaceService = await options.workspaceService;
+      const mutation = await workspaceService.followUpSession(request.params.sessionId, request.body);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
@@ -200,7 +204,7 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         options.eventBus.publish(workspaceId, event);
       }
 
-      return reply.code(202).send(mutation.response);
+      return reply.code(202).send(mutation.payload);
     },
   );
 
@@ -212,7 +216,8 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
       },
     },
     async (request, reply): Promise<MutationResponseDto> => {
-      const mutation = options.store.abortSession(request.params.sessionId);
+      const workspaceService = await options.workspaceService;
+      const mutation = await workspaceService.abortSession(request.params.sessionId);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
@@ -221,7 +226,7 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         options.eventBus.publish(workspaceId, event);
       }
 
-      return reply.code(202).send(mutation.response);
+      return reply.code(202).send(mutation.payload);
     },
   );
 
@@ -238,7 +243,8 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "sessionId must match the route parameter" });
       }
 
-      const mutation = options.store.pinSessionSummary(request.params.sessionId, request.body);
+      const workspaceService = await options.workspaceService;
+      const mutation = await workspaceService.pinSessionSummary(request.params.sessionId, request.body);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
@@ -247,7 +253,7 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         options.eventBus.publish(workspaceId, event);
       }
 
-      return reply.code(202).send(mutation.response);
+      return reply.code(202).send(mutation.payload);
     },
   );
 
@@ -260,7 +266,8 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
       },
     },
     async (request, reply): Promise<MutationResponseDto> => {
-      const sessionWorkspaceId = options.store.getSessionWorkspaceId(request.params.sessionId);
+      const workspaceService = await options.workspaceService;
+      const sessionWorkspaceId = await workspaceService.getSessionWorkspaceId(request.params.sessionId);
       if (sessionWorkspaceId === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
@@ -269,7 +276,7 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "workspaceId must match the session workspace" });
       }
 
-      const mutation = options.store.openSessionPath(request.params.sessionId, request.body);
+      const mutation = await workspaceService.openSessionPath(request.params.sessionId, request.body);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
@@ -278,7 +285,7 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         options.eventBus.publish(workspaceId, event);
       }
 
-      return reply.code(202).send(mutation.response);
+      return reply.code(202).send(mutation.payload);
     },
   );
 
@@ -295,7 +302,8 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "sessionId must match the route parameter" });
       }
 
-      const mutation = options.store.runSessionShell(request.params.sessionId, request.body.command);
+      const workspaceService = await options.workspaceService;
+      const mutation = await workspaceService.runSessionShell(request.params.sessionId, request.body.command);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
@@ -304,7 +312,7 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         options.eventBus.publish(workspaceId, event);
       }
 
-      return reply.code(202).send(mutation.response);
+      return reply.code(202).send(mutation.payload);
     },
   );
 }

@@ -3,7 +3,12 @@ import http, { type IncomingMessage, type RequestOptions } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { createServer } from "../../server.js";
-import { DEMO_WORKSPACE_ID } from "../../demo-state.js";
+import {
+  createSeededServiceState,
+  removeSeededServiceState,
+  TEST_AWAITING_INPUT_SESSION_ID,
+  TEST_WORKSPACE_ID,
+} from "../../test-helpers.js";
 import type { WorkspaceStreamEventDto } from "../../../shared/transport/dto.js";
 
 interface SseEventMessage {
@@ -13,9 +18,12 @@ interface SseEventMessage {
 }
 
 let app: FastifyInstance | undefined;
+let appDataDir: string | undefined;
 
 async function createListeningServer(): Promise<{ app: FastifyInstance; baseUrl: string }> {
-  app = createServer({ appDataDir: "/tmp/jackdaw-test" });
+  const seededState = await createSeededServiceState();
+  appDataDir = seededState.appDataDir;
+  app = createServer({ appDataDir });
   await app.listen({ host: "127.0.0.1", port: 0 });
   const address = app.server.address() as AddressInfo;
   return {
@@ -134,12 +142,17 @@ afterEach(async () => {
     await app.close();
     app = undefined;
   }
+
+  if (appDataDir !== undefined) {
+    await removeSeededServiceState(appDataDir);
+    appDataDir = undefined;
+  }
 });
 
 describe("workspace SSE stream", () => {
   it("emits a snapshot with an event id when the stream connects", async () => {
     const { baseUrl } = await createListeningServer();
-    const streamConnection = await connectToWorkspaceEvents(baseUrl, DEMO_WORKSPACE_ID);
+    const streamConnection = await connectToWorkspaceEvents(baseUrl, TEST_WORKSPACE_ID);
 
     expect(streamConnection.response.statusCode).toBe(200);
     expect(streamConnection.response.headers["content-type"]).toContain("text/event-stream");
@@ -149,17 +162,17 @@ describe("workspace SSE stream", () => {
     expect(snapshotEvent.id).toBeDefined();
     expect(snapshotEvent.event).toBe("workspace.snapshot");
     expect(snapshotEvent.data?.version).toBe(1);
-    expect(snapshotEvent.data?.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
+    expect(snapshotEvent.data?.payload.workspaceId).toBe(TEST_WORKSPACE_ID);
 
     streamConnection.close();
   });
 
   it("replays missed events after the last seen event id", async () => {
     const { baseUrl } = await createListeningServer();
-    const firstConnection = await connectToWorkspaceEvents(baseUrl, DEMO_WORKSPACE_ID);
+    const firstConnection = await connectToWorkspaceEvents(baseUrl, TEST_WORKSPACE_ID);
     const snapshotEvent = await firstConnection.nextEvent();
 
-    const mutationResponse = await fetch(`${baseUrl}/workspaces/${DEMO_WORKSPACE_ID}`, {
+    const mutationResponse = await fetch(`${baseUrl}/workspaces/${TEST_WORKSPACE_ID}`, {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
@@ -178,24 +191,24 @@ describe("workspace SSE stream", () => {
 
     firstConnection.close();
 
-    const replayConnection = await connectToWorkspaceEvents(baseUrl, DEMO_WORKSPACE_ID, snapshotEvent.id);
+    const replayConnection = await connectToWorkspaceEvents(baseUrl, TEST_WORKSPACE_ID, snapshotEvent.id);
     const replayedEvent = await replayConnection.nextEvent();
 
     expect(replayedEvent.id).toBe(publishedEvent.id);
     expect(replayedEvent.event).toBe("workspace.updated");
-    expect(replayedEvent.data?.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
+    expect(replayedEvent.data?.payload.workspaceId).toBe(TEST_WORKSPACE_ID);
 
     replayConnection.close();
   });
 
   it("falls back to a snapshot when reconnect replay history is unavailable", async () => {
     const { baseUrl } = await createListeningServer();
-    const replayConnection = await connectToWorkspaceEvents(baseUrl, DEMO_WORKSPACE_ID, "7");
+    const replayConnection = await connectToWorkspaceEvents(baseUrl, TEST_WORKSPACE_ID, "7");
 
     const snapshotEvent = await replayConnection.nextEvent();
 
     expect(snapshotEvent.event).toBe("workspace.snapshot");
-    expect(snapshotEvent.data?.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
+    expect(snapshotEvent.data?.payload.workspaceId).toBe(TEST_WORKSPACE_ID);
 
     replayConnection.close();
   });
@@ -205,7 +218,7 @@ describe("workspace SSE stream", () => {
     const { baseUrl } = await createListeningServer();
     const streamConnection = await connectToWorkspaceEvents(
       baseUrl,
-      DEMO_WORKSPACE_ID,
+      TEST_WORKSPACE_ID,
       undefined,
       "http://127.0.0.1:5173",
     );
@@ -229,7 +242,7 @@ describe("workspace SSE stream", () => {
     const { baseUrl } = await createListeningServer();
     const streamConnection = await connectToWorkspaceEvents(
       baseUrl,
-      DEMO_WORKSPACE_ID,
+      TEST_WORKSPACE_ID,
       undefined,
       "http://evil.example:5173",
     );
@@ -248,30 +261,28 @@ describe("workspace SSE stream", () => {
 
   it("emits session events when a session changes", async () => {
     const { baseUrl } = await createListeningServer();
-    const streamConnection = await connectToWorkspaceEvents(baseUrl, DEMO_WORKSPACE_ID);
+    const streamConnection = await connectToWorkspaceEvents(baseUrl, TEST_WORKSPACE_ID);
     await streamConnection.nextEvent();
 
     expect(streamConnection.response.statusCode).toBe(200);
 
-    const mutationResponse = await fetch(`${baseUrl}/sessions/ses-awaiting-input/follow-up`, {
+    const mutationResponse = await fetch(`${baseUrl}/sessions/${TEST_AWAITING_INPUT_SESSION_ID}/follow-up`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        sessionId: "ses-awaiting-input",
-        text: "Emit an intervention update event.",
+        sessionId: TEST_AWAITING_INPUT_SESSION_ID,
+        text: "Need another update for SSE verification.",
       }),
     });
 
     expect(mutationResponse.status).toBe(202);
 
-    const nextEvent = await streamConnection.nextEvent();
+    const eventMessage = await streamConnection.nextEvent();
 
-    expect(nextEvent.id).toBeDefined();
-    expect(nextEvent.data?.version).toBe(1);
-    expect(["session.intervention-changed", "session.summary-updated"]).toContain(nextEvent.event);
-    expect(nextEvent.data?.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
+    expect(eventMessage.event).toBe("session.intervention-changed");
+    expect(eventMessage.data?.payload.workspaceId).toBe(TEST_WORKSPACE_ID);
 
     streamConnection.close();
   });

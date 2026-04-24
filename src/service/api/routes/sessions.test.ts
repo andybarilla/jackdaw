@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createServer } from "../../server.js";
-import { DEMO_WORKSPACE_ID } from "../../demo-state.js";
+import {
+  createSeededServiceState,
+  removeSeededServiceState,
+  TEST_AWAITING_INPUT_SESSION_ID,
+  TEST_WORKSPACE_ID,
+} from "../../test-helpers.js";
 import type {
   MutationResponseDto,
   SessionsListDto,
@@ -9,9 +14,12 @@ import type {
 } from "../../../shared/transport/dto.js";
 
 let app: FastifyInstance | undefined;
+let appDataDir: string | undefined;
 
 async function createTestServer(): Promise<FastifyInstance> {
-  app = createServer({ appDataDir: "/tmp/jackdaw-test" });
+  const seededState = await createSeededServiceState();
+  appDataDir = seededState.appDataDir;
+  app = createServer({ appDataDir });
   await app.ready();
   return app;
 }
@@ -21,6 +29,11 @@ afterEach(async () => {
     await app.close();
     app = undefined;
   }
+
+  if (appDataDir !== undefined) {
+    await removeSeededServiceState(appDataDir);
+    appDataDir = undefined;
+  }
 });
 
 describe("session routes", () => {
@@ -29,9 +42,9 @@ describe("session routes", () => {
 
     const response = await server.inject({
       method: "POST",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}/sessions`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
       payload: {
-        workspaceId: DEMO_WORKSPACE_ID,
+        workspaceId: TEST_WORKSPACE_ID,
         cwd: "/workspace/jackdaw",
         task: "Implement the API route surface",
         name: "API route build",
@@ -48,7 +61,7 @@ describe("session routes", () => {
 
     const sessionsResponse = await server.inject({
       method: "GET",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}/sessions`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
     });
 
     const sessionsBody = sessionsResponse.json<SessionsListDto>();
@@ -63,9 +76,9 @@ describe("session routes", () => {
 
     const createResponse = await server.inject({
       method: "POST",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}/sessions`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
       payload: {
-        workspaceId: DEMO_WORKSPACE_ID,
+        workspaceId: TEST_WORKSPACE_ID,
         cwd: "/workspace/jackdaw",
       },
     });
@@ -74,9 +87,9 @@ describe("session routes", () => {
 
     const shellResponse = await server.inject({
       method: "POST",
-      url: "/sessions/ses-awaiting-input/shell",
+      url: `/sessions/${TEST_AWAITING_INPUT_SESSION_ID}/shell`,
       payload: {
-        sessionId: "ses-awaiting-input",
+        sessionId: TEST_AWAITING_INPUT_SESSION_ID,
         extra: true,
       },
     });
@@ -86,7 +99,7 @@ describe("session routes", () => {
 
   it("records steer, follow-up, abort, pin-summary, open-path, and shell actions and appends attention history", async () => {
     const server = await createTestServer();
-    const sessionId = "ses-awaiting-input";
+    const sessionId = TEST_AWAITING_INPUT_SESSION_ID;
 
     const steerResponse = await server.inject({
       method: "POST",
@@ -125,7 +138,7 @@ describe("session routes", () => {
       method: "POST",
       url: `/sessions/${sessionId}/open-path`,
       payload: {
-        workspaceId: DEMO_WORKSPACE_ID,
+        workspaceId: TEST_WORKSPACE_ID,
         path: "src/service/server.ts",
         revealInFileManager: true,
       },
@@ -153,7 +166,7 @@ describe("session routes", () => {
 
     const sessionsResponse = await server.inject({
       method: "GET",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}/sessions`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
     });
 
     const sessionsBody = sessionsResponse.json<SessionsListDto>();
@@ -166,7 +179,7 @@ describe("session routes", () => {
 
     const workspaceResponse = await server.inject({
       method: "GET",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}`,
     });
     const workspaceBody = workspaceResponse.json<WorkspaceDetailDto>();
 
@@ -179,7 +192,7 @@ describe("session routes", () => {
 
     const response = await server.inject({
       method: "POST",
-      url: "/sessions/ses-awaiting-input/open-path",
+      url: `/sessions/${TEST_AWAITING_INPUT_SESSION_ID}/open-path`,
       payload: {
         workspaceId: "ws-other",
         path: "src/service/server.ts",

@@ -1,13 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createServer } from "./server.js";
-import { DEMO_WORKSPACE_ID } from "./demo-state.js";
+import {
+  createEmptyServiceState,
+  createSeededServiceState,
+  removeSeededServiceState,
+  TEST_WORKSPACE_ID,
+} from "./test-helpers.js";
 import type { SessionsListDto, WorkspaceDetailDto, WorkspaceSummaryDto } from "../shared/transport/dto.js";
 
 let app: FastifyInstance | undefined;
+let appDataDir: string | undefined;
 
-async function createTestServer(): Promise<FastifyInstance> {
-  app = createServer({ appDataDir: "/tmp/jackdaw-test" });
+async function createTestServer(seed: boolean = true): Promise<FastifyInstance> {
+  const serviceState = seed ? await createSeededServiceState() : await createEmptyServiceState();
+  appDataDir = serviceState.appDataDir;
+  app = createServer({ appDataDir });
   await app.ready();
   return app;
 }
@@ -18,6 +26,11 @@ afterEach(async () => {
   if (app) {
     await app.close();
     app = undefined;
+  }
+
+  if (appDataDir !== undefined) {
+    await removeSeededServiceState(appDataDir);
+    appDataDir = undefined;
   }
 });
 
@@ -36,7 +49,7 @@ describe("service server", () => {
 
     expect(Array.isArray(body)).toBe(true);
     expect(body.length).toBeGreaterThanOrEqual(1);
-    expect(body[0]?.id).toBe(DEMO_WORKSPACE_ID);
+    expect(body[0]?.id).toBe(TEST_WORKSPACE_ID);
   });
 
   it("returns workspace detail with attention-ordered sessions", async () => {
@@ -44,18 +57,53 @@ describe("service server", () => {
 
     const response = await server.inject({
       method: "GET",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}`,
     });
 
     expect(response.statusCode).toBe(200);
 
     const body = response.json<WorkspaceDetailDto>();
 
-    expect(body.workspace.id).toBe(DEMO_WORKSPACE_ID);
+    expect(body.workspace.id).toBe(TEST_WORKSPACE_ID);
     expect(body.sessions).toHaveLength(3);
     expect(body.sessions[0]?.status).toBe("awaiting-input");
     expect(body.sessions[1]?.status).toBe("running");
     expect(["idle", "done"]).toContain(body.sessions[2]?.status);
+  });
+
+  it("persists workspace mutations across server instances using the app-data directory", async () => {
+    const server = await createTestServer(false);
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/workspaces",
+      payload: {
+        name: "Persisted workspace",
+        description: "Stored under the resolved app-data directory.",
+        repoRoots: ["/workspace/persisted"],
+      },
+    });
+
+    expect(createResponse.statusCode).toBe(201);
+    const createdWorkspace = createResponse.json<WorkspaceDetailDto>();
+
+    await server.close();
+    app = undefined;
+
+    app = createServer({ appDataDir: appDataDir as string });
+    await app.ready();
+
+    const reloadResponse = await app.inject({
+      method: "GET",
+      url: `/workspaces/${createdWorkspace.workspace.id}`,
+    });
+
+    expect(reloadResponse.statusCode).toBe(200);
+    expect(reloadResponse.json<WorkspaceDetailDto>().workspace).toMatchObject({
+      id: createdWorkspace.workspace.id,
+      name: "Persisted workspace",
+      description: "Stored under the resolved app-data directory.",
+    });
   });
 
   it("returns the same attention-ordered sessions from the sessions route", async () => {
@@ -63,11 +111,11 @@ describe("service server", () => {
 
     const detailResponse = await server.inject({
       method: "GET",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}`,
     });
     const sessionsResponse = await server.inject({
       method: "GET",
-      url: `/workspaces/${DEMO_WORKSPACE_ID}/sessions`,
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
     });
 
     expect(sessionsResponse.statusCode).toBe(200);
@@ -75,7 +123,7 @@ describe("service server", () => {
     const detailBody = detailResponse.json<WorkspaceDetailDto>();
     const sessionsBody = sessionsResponse.json<SessionsListDto>();
 
-    expect(sessionsBody.workspaceId).toBe(DEMO_WORKSPACE_ID);
+    expect(sessionsBody.workspaceId).toBe(TEST_WORKSPACE_ID);
     expect(sessionsBody.sessions).toEqual(detailBody.sessions);
     expect(sessionsBody.sessions[0]?.status).toBe("awaiting-input");
     expect(sessionsBody.sessions[1]?.status).toBe("running");
