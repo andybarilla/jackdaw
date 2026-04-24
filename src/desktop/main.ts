@@ -39,7 +39,7 @@ async function bootstrap(): Promise<void> {
   const appDataDir = resolveAppDataDir();
   const port = await findAvailablePort();
   const serviceEntrypoint = path.resolve("dist/service/main.js");
-  preloadPath = path.resolve("dist/desktop/preload.js");
+  preloadPath = path.resolve("dist/desktop/preload.cjs");
   console.log("[jackdaw-desktop] resolved runtime paths", {
     appDataDir,
     port,
