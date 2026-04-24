@@ -74,6 +74,7 @@ export class WorkspaceService {
     const registry = await WorkspaceRegistry.load({
       appStore,
       workspaceStoreFactory,
+      workspacesDirectoryPath: path.join(options.appDataDir, "workspaces"),
     });
 
     return new WorkspaceService(registry);

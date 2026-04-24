@@ -140,6 +140,15 @@ describe("service persistence schema", () => {
     ).toThrow(/workspaces/i);
   });
 
+  it("rejects app state when selectedWorkspaceId is not present in the workspace list", () => {
+    expect(() =>
+      parsePersistedAppState({
+        ...persistedAppState,
+        selectedWorkspaceId: "missing-workspace",
+      }),
+    ).toThrow(/selectedWorkspaceId|missing-workspace/i);
+  });
+
   it("rejects malformed workspace state safely", () => {
     expect(() =>
       parsePersistedWorkspaceState({
@@ -220,6 +229,49 @@ describe("service persistence schema", () => {
         ],
       }),
     ).toThrow(/missing-artifact/i);
+  });
+
+  it("rejects workspace state when a session repo root is not registered", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        sessions: [
+          {
+            ...persistedWorkspaceState.sessions[0],
+            repoRoot: "/repos/other",
+          },
+        ],
+      }),
+    ).toThrow(/repo root|\/repos\/other/i);
+  });
+
+  it("rejects workspace state when a session worktree is not registered for its repo root", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        sessions: [
+          {
+            ...persistedWorkspaceState.sessions[0],
+            repoRoot: "/repos/jackdaw-alt",
+            worktree: persistedWorkspaceState.workspace.worktrees[0]?.path,
+          },
+        ],
+      }),
+    ).toThrow(/worktree|repo root/i);
+  });
+
+  it("rejects workspace state when a session cwd falls outside its registered worktree", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        sessions: [
+          {
+            ...persistedWorkspaceState.sessions[0],
+            cwd: "/repos/jackdaw/outside",
+          },
+        ],
+      }),
+    ).toThrow(/cwd|worktree/i);
   });
 
   it("rejects workspace state with dangling artifact session references", () => {

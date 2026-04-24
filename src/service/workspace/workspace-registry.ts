@@ -1,3 +1,4 @@
+import { readdir } from "node:fs/promises";
 import { AppStore } from "../persistence/app-store.js";
 import {
   workspaceToIndexEntry,
@@ -5,6 +6,7 @@ import {
   type PersistedWorkspaceIndexEntry,
   type PersistedWorkspaceState,
 } from "../persistence/schema.js";
+import { resolveServicePersistencePaths, type ResolveServiceAppDataDirOptions } from "../persistence/paths.js";
 import { WorkspaceStore } from "../persistence/workspace-store.js";
 import { RepoRegistry } from "./repo-registry.js";
 import { linkArtifactToWorkspace, linkSessionToWorkspace, sortArtifactsByWorkspaceOrder, sortSessionsByWorkspaceOrder } from "./session-links.js";
@@ -22,6 +24,8 @@ export interface WorkspaceDetailRecord {
 export interface WorkspaceRegistryLoadOptions {
   appStore?: AppStore;
   workspaceStoreFactory?: (workspaceId: string) => WorkspaceStore;
+  workspacesDirectoryPath?: string;
+  persistencePathOptions?: ResolveServiceAppDataDirOptions;
 }
 
 export interface CreateWorkspaceRecordInput {
@@ -44,7 +48,7 @@ export interface UpdateWorkspaceRecordInput {
 
 export class WorkspaceRegistry {
   private readonly workspaces = new Map<string, WorkspaceDetailRecord>();
-  private readonly appState: PersistedAppState;
+  private appState: PersistedAppState;
   private readonly repoRegistry = new RepoRegistry();
 
   private constructor(
@@ -62,19 +66,45 @@ export class WorkspaceRegistry {
   static async load(options: WorkspaceRegistryLoadOptions = {}): Promise<WorkspaceRegistry> {
     const appStore = options.appStore ?? AppStore.default();
     const workspaceStoreFactory = options.workspaceStoreFactory ?? ((workspaceId: string) => WorkspaceStore.default(workspaceId));
+    const workspacesDirectoryPath = options.workspacesDirectoryPath
+      ?? resolveServicePersistencePaths(options.persistencePathOptions).workspacesDirectoryPath;
     const appState = await appStore.load();
     const workspaceDetails: WorkspaceDetailRecord[] = [];
+    const discoveredWorkspaceIds = await discoverWorkspaceIds(workspacesDirectoryPath);
+    const orderedWorkspaceIds = [...new Set<string>([
+      ...appState.workspaces.map((entry) => entry.id),
+      ...discoveredWorkspaceIds,
+    ])];
+    const lastOpenedAtByWorkspaceId = new Map<string, string | undefined>(
+      appState.workspaces.map((entry) => [entry.id, entry.lastOpenedAt]),
+    );
+    const recoveredEntries: PersistedWorkspaceIndexEntry[] = [];
 
-    for (const entry of appState.workspaces) {
-      const workspaceState = await workspaceStoreFactory(entry.id).load();
+    for (const workspaceId of orderedWorkspaceIds) {
+      const workspaceState = await workspaceStoreFactory(workspaceId).load();
       if (workspaceState === undefined) {
-        throw new Error(`Workspace ${entry.id} is listed in app-state.json but workspace.json is missing`);
+        continue;
       }
 
-      workspaceDetails.push(toWorkspaceDetailRecord(workspaceState, entry));
+      const recoveredEntry = workspaceToIndexEntry(workspaceState.workspace, lastOpenedAtByWorkspaceId.get(workspaceId));
+      recoveredEntries.push(recoveredEntry);
+      workspaceDetails.push(toWorkspaceDetailRecord(workspaceState, recoveredEntry));
     }
 
-    return new WorkspaceRegistry(appStore, workspaceStoreFactory, appState, workspaceDetails);
+    const selectedWorkspaceId = appState.selectedWorkspaceId;
+    const recoveredAppState: PersistedAppState = {
+      version: 1,
+      selectedWorkspaceId: selectedWorkspaceId !== undefined && recoveredEntries.some((entry) => entry.id === selectedWorkspaceId)
+        ? selectedWorkspaceId
+        : undefined,
+      workspaces: recoveredEntries,
+    };
+
+    if (!persistedAppStatesMatch(appState, recoveredAppState)) {
+      await appStore.save(recoveredAppState);
+    }
+
+    return new WorkspaceRegistry(appStore, workspaceStoreFactory, recoveredAppState, workspaceDetails);
   }
 
   listWorkspaces(): Workspace[] {
@@ -267,22 +297,58 @@ export class WorkspaceRegistry {
       sessions: workspaceDetail.sessions,
       artifacts: workspaceDetail.artifacts,
     };
+    const nextAppState = syncAppStateIndex(this.appState, workspaceDetail.workspace, workspaceDetail.lastOpenedAt);
 
     await this.workspaceStoreFactory(workspaceDetail.workspace.id).save(persistedWorkspaceState);
+    await this.appStore.save(nextAppState);
+
     this.workspaces.set(workspaceDetail.workspace.id, cloneWorkspaceDetailRecord(workspaceDetail));
-    this.syncAppStateIndex(workspaceDetail.workspace, workspaceDetail.lastOpenedAt);
-    await this.appStore.save(this.appState);
+    this.appState = nextAppState;
+  }
+}
+
+async function discoverWorkspaceIds(workspacesDirectoryPath: string): Promise<string[]> {
+  try {
+    const entries = await readdir(workspacesDirectoryPath, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error: unknown) {
+    if (isMissingFileError(error)) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+function syncAppStateIndex(
+  appState: PersistedAppState,
+  workspace: Workspace,
+  lastOpenedAt?: string,
+): PersistedAppState {
+  const nextEntry = workspaceToIndexEntry(workspace, lastOpenedAt);
+  const existingIndex = appState.workspaces.findIndex((entry) => entry.id === workspace.id);
+  const nextWorkspaces = [...appState.workspaces];
+
+  if (existingIndex === -1) {
+    nextWorkspaces.push(nextEntry);
+  } else {
+    nextWorkspaces[existingIndex] = nextEntry;
   }
 
-  private syncAppStateIndex(workspace: Workspace, lastOpenedAt?: string): void {
-    const nextEntry = workspaceToIndexEntry(workspace, lastOpenedAt);
-    const existingIndex = this.appState.workspaces.findIndex((entry) => entry.id === workspace.id);
-    if (existingIndex === -1) {
-      this.appState.workspaces.push(nextEntry);
-    } else {
-      this.appState.workspaces[existingIndex] = nextEntry;
-    }
-  }
+  return {
+    ...appState,
+    workspaces: nextWorkspaces,
+  };
+}
+
+function persistedAppStatesMatch(left: PersistedAppState, right: PersistedAppState): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return !!error && typeof error === "object" && "code" in error && error.code === "ENOENT";
 }
 
 function toWorkspaceDetailRecord(

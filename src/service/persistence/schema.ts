@@ -1,3 +1,4 @@
+import path from "node:path";
 import { isArtifactKind, type WorkspaceArtifact } from "../../shared/domain/artifact.js";
 import {
   isInterventionKind,
@@ -98,6 +99,10 @@ export function parsePersistedAppState(value: unknown): PersistedAppState {
 
   const selectedWorkspaceId = readOptionalString(objectValue.selectedWorkspaceId, "Persisted app state selectedWorkspaceId");
   const workspaces = workspacesValue.map((entry, index) => parseWorkspaceIndexEntry(entry, index));
+
+  if (selectedWorkspaceId !== undefined && !workspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
+    throw new TypeError(`Persisted app state selectedWorkspaceId references missing workspace ${selectedWorkspaceId}`);
+  }
 
   return {
     version: 1,
@@ -375,6 +380,8 @@ function assertWorkspaceLinks(
   artifacts: readonly WorkspaceArtifact[],
 ): void {
   const repoRootIds = new Set<string>(workspace.repoRoots.map((repoRoot) => repoRoot.id));
+  const repoRootByPath = new Map<string, WorkspaceRepoRoot>(workspace.repoRoots.map((repoRoot) => [repoRoot.path, repoRoot]));
+  const worktreeByPath = new Map<string, WorkspaceWorktree>(workspace.worktrees.map((worktree) => [worktree.path, worktree]));
   const sessionIds = new Set<string>(sessions.map((session) => session.id));
   const artifactIds = new Set<string>(artifacts.map((artifact) => artifact.id));
 
@@ -407,6 +414,29 @@ function assertWorkspaceLinks(
     if (!workspace.sessionIds.includes(session.id)) {
       throw new TypeError(`Persisted workspace state session ${session.id} is not linked from workspace.sessionIds`);
     }
+    if (!repoRootByPath.has(session.repoRoot)) {
+      throw new TypeError(`Persisted workspace state session ${session.id} references unregistered repo root ${session.repoRoot}`);
+    }
+
+    if (session.worktree !== undefined) {
+      const worktree = worktreeByPath.get(session.worktree);
+      if (worktree === undefined) {
+        throw new TypeError(`Persisted workspace state session ${session.id} references unregistered worktree ${session.worktree}`);
+      }
+
+      const worktreeRepoRoot = workspace.repoRoots.find((repoRoot) => repoRoot.id === worktree.repoRootId);
+      if (worktreeRepoRoot?.path !== session.repoRoot) {
+        throw new TypeError(
+          `Persisted workspace state session ${session.id} worktree ${session.worktree} does not belong to repo root ${session.repoRoot}`,
+        );
+      }
+    }
+
+    const cwdBasePath = session.worktree ?? session.repoRoot;
+    if (!isPathInsideWorkspace(cwdBasePath, session.cwd)) {
+      throw new TypeError(`Persisted workspace state session ${session.id} cwd ${session.cwd} is outside ${cwdBasePath}`);
+    }
+
     for (const artifactId of session.linkedResources.artifactIds) {
       if (!artifactIds.has(artifactId)) {
         throw new TypeError(`Persisted workspace state session ${session.id} references missing artifact ${artifactId}`);
@@ -426,6 +456,11 @@ function assertWorkspaceLinks(
       }
     }
   }
+}
+
+function isPathInsideWorkspace(parentPath: string, childPath: string): boolean {
+  const relativePath = path.relative(parentPath, childPath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
 }
 
 function readObject(value: unknown, context: string): Record<string, unknown> {

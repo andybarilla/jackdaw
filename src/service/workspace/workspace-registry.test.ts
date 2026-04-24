@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,6 +6,9 @@ import type { WorkspaceArtifact } from "../../shared/domain/artifact.js";
 import type { WorkspaceSession } from "../../shared/domain/session.js";
 import type { WorkspaceRepoRoot, WorkspaceWorktree } from "../../shared/domain/workspace.js";
 import { WorkspaceRegistry } from "./workspace-registry.js";
+import { AppStore } from "../persistence/app-store.js";
+import { WorkspaceStore } from "../persistence/workspace-store.js";
+import type { PersistedAppState } from "../persistence/schema.js";
 
 const repoRoot: WorkspaceRepoRoot = {
   id: "repo-1",
@@ -224,5 +227,52 @@ describe("WorkspaceRegistry", () => {
     });
     expect(updatedDetail?.workspace.sessionIds).toEqual(["session-1", "session-2"]);
     expect(updatedDetail?.sessions.map((session) => session.id)).toEqual(["session-1", "session-2"]);
+  });
+
+  it("keeps in-memory state unchanged when app-state persistence fails and recovers the workspace on next load", async () => {
+    const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
+    directories.push(appDataDir);
+    process.env.JACKDAW_APP_DATA_DIR = appDataDir;
+
+    class FailingAppStore extends AppStore {
+      override async load(): Promise<PersistedAppState> {
+        return {
+          version: 1,
+          workspaces: [],
+        };
+      }
+
+      override async save(): Promise<void> {
+        throw new Error("app-state write failed");
+      }
+    }
+
+    const registry = await WorkspaceRegistry.load({
+      appStore: new FailingAppStore(path.join(appDataDir, "app-state.json")),
+      workspaceStoreFactory: (workspaceId: string) => new WorkspaceStore(path.join(appDataDir, "workspaces", workspaceId, "workspace.json")),
+      workspacesDirectoryPath: path.join(appDataDir, "workspaces"),
+    });
+
+    await expect(() => registry.createWorkspace({
+      id: "ws-1",
+      name: "Workspace 1",
+      repoRoots: [repoRoot],
+      worktrees: [worktree],
+      createdAt: "2026-04-24T10:00:00.000Z",
+      updatedAt: "2026-04-24T10:00:00.000Z",
+    })).rejects.toThrow(/app-state write failed/i);
+
+    expect(registry.listWorkspaces()).toEqual([]);
+    expect(registry.getWorkspaceDetail("ws-1")).toBeUndefined();
+
+    const recoveredRegistry = await WorkspaceRegistry.load({
+      appStore: new AppStore(path.join(appDataDir, "app-state.json")),
+      workspaceStoreFactory: (workspaceId: string) => new WorkspaceStore(path.join(appDataDir, "workspaces", workspaceId, "workspace.json")),
+      workspacesDirectoryPath: path.join(appDataDir, "workspaces"),
+    });
+
+    expect(recoveredRegistry.listWorkspaces().map((workspace) => workspace.id)).toEqual(["ws-1"]);
+    expect(recoveredRegistry.getWorkspaceDetail("ws-1")?.workspace.name).toBe("Workspace 1");
+    await expect(readFile(path.join(appDataDir, "app-state.json"), "utf8")).resolves.toContain('"id": "ws-1"');
   });
 });

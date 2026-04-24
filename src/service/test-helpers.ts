@@ -24,6 +24,7 @@ export async function createSeededServiceState(): Promise<SeededServiceState> {
   const registry = await WorkspaceRegistry.load({
     appStore: new AppStore(path.join(appDataDir, "app-state.json")),
     workspaceStoreFactory: (workspaceId: string) => new WorkspaceStore(path.join(appDataDir, "workspaces", workspaceId, "workspace.json")),
+    workspacesDirectoryPath: path.join(appDataDir, "workspaces"),
   });
 
   const repoRoot: WorkspaceRepoRoot = {
