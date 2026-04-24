@@ -7,5 +7,5 @@ export function resolveAppDataDir(): string {
     return path.resolve(configured);
   }
 
-  return path.join(app.getPath("userData"), "data");
+  return app.getPath("userData");
 }
