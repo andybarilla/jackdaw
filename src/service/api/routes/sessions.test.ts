@@ -174,6 +174,22 @@ describe("session routes", () => {
     expect(workspaceBody.recentAttention[0]?.title).toContain("Abort");
   });
 
+  it("rejects open-path when workspaceId does not match the session workspace", async () => {
+    const server = await createTestServer();
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/sessions/ses-awaiting-input/open-path",
+      payload: {
+        workspaceId: "ws-other",
+        path: "src/service/server.ts",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ error: string }>().error).toBe("workspaceId must match the session workspace");
+  });
+
   it("returns 404 for session actions against an unknown session", async () => {
     const server = await createTestServer();
 

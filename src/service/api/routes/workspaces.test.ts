@@ -77,6 +77,8 @@ describe("workspace routes", () => {
     expect(createdWorkspace.workspace.name).toBe("Workspace API Test");
     expect(createdWorkspace.workspace.repoRoots).toHaveLength(1);
     expect(createdWorkspace.sessions).toEqual([]);
+    expect(createdWorkspace.recentAttention[0]?.title).toBe("Workspace created");
+    expect(createdWorkspace.recentAttention[0]?.detail).toContain("Workspace API Test");
 
     const listResponse = await server.inject({
       method: "GET",
@@ -130,6 +132,8 @@ describe("workspace routes", () => {
 
     expect(patchedWorkspace.workspace.name).toBe("Renamed demo workspace");
     expect(patchedWorkspace.workspace.description).toBe("Updated by route test");
+    expect(patchedWorkspace.recentAttention[0]?.title).toBe("Workspace updated");
+    expect(patchedWorkspace.recentAttention[0]?.detail).toContain("Renamed demo workspace");
 
     const repoResponse = await server.inject({
       method: "POST",
@@ -146,6 +150,8 @@ describe("workspace routes", () => {
     const repoWorkspace = repoResponse.json<WorkspaceDetailDto>();
 
     expect(repoWorkspace.workspace.repoRoots.some((repoRoot) => repoRoot.path === "/workspace/another-repo")).toBe(true);
+    expect(repoWorkspace.recentAttention[0]?.title).toBe("Workspace repo added");
+    expect(repoWorkspace.recentAttention[0]?.detail).toContain("another-repo");
   });
 
   it("returns workspace detail and sessions for the seeded workspace", async () => {

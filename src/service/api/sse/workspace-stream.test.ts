@@ -184,6 +184,18 @@ describe("workspace SSE stream", () => {
     replayConnection.close();
   });
 
+  it("falls back to a snapshot when reconnect replay history is unavailable", async () => {
+    const { baseUrl } = await createListeningServer();
+    const replayConnection = await connectToWorkspaceEvents(baseUrl, DEMO_WORKSPACE_ID, "7");
+
+    const snapshotEvent = await replayConnection.nextEvent();
+
+    expect(snapshotEvent.event).toBe("workspace.snapshot");
+    expect(snapshotEvent.data?.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
+
+    replayConnection.close();
+  });
+
   it("emits session events when a session changes", async () => {
     const { baseUrl } = await createListeningServer();
     const streamConnection = await connectToWorkspaceEvents(baseUrl, DEMO_WORKSPACE_ID);

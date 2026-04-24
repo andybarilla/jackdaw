@@ -242,6 +242,7 @@ export interface DemoStateStore {
   listWorkspaces(): WorkspaceSummaryDto[];
   getWorkspaceDetail(workspaceId: string): WorkspaceDetailDto | undefined;
   getWorkspaceSessions(workspaceId: string): SessionsListDto | undefined;
+  getSessionWorkspaceId(sessionId: string): string | undefined;
   createWorkspace(input: CreateWorkspaceDto): { detail: WorkspaceDetailDto; events: DemoMutationEvent[] };
   updateWorkspace(workspaceId: string, input: UpdateWorkspaceDto): { detail: WorkspaceDetailDto; events: DemoMutationEvent[] } | undefined;
   addWorkspaceRepo(workspaceId: string, input: AddWorkspaceRepoDto): { detail: WorkspaceDetailDto; events: DemoMutationEvent[] } | undefined;
@@ -409,6 +410,30 @@ export function createDemoStateStore(): DemoStateStore {
     return workspace;
   };
 
+  const appendAttentionRecord = (
+    sessionId: string,
+    workspaceId: string,
+    band: AttentionEvent["band"],
+    occurredAt: string,
+    title: string,
+    detail: string,
+    source: AttentionEvent["source"],
+    meaningful: boolean,
+  ): void => {
+    state.attentionCounter += 1;
+    state.recentAttention = [{
+      id: `attention-${state.attentionCounter}`,
+      sessionId,
+      workspaceId,
+      band,
+      title,
+      detail,
+      occurredAt,
+      source,
+      meaningful,
+    }, ...state.recentAttention].slice(0, 25);
+  };
+
   const appendAttentionEvent = (
     session: WorkspaceSession,
     occurredAt: string,
@@ -417,18 +442,34 @@ export function createDemoStateStore(): DemoStateStore {
     source: AttentionEvent["source"],
     meaningful: boolean = true,
   ): void => {
-    state.attentionCounter += 1;
-    state.recentAttention = [{
-      id: `attention-${state.attentionCounter}`,
-      sessionId: session.id,
-      workspaceId: session.workspaceId,
-      band: attentionBandForStatus(session.status),
+    appendAttentionRecord(
+      session.id,
+      session.workspaceId,
+      attentionBandForStatus(session.status),
+      occurredAt,
       title,
       detail,
-      occurredAt,
       source,
       meaningful,
-    }, ...state.recentAttention].slice(0, 25);
+    );
+  };
+
+  const appendWorkspaceAttentionEvent = (
+    workspace: Workspace,
+    occurredAt: string,
+    title: string,
+    detail: string,
+  ): void => {
+    appendAttentionRecord(
+      `workspace:${workspace.id}`,
+      workspace.id,
+      "active",
+      occurredAt,
+      title,
+      detail,
+      "system",
+      true,
+    );
   };
 
   const findSession = (sessionId: string): WorkspaceSession | undefined => {
@@ -461,6 +502,10 @@ export function createDemoStateStore(): DemoStateStore {
       };
     },
 
+    getSessionWorkspaceId(sessionId: string): string | undefined {
+      return findSession(sessionId)?.workspaceId;
+    },
+
     createWorkspace(input: CreateWorkspaceDto): { detail: WorkspaceDetailDto; events: DemoMutationEvent[] } {
       state.workspaceCounter += 1;
       const createdAt = new Date().toISOString();
@@ -486,6 +531,7 @@ export function createDemoStateStore(): DemoStateStore {
       };
 
       state.workspaces.set(workspaceId, workspace);
+      appendWorkspaceAttentionEvent(workspace, createdAt, "Workspace created", `Created workspace ${workspace.name}.`);
       return {
         detail: getWorkspaceDetail(workspaceId) as WorkspaceDetailDto,
         events: [{
@@ -508,6 +554,7 @@ export function createDemoStateStore(): DemoStateStore {
         ? workspace.preferences
         : { ...workspace.preferences, ...input.preferences };
       workspace.updatedAt = updatedAt;
+      appendWorkspaceAttentionEvent(workspace, updatedAt, "Workspace updated", `Updated workspace ${workspace.name}.`);
 
       return {
         detail: getWorkspaceDetail(workspaceId) as WorkspaceDetailDto,
@@ -534,6 +581,7 @@ export function createDemoStateStore(): DemoStateStore {
 
       const updatedAt = new Date().toISOString();
       workspace.updatedAt = updatedAt;
+      appendWorkspaceAttentionEvent(workspace, updatedAt, "Workspace repo added", `Added repo ${input.name ?? input.path} to ${workspace.name}.`);
       return {
         detail: getWorkspaceDetail(workspaceId) as WorkspaceDetailDto,
         events: [{

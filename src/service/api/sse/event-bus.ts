@@ -7,10 +7,15 @@ export interface WorkspaceEventEnvelope {
   event: WorkspaceStreamEventDto;
 }
 
+export interface WorkspaceReplayResult {
+  canReplay: boolean;
+  events: WorkspaceEventEnvelope[];
+}
+
 export interface WorkspaceEventBus {
   publish(workspaceId: string, event: WorkspaceStreamEventDto): WorkspaceEventEnvelope;
   createTransientEvent(workspaceId: string, event: WorkspaceStreamEventDto): WorkspaceEventEnvelope;
-  replaySince(workspaceId: string, lastEventId: string): WorkspaceEventEnvelope[] | undefined;
+  replaySince(workspaceId: string, lastEventId: string): WorkspaceReplayResult | undefined;
   subscribe(workspaceId: string, listener: WorkspaceEventListener): () => void;
 }
 
@@ -75,19 +80,18 @@ export function createWorkspaceEventBus(): WorkspaceEventBus {
       return createEnvelope(workspaceId, event);
     },
 
-    replaySince(workspaceId: string, lastEventId: string): WorkspaceEventEnvelope[] | undefined {
+    replaySince(workspaceId: string, lastEventId: string): WorkspaceReplayResult | undefined {
       const parsedLastEventId = Number(lastEventId);
       if (!Number.isInteger(parsedLastEventId) || parsedLastEventId < 0) {
         return undefined;
       }
 
       const channel = channelsByWorkspaceId.get(workspaceId);
-      if (channel === undefined) {
-        return [];
-      }
-
-      if (channel.history.length === 0) {
-        return [];
+      if (channel === undefined || channel.history.length === 0) {
+        return {
+          canReplay: false,
+          events: [],
+        };
       }
 
       const oldestRetainedEventId = Number(channel.history[0]?.id);
@@ -95,7 +99,10 @@ export function createWorkspaceEventBus(): WorkspaceEventBus {
         return undefined;
       }
 
-      return channel.history.filter((entry) => Number(entry.id) > parsedLastEventId);
+      return {
+        canReplay: true,
+        events: channel.history.filter((entry) => Number(entry.id) > parsedLastEventId),
+      };
     },
 
     subscribe(workspaceId: string, listener: WorkspaceEventListener): () => void {

@@ -260,6 +260,15 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
       },
     },
     async (request, reply): Promise<MutationResponseDto> => {
+      const sessionWorkspaceId = options.store.getSessionWorkspaceId(request.params.sessionId);
+      if (sessionWorkspaceId === undefined) {
+        return reply.code(404).send({ error: "Session not found" });
+      }
+
+      if (!idsMatch(request.body.workspaceId, sessionWorkspaceId)) {
+        return reply.code(400).send({ error: "workspaceId must match the session workspace" });
+      }
+
       const mutation = options.store.openSessionPath(request.params.sessionId, request.body);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });

@@ -43,6 +43,26 @@ describe("workspace event bus", () => {
     eventBus.publish(WORKSPACE_ID, createWorkspaceUpdatedEvent("2026-04-23T00:00:01.000Z"));
     eventBus.publish(WORKSPACE_ID, createWorkspaceUpdatedEvent("2026-04-23T00:00:02.000Z"));
 
-    expect(eventBus.replaySince(WORKSPACE_ID, "1")?.map((entry) => entry.id)).toEqual(["2", "3"]);
+    const replay = eventBus.replaySince(WORKSPACE_ID, "1");
+
+    expect(replay?.canReplay).toBe(true);
+    expect(replay?.events.map((entry) => entry.id)).toEqual(["2", "3"]);
+  });
+
+  it("distinguishes missing replay history from zero missed events", () => {
+    const eventBus = createWorkspaceEventBus();
+
+    expect(eventBus.replaySince(WORKSPACE_ID, "1")).toEqual({
+      canReplay: false,
+      events: [],
+    });
+
+    const publishedEvent = eventBus.publish(WORKSPACE_ID, createWorkspaceUpdatedEvent("2026-04-23T00:00:00.000Z"));
+    const replay = eventBus.replaySince(WORKSPACE_ID, publishedEvent.id);
+
+    expect(replay).toEqual({
+      canReplay: true,
+      events: [],
+    });
   });
 });

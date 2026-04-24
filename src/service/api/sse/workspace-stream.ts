@@ -75,14 +75,14 @@ export async function registerWorkspaceStreamRoutes(
       : request.headers["last-event-id"];
 
     if (typeof lastEventIdHeader === "string" && lastEventIdHeader.length > 0) {
-      const replayedEvents = options.eventBus.replaySince(request.params.workspaceId, lastEventIdHeader);
-      if (replayedEvents === undefined) {
+      const replay = options.eventBus.replaySince(request.params.workspaceId, lastEventIdHeader);
+      if (replay === undefined || !replay.canReplay) {
         const snapshotEnvelope = options.eventBus.createTransientEvent(request.params.workspaceId, createSnapshotEvent());
         if (!trySendEnvelope(snapshotEnvelope)) {
           return;
         }
       } else {
-        for (const replayedEvent of replayedEvents) {
+        for (const replayedEvent of replay.events) {
           if (!trySendEnvelope(replayedEvent)) {
             return;
           }
