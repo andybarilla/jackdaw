@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createServer } from "./server.js";
 import { DEMO_WORKSPACE_ID } from "./demo-state.js";
@@ -13,6 +13,8 @@ async function createTestServer(): Promise<FastifyInstance> {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
+
   if (app) {
     await app.close();
     app = undefined;
@@ -94,5 +96,86 @@ describe("service server", () => {
 
     expect(typeof body.error).toBe("string");
     expect(body.error.length).toBeGreaterThan(0);
+  });
+
+  it("allows the 127.0.0.1 vite origin in development for health", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const server = await createTestServer();
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/health",
+      headers: {
+        origin: "http://127.0.0.1:5173",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe("http://127.0.0.1:5173");
+    expect(response.headers.vary).toContain("Origin");
+  });
+
+  it("allows the localhost vite origin in development for workspaces", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const server = await createTestServer();
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/workspaces",
+      headers: {
+        origin: "http://localhost:5173",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe("http://localhost:5173");
+  });
+
+  it("does not allow non-allowlisted origins in development", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const server = await createTestServer();
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/health",
+      headers: {
+        origin: "http://evil.example:5173",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("does not enable dev cors outside development", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    const server = await createTestServer();
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/health",
+      headers: {
+        origin: "http://127.0.0.1:5173",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("handles preflight for an allowed dev origin", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const server = await createTestServer();
+
+    const response = await server.inject({
+      method: "OPTIONS",
+      url: "/workspaces",
+      headers: {
+        origin: "http://127.0.0.1:5173",
+      },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("http://127.0.0.1:5173");
   });
 });

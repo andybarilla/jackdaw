@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import http, { type IncomingMessage, type RequestOptions } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { FastifyInstance } from "fastify";
@@ -28,6 +28,7 @@ function connectToWorkspaceEvents(
   baseUrl: string,
   workspaceId: string,
   lastEventId?: string,
+  origin?: string,
 ): Promise<{
   response: IncomingMessage;
   nextEvent: () => Promise<SseEventMessage>;
@@ -42,6 +43,7 @@ function connectToWorkspaceEvents(
     headers: {
       Accept: "text/event-stream",
       ...(lastEventId === undefined ? {} : { "Last-Event-ID": lastEventId }),
+      ...(origin === undefined ? {} : { Origin: origin }),
     },
   };
 
@@ -126,6 +128,8 @@ function parseSseMessage(sseMessage: string): SseEventMessage {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
+
   if (app !== undefined) {
     await app.close();
     app = undefined;
@@ -194,6 +198,52 @@ describe("workspace SSE stream", () => {
     expect(snapshotEvent.data?.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
 
     replayConnection.close();
+  });
+
+  it("includes dev cors headers for an allowed origin", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const { baseUrl } = await createListeningServer();
+    const streamConnection = await connectToWorkspaceEvents(
+      baseUrl,
+      DEMO_WORKSPACE_ID,
+      undefined,
+      "http://127.0.0.1:5173",
+    );
+
+    try {
+      expect(streamConnection.response.statusCode).toBe(200);
+      expect(streamConnection.response.headers["content-type"]).toContain("text/event-stream");
+      expect(streamConnection.response.headers["access-control-allow-origin"]).toBe("http://127.0.0.1:5173");
+      expect(String(streamConnection.response.headers.vary)).toContain("Origin");
+
+      const snapshotEvent = await streamConnection.nextEvent();
+
+      expect(snapshotEvent.event).toBe("workspace.snapshot");
+    } finally {
+      streamConnection.close();
+    }
+  });
+
+  it("does not include dev cors headers for a non-allowlisted origin", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const { baseUrl } = await createListeningServer();
+    const streamConnection = await connectToWorkspaceEvents(
+      baseUrl,
+      DEMO_WORKSPACE_ID,
+      undefined,
+      "http://evil.example:5173",
+    );
+
+    try {
+      expect(streamConnection.response.statusCode).toBe(200);
+      expect(streamConnection.response.headers["access-control-allow-origin"]).toBeUndefined();
+
+      const snapshotEvent = await streamConnection.nextEvent();
+
+      expect(snapshotEvent.event).toBe("workspace.snapshot");
+    } finally {
+      streamConnection.close();
+    }
   });
 
   it("emits session events when a session changes", async () => {

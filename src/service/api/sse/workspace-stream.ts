@@ -19,10 +19,25 @@ export async function registerWorkspaceStreamRoutes(
     }
 
     reply.hijack();
+    const accessControlAllowOrigin = reply.getHeader("Access-Control-Allow-Origin");
+    const varyHeader = reply.getHeader("Vary");
+    const accessControlAllowMethods = reply.getHeader("Access-Control-Allow-Methods");
+    const accessControlAllowHeaders = reply.getHeader("Access-Control-Allow-Headers");
+
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive",
+      ...(typeof accessControlAllowOrigin === "string"
+        ? { "access-control-allow-origin": accessControlAllowOrigin }
+        : {}),
+      ...(typeof varyHeader === "string" ? { vary: varyHeader } : {}),
+      ...(typeof accessControlAllowMethods === "string"
+        ? { "access-control-allow-methods": accessControlAllowMethods }
+        : {}),
+      ...(typeof accessControlAllowHeaders === "string"
+        ? { "access-control-allow-headers": accessControlAllowHeaders }
+        : {}),
     });
     reply.raw.flushHeaders();
     reply.raw.write(": connected\n\n");
