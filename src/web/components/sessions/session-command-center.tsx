@@ -22,6 +22,8 @@ export interface SessionCommandCenterProps {
   artifacts: WorkspaceArtifact[];
   recentAttention: AttentionEvent[];
   actions: WorkspaceActionHandlers;
+  relatedSessions?: WorkspaceSession[];
+  onSelectSession?: (sessionId: string) => void;
 }
 
 function linkedArtifactsForSession(session: WorkspaceSession, artifacts: WorkspaceArtifact[]): WorkspaceArtifact[] {
@@ -42,6 +44,8 @@ export function SessionCommandCenter({
   artifacts,
   recentAttention,
   actions,
+  relatedSessions = [],
+  onSelectSession,
 }: SessionCommandCenterProps): React.JSX.Element {
   const [message, setMessage] = React.useState<string | undefined>(undefined);
   const [pinnedSummary, setPinnedSummary] = React.useState<string | undefined>(session.pinnedSummary);
@@ -158,6 +162,32 @@ export function SessionCommandCenter({
 
   return (
     <section className="session-command-center" aria-label="Session command center">
+      {relatedSessions.length > 0 && (
+        <div className="session-tab-strip" role="tablist" aria-label="Workspace sessions">
+          {relatedSessions.slice(0, 6).map((relatedSession) => {
+            const isSelected = relatedSession.id === session.id;
+            const label = `${relatedSession.id} · ${relatedSession.name}`;
+
+            return (
+              <button
+                key={relatedSession.id}
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
+                className={`session-tab${isSelected ? " selected" : ""}`}
+                onClick={() => {
+                  onSelectSession?.(relatedSession.id);
+                }}
+              >
+                <span className={`session-tab-dot status-${relatedSession.status}`} aria-hidden="true" />
+                <span className="session-tab-id">{relatedSession.id}</span>
+                <span className="session-tab-label">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <SessionHeader
         workspace={workspace}
         session={session}
