@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { AppStore } from "../persistence/app-store.js";
 import {
+  createEmptyPersistedAppState,
   workspaceToIndexEntry,
   type PersistedAppState,
   type PersistedWorkspaceIndexEntry,
@@ -68,7 +69,7 @@ export class WorkspaceRegistry {
     const workspaceStoreFactory = options.workspaceStoreFactory ?? ((workspaceId: string) => WorkspaceStore.default(workspaceId));
     const workspacesDirectoryPath = options.workspacesDirectoryPath
       ?? resolveServicePersistencePaths(options.persistencePathOptions).workspacesDirectoryPath;
-    const appState = await appStore.load();
+    const appState = await loadRecoverableAppState(appStore);
     const workspaceDetails: WorkspaceDetailRecord[] = [];
     const discoveredWorkspaceIds = await discoverWorkspaceIds(workspacesDirectoryPath);
     const orderedWorkspaceIds = [...new Set<string>([
@@ -81,7 +82,7 @@ export class WorkspaceRegistry {
     const recoveredEntries: PersistedWorkspaceIndexEntry[] = [];
 
     for (const workspaceId of orderedWorkspaceIds) {
-      const workspaceState = await workspaceStoreFactory(workspaceId).load();
+      const workspaceState = await loadRecoverableWorkspaceState(workspaceStoreFactory, workspaceId);
       if (workspaceState === undefined) {
         continue;
       }
@@ -218,7 +219,12 @@ export class WorkspaceRegistry {
       return undefined;
     }
 
-    const nextWorkspace = this.repoRegistry.removeRepoRoot(currentDetail.workspace, repoRootId);
+    const nextWorkspace = removeRepoRootPreservingHistoricalSessionReferences(
+      this.repoRegistry,
+      currentDetail.workspace,
+      currentDetail.sessions,
+      repoRootId,
+    );
     const nextDetail: WorkspaceDetailRecord = {
       ...currentDetail,
       workspace: {
@@ -320,6 +326,52 @@ async function discoverWorkspaceIds(workspacesDirectoryPath: string): Promise<st
     }
     throw error;
   }
+}
+
+async function loadRecoverableAppState(appStore: AppStore): Promise<PersistedAppState> {
+  try {
+    return await appStore.load();
+  } catch {
+    return createEmptyPersistedAppState();
+  }
+}
+
+async function loadRecoverableWorkspaceState(
+  workspaceStoreFactory: (workspaceId: string) => WorkspaceStore,
+  workspaceId: string,
+): Promise<PersistedWorkspaceState | undefined> {
+  try {
+    return await workspaceStoreFactory(workspaceId).load();
+  } catch {
+    return undefined;
+  }
+}
+
+function removeRepoRootPreservingHistoricalSessionReferences(
+  repoRegistry: RepoRegistry,
+  workspace: Workspace,
+  sessions: readonly WorkspaceSession[],
+  repoRootId: string,
+): Workspace {
+  const repoRoot = workspace.repoRoots.find((entry) => entry.id === repoRootId);
+  if (repoRoot === undefined) {
+    return workspace;
+  }
+
+  const removedWorktrees = workspace.worktrees.filter((worktree) => worktree.repoRootId === repoRootId);
+  const referencedWorktreePaths = new Set<string>(
+    sessions
+      .map((session) => session.worktree)
+      .filter((worktreePath): worktreePath is string => worktreePath !== undefined),
+  );
+  const referencesRemovedRepoRoot = sessions.some((session) => session.repoRoot === repoRoot.path);
+  const referencesRemovedWorktree = removedWorktrees.some((worktree) => referencedWorktreePaths.has(worktree.path));
+
+  if (!referencesRemovedRepoRoot && !referencesRemovedWorktree) {
+    return repoRegistry.removeRepoRoot(workspace, repoRootId);
+  }
+
+  return workspace;
 }
 
 function syncAppStateIndex(

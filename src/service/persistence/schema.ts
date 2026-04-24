@@ -100,13 +100,13 @@ export function parsePersistedAppState(value: unknown): PersistedAppState {
   const selectedWorkspaceId = readOptionalString(objectValue.selectedWorkspaceId, "Persisted app state selectedWorkspaceId");
   const workspaces = workspacesValue.map((entry, index) => parseWorkspaceIndexEntry(entry, index));
 
-  if (selectedWorkspaceId !== undefined && !workspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
-    throw new TypeError(`Persisted app state selectedWorkspaceId references missing workspace ${selectedWorkspaceId}`);
-  }
+  const normalizedSelectedWorkspaceId = selectedWorkspaceId !== undefined && workspaces.some((workspace) => workspace.id === selectedWorkspaceId)
+    ? selectedWorkspaceId
+    : undefined;
 
   return {
     version: 1,
-    selectedWorkspaceId,
+    selectedWorkspaceId: normalizedSelectedWorkspaceId,
     workspaces,
   };
 }

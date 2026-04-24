@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -134,7 +134,7 @@ describe("WorkspaceRegistry", () => {
     expect(detail?.lastOpenedAt).toBe("2026-04-24T11:05:00.000Z");
   });
 
-  it("removes repo roots without silently deleting historical sessions", async () => {
+  it("preserves repo-root metadata needed by historical sessions when removing a repo root", async () => {
     const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
     directories.push(appDataDir);
     process.env.JACKDAW_APP_DATA_DIR = appDataDir;
@@ -155,9 +155,11 @@ describe("WorkspaceRegistry", () => {
     }));
 
     const updatedDetail = await registry.removeRepoRoot("ws-1", repoRoot.id, "2026-04-24T11:10:00.000Z");
+    const reloadedRegistry = await WorkspaceRegistry.load();
+    const reloadedDetail = reloadedRegistry.getWorkspaceDetail("ws-1");
 
-    expect(updatedDetail?.workspace.repoRoots).toEqual([]);
-    expect(updatedDetail?.workspace.worktrees).toEqual([]);
+    expect(updatedDetail?.workspace.repoRoots).toEqual([repoRoot]);
+    expect(updatedDetail?.workspace.worktrees).toEqual([worktree]);
     expect(updatedDetail?.workspace.sessionIds).toEqual(["session-1"]);
     expect(updatedDetail?.sessions).toHaveLength(1);
     expect(updatedDetail?.sessions[0]).toMatchObject({
@@ -166,6 +168,8 @@ describe("WorkspaceRegistry", () => {
       repoRoot: repoRoot.path,
       worktree: worktree.path,
     });
+    expect(reloadedDetail?.sessions).toHaveLength(1);
+    expect(reloadedDetail?.sessions[0]?.id).toBe("session-1");
   });
 
   it("rejects workspace creation when a worktree points to a missing repo root", async () => {
@@ -227,6 +231,94 @@ describe("WorkspaceRegistry", () => {
     });
     expect(updatedDetail?.workspace.sessionIds).toEqual(["session-1", "session-2"]);
     expect(updatedDetail?.sessions.map((session) => session.id)).toEqual(["session-1", "session-2"]);
+  });
+
+  it("skips malformed workspace state during load and rewrites app-state from healthy workspaces only", async () => {
+    const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
+    directories.push(appDataDir);
+    process.env.JACKDAW_APP_DATA_DIR = appDataDir;
+
+    const workspacesDirectoryPath = path.join(appDataDir, "workspaces");
+    await mkdir(path.join(workspacesDirectoryPath, "ws-good"), { recursive: true });
+    await mkdir(path.join(workspacesDirectoryPath, "ws-bad"), { recursive: true });
+
+    await writeFile(path.join(appDataDir, "app-state.json"), JSON.stringify({
+      version: 1,
+      selectedWorkspaceId: "ws-bad",
+      workspaces: [
+        {
+          id: "ws-bad",
+          name: "Broken workspace",
+          createdAt: "2026-04-24T09:00:00.000Z",
+          updatedAt: "2026-04-24T09:00:00.000Z",
+        },
+        {
+          id: "ws-good",
+          name: "Healthy workspace",
+          createdAt: "2026-04-24T10:00:00.000Z",
+          updatedAt: "2026-04-24T10:00:00.000Z",
+        },
+      ],
+    }, null, 2));
+    await writeFile(path.join(workspacesDirectoryPath, "ws-bad", "workspace.json"), "{not-json", "utf8");
+    await writeFile(path.join(workspacesDirectoryPath, "ws-good", "workspace.json"), JSON.stringify({
+      version: 1,
+      workspace: {
+        id: "ws-good",
+        name: "Healthy workspace",
+        repoRoots: [repoRoot],
+        worktrees: [worktree],
+        sessionIds: [],
+        artifactIds: [],
+        preferences: {},
+        createdAt: "2026-04-24T10:00:00.000Z",
+        updatedAt: "2026-04-24T10:00:00.000Z",
+      },
+      sessions: [],
+      artifacts: [],
+    }, null, 2));
+
+    const registry = await WorkspaceRegistry.load();
+    const rewrittenAppState = JSON.parse(await readFile(path.join(appDataDir, "app-state.json"), "utf8")) as PersistedAppState;
+
+    expect(registry.listWorkspaces().map((workspace) => workspace.id)).toEqual(["ws-good"]);
+    expect(registry.getWorkspaceDetail("ws-bad")).toBeUndefined();
+    expect(rewrittenAppState.selectedWorkspaceId).toBeUndefined();
+    expect(rewrittenAppState.workspaces.map((workspace) => workspace.id)).toEqual(["ws-good"]);
+  });
+
+  it("recovers from malformed app-state.json by rebuilding from discovered workspace stores", async () => {
+    const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
+    directories.push(appDataDir);
+    process.env.JACKDAW_APP_DATA_DIR = appDataDir;
+
+    const workspacesDirectoryPath = path.join(appDataDir, "workspaces");
+    await mkdir(path.join(workspacesDirectoryPath, "ws-1"), { recursive: true });
+    await writeFile(path.join(appDataDir, "app-state.json"), "{broken-json", "utf8");
+    await writeFile(path.join(workspacesDirectoryPath, "ws-1", "workspace.json"), JSON.stringify({
+      version: 1,
+      workspace: {
+        id: "ws-1",
+        name: "Workspace 1",
+        repoRoots: [repoRoot],
+        worktrees: [worktree],
+        sessionIds: ["session-1"],
+        artifactIds: [],
+        preferences: {},
+        createdAt: "2026-04-24T10:00:00.000Z",
+        updatedAt: "2026-04-24T10:00:00.000Z",
+      },
+      sessions: [createSession()],
+      artifacts: [],
+    }, null, 2));
+
+    const registry = await WorkspaceRegistry.load();
+    const recoveredAppState = JSON.parse(await readFile(path.join(appDataDir, "app-state.json"), "utf8")) as PersistedAppState;
+
+    expect(registry.listWorkspaces().map((workspace) => workspace.id)).toEqual(["ws-1"]);
+    expect(registry.getWorkspaceDetail("ws-1")?.sessions.map((session) => session.id)).toEqual(["session-1"]);
+    expect(recoveredAppState.workspaces.map((workspace) => workspace.id)).toEqual(["ws-1"]);
+    expect(recoveredAppState.selectedWorkspaceId).toBeUndefined();
   });
 
   it("keeps in-memory state unchanged when app-state persistence fails and recovers the workspace on next load", async () => {

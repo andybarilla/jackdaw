@@ -140,13 +140,14 @@ describe("service persistence schema", () => {
     ).toThrow(/workspaces/i);
   });
 
-  it("rejects app state when selectedWorkspaceId is not present in the workspace list", () => {
-    expect(() =>
-      parsePersistedAppState({
-        ...persistedAppState,
-        selectedWorkspaceId: "missing-workspace",
-      }),
-    ).toThrow(/selectedWorkspaceId|missing-workspace/i);
+  it("clears selectedWorkspaceId when it is not present in the workspace list", () => {
+    expect(parsePersistedAppState({
+      ...persistedAppState,
+      selectedWorkspaceId: "missing-workspace",
+    })).toEqual({
+      ...persistedAppState,
+      selectedWorkspaceId: undefined,
+    });
   });
 
   it("rejects malformed workspace state safely", () => {
