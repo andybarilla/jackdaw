@@ -51,8 +51,6 @@ export function WorkspaceHomeScreen(props: WorkspaceHomeScreenProps): React.JSX.
           artifacts={detail.artifacts}
           recentAttention={detail.recentAttention}
           actions={props.actions}
-          relatedSessions={detail.sessions}
-          onSelectSession={props.onSelectSession}
         />
       )
     : loadingPanel("Select a workspace session to see the command center preview.");

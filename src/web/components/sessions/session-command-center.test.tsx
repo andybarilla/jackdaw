@@ -249,6 +249,7 @@ describe("SessionCommandCenter", () => {
     );
 
     const commandCenter = screen.getByLabelText("Session command center");
+    expect(within(commandCenter).queryByRole("tablist", { name: "Workspace sessions" })).toBeNull();
     expect(within(commandCenter).getByRole("heading", { name: "Implement command center" })).toBeVisible();
     expect(within(commandCenter).getByText("The live summary is current.")).toBeVisible();
     expect(within(commandCenter).getByText("Pinned before the latest runtime update.")).toBeVisible();
