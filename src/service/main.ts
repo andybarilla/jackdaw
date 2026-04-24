@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 import { createServer } from "./server.js";
+import { resolveServiceAppDataDir } from "./persistence/paths.js";
 
 const port = readPort();
 const appDataDir = readAppDataDir();
@@ -35,14 +35,5 @@ function readPort(): number {
 }
 
 function readAppDataDir(): string {
-  const configured = process.env.JACKDAW_APP_DATA_DIR;
-  if (configured) {
-    return path.resolve(configured);
-  }
-
-  if (process.env.NODE_ENV === "development") {
-    return path.resolve(".jackdaw-app-data");
-  }
-
-  throw new Error("JACKDAW_APP_DATA_DIR is required outside development mode");
+  return resolveServiceAppDataDir();
 }
