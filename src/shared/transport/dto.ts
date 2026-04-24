@@ -63,6 +63,12 @@ export type PinSummaryDto = PinSummaryCommand;
 export type OpenPathDto = OpenPathCommand;
 export type ShellFallbackDto = ShellFallbackCommand;
 
+export interface WorkspaceSnapshotEventDto {
+  workspaceId: string;
+  detail: WorkspaceDetailDto;
+  emittedAt: string;
+}
+
 export interface WorkspaceUpdatedEventDto {
   workspaceId: string;
   updatedAt: string;
@@ -112,6 +118,7 @@ export interface VersionedEventDto<TType extends string, TPayload> {
 }
 
 export type WorkspaceStreamEventDto =
+  | VersionedEventDto<"workspace.snapshot", WorkspaceSnapshotEventDto>
   | VersionedEventDto<"workspace.updated", WorkspaceUpdatedEventDto>
   | VersionedEventDto<"session.status-changed", SessionStatusChangedEventDto>
   | VersionedEventDto<"session.summary-updated", SessionSummaryUpdatedEventDto>

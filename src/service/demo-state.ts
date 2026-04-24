@@ -1,4 +1,5 @@
 import {
+  attentionBandForStatus,
   compareAttentionCandidates,
   createAttentionCandidate,
   type AttentionEvent,
@@ -258,6 +259,7 @@ interface MutableDemoState {
   sessions: Map<string, WorkspaceSession>;
   artifacts: Map<string, WorkspaceArtifact>;
   recentAttention: AttentionEvent[];
+  attentionCounter: number;
   workspaceCounter: number;
   repoCounter: number;
   sessionCounter: number;
@@ -269,6 +271,7 @@ export function createDemoStateStore(): DemoStateStore {
     sessions: new Map<string, WorkspaceSession>(DEMO_SESSIONS.map((session) => [session.id, structuredClone(session)])),
     artifacts: new Map<string, WorkspaceArtifact>(DEMO_ARTIFACTS.map((artifact) => [artifact.id, structuredClone(artifact)])),
     recentAttention: structuredClone(DEMO_ATTENTION_EVENTS),
+    attentionCounter: DEMO_ATTENTION_EVENTS.length,
     workspaceCounter: 1,
     repoCounter: DEMO_WORKSPACE.repoRoots.length,
     sessionCounter: DEMO_SESSIONS.length,
@@ -404,6 +407,28 @@ export function createDemoStateStore(): DemoStateStore {
 
     workspace.updatedAt = updatedAt;
     return workspace;
+  };
+
+  const appendAttentionEvent = (
+    session: WorkspaceSession,
+    occurredAt: string,
+    title: string,
+    detail: string,
+    source: AttentionEvent["source"],
+    meaningful: boolean = true,
+  ): void => {
+    state.attentionCounter += 1;
+    state.recentAttention = [{
+      id: `attention-${state.attentionCounter}`,
+      sessionId: session.id,
+      workspaceId: session.workspaceId,
+      band: attentionBandForStatus(session.status),
+      title,
+      detail,
+      occurredAt,
+      source,
+      meaningful,
+    }, ...state.recentAttention].slice(0, 25);
   };
 
   const findSession = (sessionId: string): WorkspaceSession | undefined => {
@@ -558,6 +583,7 @@ export function createDemoStateStore(): DemoStateStore {
       workspace.sessionIds.push(sessionId);
       state.sessions.set(sessionId, session);
       touchWorkspace(workspaceId, acceptedAt);
+      appendAttentionEvent(session, acceptedAt, "Session created", `Accepted session request for ${input.task}.`, "operator");
 
       const events: DemoMutationEvent[] = [
         { workspaceId, event: makeWorkspaceUpdatedEvent(workspaceId, acceptedAt) },
@@ -592,6 +618,7 @@ export function createDemoStateStore(): DemoStateStore {
       session.liveSummary = input.text;
       session.updatedAt = acceptedAt;
       touchWorkspace(session.workspaceId, acceptedAt);
+      appendAttentionEvent(session, acceptedAt, "Steer request accepted", input.text, "operator");
 
       return {
         response: createAcceptedResponse(acceptedAt),
@@ -619,6 +646,7 @@ export function createDemoStateStore(): DemoStateStore {
       session.latestMeaningfulUpdate = input.text;
       session.updatedAt = acceptedAt;
       touchWorkspace(session.workspaceId, acceptedAt);
+      appendAttentionEvent(session, acceptedAt, "Follow-up requested", input.text, "operator");
 
       return {
         response: createAcceptedResponse(acceptedAt),
@@ -646,6 +674,7 @@ export function createDemoStateStore(): DemoStateStore {
       session.latestMeaningfulUpdate = "Abort requested by operator.";
       session.updatedAt = acceptedAt;
       touchWorkspace(session.workspaceId, acceptedAt);
+      appendAttentionEvent(session, acceptedAt, "Abort requested", "Abort requested by operator.", "operator");
 
       return {
         response: createAcceptedResponse(acceptedAt),
@@ -666,6 +695,7 @@ export function createDemoStateStore(): DemoStateStore {
       session.pinnedSummary = input.summary;
       session.updatedAt = acceptedAt;
       touchWorkspace(session.workspaceId, acceptedAt);
+      appendAttentionEvent(session, acceptedAt, "Pinned summary updated", input.summary ?? "Cleared the pinned summary.", "operator", false);
 
       return {
         response: createAcceptedResponse(acceptedAt),
@@ -693,6 +723,7 @@ export function createDemoStateStore(): DemoStateStore {
       ].slice(0, 10);
       session.updatedAt = acceptedAt;
       touchWorkspace(session.workspaceId, acceptedAt);
+      appendAttentionEvent(session, acceptedAt, "Recent file opened", input.path, "system", false);
 
       return {
         response: createAcceptedResponse(acceptedAt),
@@ -714,6 +745,7 @@ export function createDemoStateStore(): DemoStateStore {
       session.liveSummary = `Shell fallback queued: ${command}`;
       session.updatedAt = acceptedAt;
       touchWorkspace(session.workspaceId, acceptedAt);
+      appendAttentionEvent(session, acceptedAt, "Shell fallback requested", command, "operator");
 
       return {
         response: createAcceptedResponse(acceptedAt),

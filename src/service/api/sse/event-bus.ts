@@ -1,42 +1,114 @@
 import type { WorkspaceStreamEventDto } from "../../../shared/transport/dto.js";
 
+const RETAINED_EVENT_COUNT: number = 100;
+
+export interface WorkspaceEventEnvelope {
+  id: string;
+  event: WorkspaceStreamEventDto;
+}
+
 export interface WorkspaceEventBus {
-  publish(workspaceId: string, event: WorkspaceStreamEventDto): void;
+  publish(workspaceId: string, event: WorkspaceStreamEventDto): WorkspaceEventEnvelope;
+  createTransientEvent(workspaceId: string, event: WorkspaceStreamEventDto): WorkspaceEventEnvelope;
+  replaySince(workspaceId: string, lastEventId: string): WorkspaceEventEnvelope[] | undefined;
   subscribe(workspaceId: string, listener: WorkspaceEventListener): () => void;
 }
 
-export type WorkspaceEventListener = (event: WorkspaceStreamEventDto) => void;
+export type WorkspaceEventListener = (event: WorkspaceEventEnvelope) => void;
+
+interface WorkspaceChannel {
+  history: WorkspaceEventEnvelope[];
+  listeners: Set<WorkspaceEventListener>;
+  nextEventId: number;
+}
 
 export function createWorkspaceEventBus(): WorkspaceEventBus {
-  const listenersByWorkspaceId: Map<string, Set<WorkspaceEventListener>> = new Map<string, Set<WorkspaceEventListener>>();
+  const channelsByWorkspaceId: Map<string, WorkspaceChannel> = new Map<string, WorkspaceChannel>();
+
+  const getChannel = (workspaceId: string): WorkspaceChannel => {
+    const existingChannel = channelsByWorkspaceId.get(workspaceId);
+    if (existingChannel !== undefined) {
+      return existingChannel;
+    }
+
+    const createdChannel: WorkspaceChannel = {
+      history: [],
+      listeners: new Set<WorkspaceEventListener>(),
+      nextEventId: 1,
+    };
+    channelsByWorkspaceId.set(workspaceId, createdChannel);
+    return createdChannel;
+  };
+
+  const createEnvelope = (workspaceId: string, event: WorkspaceStreamEventDto): WorkspaceEventEnvelope => {
+    const channel = getChannel(workspaceId);
+    const envelope: WorkspaceEventEnvelope = {
+      id: String(channel.nextEventId),
+      event,
+    };
+    channel.nextEventId += 1;
+    return envelope;
+  };
 
   return {
-    publish(workspaceId: string, event: WorkspaceStreamEventDto): void {
-      const listeners = listenersByWorkspaceId.get(workspaceId);
-      if (listeners === undefined) {
-        return;
+    publish(workspaceId: string, event: WorkspaceStreamEventDto): WorkspaceEventEnvelope {
+      const channel = getChannel(workspaceId);
+      const envelope = createEnvelope(workspaceId, event);
+
+      channel.history.push(envelope);
+      if (channel.history.length > RETAINED_EVENT_COUNT) {
+        channel.history.splice(0, channel.history.length - RETAINED_EVENT_COUNT);
       }
 
-      for (const listener of listeners) {
-        listener(event);
+      for (const listener of Array.from(channel.listeners)) {
+        try {
+          listener(envelope);
+        } catch {
+          channel.listeners.delete(listener);
+        }
       }
+
+      return envelope;
+    },
+
+    createTransientEvent(workspaceId: string, event: WorkspaceStreamEventDto): WorkspaceEventEnvelope {
+      return createEnvelope(workspaceId, event);
+    },
+
+    replaySince(workspaceId: string, lastEventId: string): WorkspaceEventEnvelope[] | undefined {
+      const parsedLastEventId = Number(lastEventId);
+      if (!Number.isInteger(parsedLastEventId) || parsedLastEventId < 0) {
+        return undefined;
+      }
+
+      const channel = channelsByWorkspaceId.get(workspaceId);
+      if (channel === undefined) {
+        return [];
+      }
+
+      if (channel.history.length === 0) {
+        return [];
+      }
+
+      const oldestRetainedEventId = Number(channel.history[0]?.id);
+      if (parsedLastEventId < oldestRetainedEventId - 1) {
+        return undefined;
+      }
+
+      return channel.history.filter((entry) => Number(entry.id) > parsedLastEventId);
     },
 
     subscribe(workspaceId: string, listener: WorkspaceEventListener): () => void {
-      const existingListeners = listenersByWorkspaceId.get(workspaceId) ?? new Set<WorkspaceEventListener>();
-      existingListeners.add(listener);
-      listenersByWorkspaceId.set(workspaceId, existingListeners);
+      const channel = getChannel(workspaceId);
+      channel.listeners.add(listener);
 
       return (): void => {
-        const currentListeners = listenersByWorkspaceId.get(workspaceId);
-        if (currentListeners === undefined) {
+        const currentChannel = channelsByWorkspaceId.get(workspaceId);
+        if (currentChannel === undefined) {
           return;
         }
 
-        currentListeners.delete(listener);
-        if (currentListeners.size === 0) {
-          listenersByWorkspaceId.delete(workspaceId);
-        }
+        currentChannel.listeners.delete(listener);
       };
     },
   };

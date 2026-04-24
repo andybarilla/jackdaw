@@ -5,6 +5,7 @@ import { DEMO_WORKSPACE_ID } from "../../demo-state.js";
 import type {
   MutationResponseDto,
   SessionsListDto,
+  WorkspaceDetailDto,
 } from "../../../shared/transport/dto.js";
 
 let app: FastifyInstance | undefined;
@@ -57,7 +58,33 @@ describe("session routes", () => {
     expect(createdSession?.status).toBe("running");
   });
 
-  it("records steer, follow-up, abort, pin-summary, open-path, and shell actions", async () => {
+  it("rejects invalid session command payloads at runtime", async () => {
+    const server = await createTestServer();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: `/workspaces/${DEMO_WORKSPACE_ID}/sessions`,
+      payload: {
+        workspaceId: DEMO_WORKSPACE_ID,
+        cwd: "/workspace/jackdaw",
+      },
+    });
+
+    expect(createResponse.statusCode).toBe(400);
+
+    const shellResponse = await server.inject({
+      method: "POST",
+      url: "/sessions/ses-awaiting-input/shell",
+      payload: {
+        sessionId: "ses-awaiting-input",
+        extra: true,
+      },
+    });
+
+    expect(shellResponse.statusCode).toBe(400);
+  });
+
+  it("records steer, follow-up, abort, pin-summary, open-path, and shell actions and appends attention history", async () => {
     const server = await createTestServer();
     const sessionId = "ses-awaiting-input";
 
@@ -136,6 +163,15 @@ describe("session routes", () => {
     expect(updatedSession?.pinnedSummary).toBe("Pinned operator summary from the route test.");
     expect(updatedSession?.lastIntervention?.kind).toBe("abort");
     expect(updatedSession?.recentFiles.some((file) => file.path === "src/service/server.ts")).toBe(true);
+
+    const workspaceResponse = await server.inject({
+      method: "GET",
+      url: `/workspaces/${DEMO_WORKSPACE_ID}`,
+    });
+    const workspaceBody = workspaceResponse.json<WorkspaceDetailDto>();
+
+    expect(workspaceBody.recentAttention[0]?.sessionId).toBe(sessionId);
+    expect(workspaceBody.recentAttention[0]?.title).toContain("Abort");
   });
 
   it("returns 404 for session actions against an unknown session", async () => {

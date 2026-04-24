@@ -6,6 +6,12 @@ import { createServer } from "../../server.js";
 import { DEMO_WORKSPACE_ID } from "../../demo-state.js";
 import type { WorkspaceStreamEventDto } from "../../../shared/transport/dto.js";
 
+interface SseEventMessage {
+  id?: string;
+  event?: string;
+  data?: WorkspaceStreamEventDto;
+}
+
 let app: FastifyInstance | undefined;
 
 async function createListeningServer(): Promise<{ app: FastifyInstance; baseUrl: string }> {
@@ -18,9 +24,13 @@ async function createListeningServer(): Promise<{ app: FastifyInstance; baseUrl:
   };
 }
 
-function connectToWorkspaceEvents(baseUrl: string, workspaceId: string): Promise<{
+function connectToWorkspaceEvents(
+  baseUrl: string,
+  workspaceId: string,
+  lastEventId?: string,
+): Promise<{
   response: IncomingMessage;
-  nextEvent: Promise<WorkspaceStreamEventDto>;
+  nextEvent: () => Promise<SseEventMessage>;
   close: () => void;
 }> {
   const url = new URL(`/workspaces/${workspaceId}/events`, baseUrl);
@@ -31,16 +41,21 @@ function connectToWorkspaceEvents(baseUrl: string, workspaceId: string): Promise
     method: "GET",
     headers: {
       Accept: "text/event-stream",
+      ...(lastEventId === undefined ? {} : { "Last-Event-ID": lastEventId }),
     },
   };
 
   return new Promise((resolve, reject) => {
     const request = http.request(requestOptions, (response) => {
       let buffered = "";
-      const nextEvent = new Promise<WorkspaceStreamEventDto>((resolveEvent, rejectEvent) => {
-        response.setEncoding("utf8");
-        response.on("data", (chunk: string) => {
-          buffered += chunk;
+      const pendingResolvers: Array<(message: SseEventMessage) => void> = [];
+      const queuedMessages: SseEventMessage[] = [];
+
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => {
+        buffered += chunk;
+
+        while (true) {
           const markerIndex = buffered.indexOf("\n\n");
           if (markerIndex === -1) {
             return;
@@ -49,23 +64,33 @@ function connectToWorkspaceEvents(baseUrl: string, workspaceId: string): Promise
           const sseMessage = buffered.slice(0, markerIndex);
           buffered = buffered.slice(markerIndex + 2);
 
-          const dataLine = sseMessage
-            .split("\n")
-            .find((line) => line.startsWith("data: "));
-
-          if (dataLine === undefined) {
-            return;
+          if (sseMessage.startsWith(":")) {
+            continue;
           }
 
-          resolveEvent(JSON.parse(dataLine.slice(6)) as WorkspaceStreamEventDto);
-        });
-        response.on("error", rejectEvent);
-        response.on("close", () => rejectEvent(new Error("SSE stream closed before an event arrived")));
+          const parsedMessage = parseSseMessage(sseMessage);
+          const nextResolver = pendingResolvers.shift();
+          if (nextResolver !== undefined) {
+            nextResolver(parsedMessage);
+            continue;
+          }
+
+          queuedMessages.push(parsedMessage);
+        }
       });
+      response.on("error", reject);
 
       resolve({
         response,
-        nextEvent,
+        nextEvent: () => new Promise<SseEventMessage>((resolveEvent) => {
+          const queuedMessage = queuedMessages.shift();
+          if (queuedMessage !== undefined) {
+            resolveEvent(queuedMessage);
+            return;
+          }
+
+          pendingResolvers.push(resolveEvent);
+        }),
         close: () => {
           request.destroy();
           response.destroy();
@@ -78,6 +103,28 @@ function connectToWorkspaceEvents(baseUrl: string, workspaceId: string): Promise
   });
 }
 
+function parseSseMessage(sseMessage: string): SseEventMessage {
+  const message: SseEventMessage = {};
+
+  for (const line of sseMessage.split("\n")) {
+    if (line.startsWith("id: ")) {
+      message.id = line.slice(4);
+      continue;
+    }
+
+    if (line.startsWith("event: ")) {
+      message.event = line.slice(7);
+      continue;
+    }
+
+    if (line.startsWith("data: ")) {
+      message.data = JSON.parse(line.slice(6)) as WorkspaceStreamEventDto;
+    }
+  }
+
+  return message;
+}
+
 afterEach(async () => {
   if (app !== undefined) {
     await app.close();
@@ -86,12 +133,27 @@ afterEach(async () => {
 });
 
 describe("workspace SSE stream", () => {
-  it("keeps the stream open and emits versioned workspace events", async () => {
+  it("emits a snapshot with an event id when the stream connects", async () => {
     const { baseUrl } = await createListeningServer();
     const streamConnection = await connectToWorkspaceEvents(baseUrl, DEMO_WORKSPACE_ID);
 
     expect(streamConnection.response.statusCode).toBe(200);
     expect(streamConnection.response.headers["content-type"]).toContain("text/event-stream");
+
+    const snapshotEvent = await streamConnection.nextEvent();
+
+    expect(snapshotEvent.id).toBeDefined();
+    expect(snapshotEvent.event).toBe("workspace.snapshot");
+    expect(snapshotEvent.data?.version).toBe(1);
+    expect(snapshotEvent.data?.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
+
+    streamConnection.close();
+  });
+
+  it("replays missed events after the last seen event id", async () => {
+    const { baseUrl } = await createListeningServer();
+    const firstConnection = await connectToWorkspaceEvents(baseUrl, DEMO_WORKSPACE_ID);
+    const snapshotEvent = await firstConnection.nextEvent();
 
     const mutationResponse = await fetch(`${baseUrl}/workspaces/${DEMO_WORKSPACE_ID}`, {
       method: "PATCH",
@@ -105,18 +167,27 @@ describe("workspace SSE stream", () => {
 
     expect(mutationResponse.status).toBe(200);
 
-    const nextEvent = await streamConnection.nextEvent;
+    const publishedEvent = await firstConnection.nextEvent();
 
-    expect(nextEvent.version).toBe(1);
-    expect(nextEvent.type).toBe("workspace.updated");
-    expect(nextEvent.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
+    expect(publishedEvent.event).toBe("workspace.updated");
+    expect(Number(publishedEvent.id)).toBeGreaterThan(Number(snapshotEvent.id));
 
-    streamConnection.close();
+    firstConnection.close();
+
+    const replayConnection = await connectToWorkspaceEvents(baseUrl, DEMO_WORKSPACE_ID, snapshotEvent.id);
+    const replayedEvent = await replayConnection.nextEvent();
+
+    expect(replayedEvent.id).toBe(publishedEvent.id);
+    expect(replayedEvent.event).toBe("workspace.updated");
+    expect(replayedEvent.data?.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
+
+    replayConnection.close();
   });
 
   it("emits session events when a session changes", async () => {
     const { baseUrl } = await createListeningServer();
     const streamConnection = await connectToWorkspaceEvents(baseUrl, DEMO_WORKSPACE_ID);
+    await streamConnection.nextEvent();
 
     expect(streamConnection.response.statusCode).toBe(200);
 
@@ -133,11 +204,12 @@ describe("workspace SSE stream", () => {
 
     expect(mutationResponse.status).toBe(202);
 
-    const nextEvent = await streamConnection.nextEvent;
+    const nextEvent = await streamConnection.nextEvent();
 
-    expect(nextEvent.version).toBe(1);
-    expect(["session.intervention-changed", "session.summary-updated"]).toContain(nextEvent.type);
-    expect(nextEvent.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
+    expect(nextEvent.id).toBeDefined();
+    expect(nextEvent.data?.version).toBe(1);
+    expect(["session.intervention-changed", "session.summary-updated"]).toContain(nextEvent.event);
+    expect(nextEvent.data?.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
 
     streamConnection.close();
   });

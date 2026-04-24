@@ -88,6 +88,30 @@ describe("workspace routes", () => {
     expect(summaries.some((summary) => summary.id === createdWorkspace.workspace.id)).toBe(true);
   });
 
+  it("rejects invalid workspace payloads at runtime", async () => {
+    const server = await createTestServer();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/workspaces",
+      payload: {
+        description: "Missing name",
+      },
+    });
+
+    expect(createResponse.statusCode).toBe(400);
+
+    const repoResponse = await server.inject({
+      method: "POST",
+      url: `/workspaces/${DEMO_WORKSPACE_ID}/repos`,
+      payload: {
+        defaultBranch: "main",
+      },
+    });
+
+    expect(repoResponse.statusCode).toBe(400);
+  });
+
   it("updates a workspace and appends a repo root", async () => {
     const server = await createTestServer();
 
