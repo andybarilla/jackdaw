@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { AppStore } from "../persistence/app-store.js";
 import {
   createEmptyPersistedAppState,
+  parsePersistedWorkspaceState,
   workspaceToIndexEntry,
   type PersistedAppState,
   type PersistedWorkspaceIndexEntry,
@@ -102,7 +103,11 @@ export class WorkspaceRegistry {
     };
 
     if (!persistedAppStatesMatch(appState, recoveredAppState)) {
-      await appStore.save(recoveredAppState);
+      try {
+        await appStore.save(recoveredAppState);
+      } catch (error: unknown) {
+        console.warn("Failed to save recovered app-state.json during workspace registry load.", error);
+      }
     }
 
     return new WorkspaceRegistry(appStore, workspaceStoreFactory, recoveredAppState, workspaceDetails);
@@ -303,6 +308,7 @@ export class WorkspaceRegistry {
       sessions: workspaceDetail.sessions,
       artifacts: workspaceDetail.artifacts,
     };
+    parsePersistedWorkspaceState(persistedWorkspaceState);
     const nextAppState = syncAppStateIndex(this.appState, workspaceDetail.workspace, workspaceDetail.lastOpenedAt);
 
     await this.workspaceStoreFactory(workspaceDetail.workspace.id).save(persistedWorkspaceState);

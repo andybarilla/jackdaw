@@ -71,6 +71,62 @@ describe("session routes", () => {
     expect(createdSession?.status).toBe("running");
   });
 
+  it("rejects session creation when repo, worktree, or artifact links are invalid", async () => {
+    const server = await createTestServer();
+
+    const invalidRepoResponse = await server.inject({
+      method: "POST",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
+      payload: {
+        workspaceId: TEST_WORKSPACE_ID,
+        cwd: "/workspace/jackdaw",
+        task: "Use an unknown repo root",
+        repoRoot: "/workspace/unknown",
+      },
+    });
+
+    expect(invalidRepoResponse.statusCode).toBe(400);
+    expect(invalidRepoResponse.json<{ error: string }>().error).toContain("repoRoot");
+
+    const invalidWorktreeResponse = await server.inject({
+      method: "POST",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
+      payload: {
+        workspaceId: TEST_WORKSPACE_ID,
+        cwd: "/workspace/jackdaw/.worktrees/unknown",
+        task: "Use an unknown worktree",
+        repoRoot: "/workspace/jackdaw",
+        worktree: "/workspace/jackdaw/.worktrees/unknown",
+      },
+    });
+
+    expect(invalidWorktreeResponse.statusCode).toBe(400);
+    expect(invalidWorktreeResponse.json<{ error: string }>().error).toContain("worktree");
+
+    const invalidArtifactResponse = await server.inject({
+      method: "POST",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
+      payload: {
+        workspaceId: TEST_WORKSPACE_ID,
+        cwd: "/workspace/jackdaw",
+        task: "Link an unknown artifact",
+        repoRoot: "/workspace/jackdaw",
+        linkedArtifactIds: ["artifact-missing"],
+      },
+    });
+
+    expect(invalidArtifactResponse.statusCode).toBe(400);
+    expect(invalidArtifactResponse.json<{ error: string }>().error).toContain("linkedArtifactIds");
+
+    const sessionsResponse = await server.inject({
+      method: "GET",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
+    });
+    const sessionsBody = sessionsResponse.json<SessionsListDto>();
+
+    expect(sessionsBody.sessions).toHaveLength(3);
+  });
+
   it("rejects invalid session command payloads at runtime", async () => {
     const server = await createTestServer();
 

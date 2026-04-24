@@ -127,6 +127,45 @@ describe("workspace routes", () => {
     expect(repoResponse.statusCode).toBe(400);
   });
 
+  it("rejects stale workspace selection ids", async () => {
+    const server = await createTestServer();
+
+    const missingSessionResponse = await server.inject({
+      method: "PATCH",
+      url: `/workspaces/${TEST_WORKSPACE_ID}`,
+      payload: {
+        preferences: {
+          selectedSessionId: "ses-missing",
+        },
+      },
+    });
+
+    expect(missingSessionResponse.statusCode).toBe(400);
+    expect(missingSessionResponse.json<{ error: string }>().error).toContain("selectedSessionId");
+
+    const missingArtifactResponse = await server.inject({
+      method: "PATCH",
+      url: `/workspaces/${TEST_WORKSPACE_ID}`,
+      payload: {
+        preferences: {
+          selectedArtifactId: "artifact-missing",
+        },
+      },
+    });
+
+    expect(missingArtifactResponse.statusCode).toBe(400);
+    expect(missingArtifactResponse.json<{ error: string }>().error).toContain("selectedArtifactId");
+
+    const detailResponse = await server.inject({
+      method: "GET",
+      url: `/workspaces/${TEST_WORKSPACE_ID}`,
+    });
+    const detailBody = detailResponse.json<WorkspaceDetailDto>();
+
+    expect(detailBody.workspace.preferences.selectedSessionId).toBeUndefined();
+    expect(detailBody.workspace.preferences.selectedArtifactId).toBeUndefined();
+  });
+
   it("updates a workspace and appends a repo root", async () => {
     const server = await createTestServer();
 

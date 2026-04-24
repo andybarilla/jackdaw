@@ -47,6 +47,13 @@ export interface WorkspaceServiceLoadOptions {
   appDataDir: string;
 }
 
+export class WorkspaceMutationValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkspaceMutationValidationError";
+  }
+}
+
 export class WorkspaceService {
   private readonly recentAttentionByWorkspace = new Map<string, AttentionEvent[]>();
   private workspaceCounter: number;
@@ -142,6 +149,13 @@ export class WorkspaceService {
     workspaceId: string,
     input: UpdateWorkspaceDto,
   ): Promise<WorkspaceMutationResult<WorkspaceDetailDto> | undefined> {
+    const existingDetail = this.registry.getWorkspaceDetail(workspaceId);
+    if (existingDetail === undefined) {
+      return undefined;
+    }
+
+    validateWorkspacePreferences(existingDetail.workspace, input.preferences);
+
     const detail = await this.registry.updateWorkspace(workspaceId, {
       name: input.name,
       description: input.description,
@@ -201,6 +215,8 @@ export class WorkspaceService {
     if (detail === undefined) {
       return undefined;
     }
+
+    validateCreateSessionInput(detail, input);
 
     this.sessionCounter += 1;
     const acceptedAt = new Date().toISOString();
@@ -550,6 +566,67 @@ function createAcceptedResponse(acceptedAt: string): MutationResponseDto {
       acceptedAt,
     },
   };
+}
+
+function validateWorkspacePreferences(
+  workspace: Workspace,
+  preferences: UpdateWorkspaceDto["preferences"] | undefined,
+): void {
+  if (preferences?.selectedSessionId !== undefined && !workspace.sessionIds.includes(preferences.selectedSessionId)) {
+    throw new WorkspaceMutationValidationError(
+      `selectedSessionId must reference a session in workspace ${workspace.id}: ${preferences.selectedSessionId}`,
+    );
+  }
+
+  if (preferences?.selectedArtifactId !== undefined && !workspace.artifactIds.includes(preferences.selectedArtifactId)) {
+    throw new WorkspaceMutationValidationError(
+      `selectedArtifactId must reference an artifact in workspace ${workspace.id}: ${preferences.selectedArtifactId}`,
+    );
+  }
+}
+
+function validateCreateSessionInput(detail: WorkspaceDetailRecord, input: CreateSessionDto): void {
+  const repoRootPath = input.repoRoot ?? input.cwd;
+  const repoRoot = detail.workspace.repoRoots.find((candidate) => candidate.path === repoRootPath);
+  if (repoRoot === undefined) {
+    throw new WorkspaceMutationValidationError(
+      `repoRoot must reference a registered repo root in workspace ${detail.workspace.id}: ${repoRootPath}`,
+    );
+  }
+
+  const cwdBasePath = input.worktree ?? repoRoot.path;
+  if (!isPathInsideWorkspace(cwdBasePath, input.cwd)) {
+    throw new WorkspaceMutationValidationError(`cwd must stay within ${cwdBasePath}: ${input.cwd}`);
+  }
+
+  if (input.worktree !== undefined) {
+    const worktree = detail.workspace.worktrees.find((candidate) => candidate.path === input.worktree);
+    if (worktree === undefined) {
+      throw new WorkspaceMutationValidationError(
+        `worktree must reference a registered worktree in workspace ${detail.workspace.id}: ${input.worktree}`,
+      );
+    }
+
+    if (worktree.repoRootId !== repoRoot.id) {
+      throw new WorkspaceMutationValidationError(
+        `worktree ${input.worktree} must belong to repo root ${repoRoot.path}`,
+      );
+    }
+  }
+
+  const workspaceArtifactIds = new Set(detail.workspace.artifactIds);
+  for (const artifactId of input.linkedArtifactIds ?? []) {
+    if (!workspaceArtifactIds.has(artifactId)) {
+      throw new WorkspaceMutationValidationError(
+        `linkedArtifactIds must reference existing workspace artifacts: ${artifactId}`,
+      );
+    }
+  }
+}
+
+function isPathInsideWorkspace(parentPath: string, childPath: string): boolean {
+  const relativePath = path.relative(parentPath, childPath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
 }
 
 function getHighestPrefixedCounter(ids: readonly string[], prefix: string): number {

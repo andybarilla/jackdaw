@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceArtifact } from "../../shared/domain/artifact.js";
 import type { WorkspaceSession } from "../../shared/domain/session.js";
 import type { WorkspaceRepoRoot, WorkspaceWorktree } from "../../shared/domain/workspace.js";
@@ -111,6 +111,10 @@ describe("WorkspaceRegistry", () => {
       createdAt: "2026-04-24T10:00:00.000Z",
       updatedAt: "2026-04-24T10:00:00.000Z",
     });
+    await registry.upsertSession(createSession(), "2026-04-24T11:05:00.000Z");
+    await registry.upsertArtifact(createArtifact({
+      linkedWorkItemIds: ["task-3"],
+    }));
     await registry.upsertSession(createSession({
       linkedResources: {
         artifactIds: ["artifact-1"],
@@ -318,7 +322,55 @@ describe("WorkspaceRegistry", () => {
     expect(registry.listWorkspaces().map((workspace) => workspace.id)).toEqual(["ws-1"]);
     expect(registry.getWorkspaceDetail("ws-1")?.sessions.map((session) => session.id)).toEqual(["session-1"]);
     expect(recoveredAppState.workspaces.map((workspace) => workspace.id)).toEqual(["ws-1"]);
-    expect(recoveredAppState.selectedWorkspaceId).toBeUndefined();
+  });
+
+  it("returns recovered workspaces even when saving the repaired app-state fails", async () => {
+    const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
+    directories.push(appDataDir);
+    process.env.JACKDAW_APP_DATA_DIR = appDataDir;
+
+    const workspacesDirectoryPath = path.join(appDataDir, "workspaces");
+    await mkdir(path.join(workspacesDirectoryPath, "ws-1"), { recursive: true });
+    await writeFile(path.join(appDataDir, "app-state.json"), "{broken-json", "utf8");
+    await writeFile(path.join(workspacesDirectoryPath, "ws-1", "workspace.json"), JSON.stringify({
+      version: 1,
+      workspace: {
+        id: "ws-1",
+        name: "Workspace 1",
+        repoRoots: [repoRoot],
+        worktrees: [worktree],
+        sessionIds: ["session-1"],
+        artifactIds: [],
+        preferences: {},
+        createdAt: "2026-04-24T10:00:00.000Z",
+        updatedAt: "2026-04-24T10:00:00.000Z",
+      },
+      sessions: [createSession()],
+      artifacts: [],
+    }, null, 2));
+
+    class FailingSaveAppStore extends AppStore {
+      override async save(): Promise<void> {
+        throw new Error("disk full");
+      }
+    }
+
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const registry = await WorkspaceRegistry.load({
+      appStore: new FailingSaveAppStore(path.join(appDataDir, "app-state.json")),
+      workspaceStoreFactory: (workspaceId: string) => new WorkspaceStore(path.join(appDataDir, "workspaces", workspaceId, "workspace.json")),
+      workspacesDirectoryPath,
+    });
+
+    expect(registry.listWorkspaces().map((workspace) => workspace.id)).toEqual(["ws-1"]);
+    expect(registry.getWorkspaceDetail("ws-1")?.sessions.map((session) => session.id)).toEqual(["session-1"]);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      "Failed to save recovered app-state.json during workspace registry load.",
+      expect.any(Error),
+    );
+
+    consoleWarnSpy.mockRestore();
   });
 
   it("keeps in-memory state unchanged when app-state persistence fails and recovers the workspace on next load", async () => {

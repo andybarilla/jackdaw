@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { WorkspaceService } from "../../workspace/workspace-service.js";
+import { WorkspaceMutationValidationError, type WorkspaceService } from "../../workspace/workspace-service.js";
 import type { WorkspaceEventBus } from "../sse/event-bus.js";
 import type {
   CreateSessionDto,
@@ -135,22 +135,29 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         body: createSessionBodySchema,
       },
     },
-    async (request, reply): Promise<MutationResponseDto> => {
+    async (request, reply): Promise<MutationResponseDto | { error: string }> => {
       if (!idsMatch(request.body.workspaceId, request.params.workspaceId)) {
         return reply.code(400).send({ error: "workspaceId must match the route parameter" });
       }
 
-      const workspaceService = await options.workspaceService;
-      const createdSession = await workspaceService.createWorkspaceSession(request.params.workspaceId, request.body);
-      if (createdSession === undefined) {
-        return reply.code(404).send({ error: "Workspace not found" });
-      }
+      try {
+        const workspaceService = await options.workspaceService;
+        const createdSession = await workspaceService.createWorkspaceSession(request.params.workspaceId, request.body);
+        if (createdSession === undefined) {
+          return reply.code(404).send({ error: "Workspace not found" });
+        }
 
-      for (const { workspaceId, event } of createdSession.events) {
-        options.eventBus.publish(workspaceId, event);
-      }
+        for (const { workspaceId, event } of createdSession.events) {
+          options.eventBus.publish(workspaceId, event);
+        }
 
-      return reply.code(202).send(createdSession.payload);
+        return reply.code(202).send(createdSession.payload);
+      } catch (error: unknown) {
+        if (error instanceof WorkspaceMutationValidationError) {
+          return reply.code(400).send({ error: error.message });
+        }
+        throw error;
+      }
     },
   );
 

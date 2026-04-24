@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { WorkspaceService } from "../../workspace/workspace-service.js";
+import { WorkspaceMutationValidationError, type WorkspaceService } from "../../workspace/workspace-service.js";
 import type { WorkspaceEventBus } from "../sse/event-bus.js";
 import type {
   AddWorkspaceRepoDto,
@@ -118,17 +118,24 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, options: Wor
       },
     },
     async (request, reply) => {
-      const workspaceService = await options.workspaceService;
-      const updatedWorkspace = await workspaceService.updateWorkspace(request.params.workspaceId, request.body);
-      if (updatedWorkspace === undefined) {
-        return reply.code(404).send({ error: "Workspace not found" });
-      }
+      try {
+        const workspaceService = await options.workspaceService;
+        const updatedWorkspace = await workspaceService.updateWorkspace(request.params.workspaceId, request.body);
+        if (updatedWorkspace === undefined) {
+          return reply.code(404).send({ error: "Workspace not found" });
+        }
 
-      for (const { workspaceId, event } of updatedWorkspace.events) {
-        options.eventBus.publish(workspaceId, event);
-      }
+        for (const { workspaceId, event } of updatedWorkspace.events) {
+          options.eventBus.publish(workspaceId, event);
+        }
 
-      return updatedWorkspace.payload;
+        return updatedWorkspace.payload;
+      } catch (error: unknown) {
+        if (error instanceof WorkspaceMutationValidationError) {
+          return reply.code(400).send({ error: error.message });
+        }
+        throw error;
+      }
     },
   );
 
