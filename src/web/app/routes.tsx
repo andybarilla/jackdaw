@@ -15,7 +15,8 @@ export function AppRoutes(): React.JSX.Element {
     workspaceSummaries.status === "ready" ? workspaceSummaries.data : undefined,
   );
   const workspaceStream = useWorkspaceStream(selectedWorkspaceId, apiClient);
-  const [selectedSessionId, setSelectedSessionId] = React.useState<string | undefined>(undefined);
+  const [selectedSessionIdByWorkspaceId, setSelectedSessionIdByWorkspaceId] = React.useState<Record<string, string | undefined>>({});
+  const selectedSessionId = selectedWorkspaceId === undefined ? undefined : selectedSessionIdByWorkspaceId[selectedWorkspaceId];
   const actions = useWorkspaceActions(bootstrap.serviceBaseUrl);
 
   React.useEffect(() => {
@@ -56,16 +57,35 @@ export function AppRoutes(): React.JSX.Element {
       return;
     }
 
-    setSelectedSessionId((currentSelectedSessionId: string | undefined) => {
+    const workspaceId = currentDetail.data.workspace.id;
+    setSelectedSessionIdByWorkspaceId((currentSelectedSessionIdByWorkspaceId: Record<string, string | undefined>) => {
+      const currentSelectedSessionId = currentSelectedSessionIdByWorkspaceId[workspaceId];
       const matchingSession = currentDetail.data.sessions.find((session) => session.id === currentSelectedSessionId);
-      if (matchingSession !== undefined) {
-        return matchingSession.id;
+      const nextSelectedSessionId = matchingSession?.id
+        ?? currentDetail.data.workspace.preferences.selectedSessionId
+        ?? currentDetail.data.sessions[0]?.id;
+
+      if (currentSelectedSessionId === nextSelectedSessionId) {
+        return currentSelectedSessionIdByWorkspaceId;
       }
 
-      return currentDetail.data.workspace.preferences.selectedSessionId
-        ?? currentDetail.data.sessions[0]?.id;
+      return {
+        ...currentSelectedSessionIdByWorkspaceId,
+        [workspaceId]: nextSelectedSessionId,
+      };
     });
   }, [workspaceStream.detail]);
+
+  const handleSelectSession = React.useCallback((sessionId: string): void => {
+    if (selectedWorkspaceId === undefined) {
+      return;
+    }
+
+    setSelectedSessionIdByWorkspaceId((currentSelectedSessionIdByWorkspaceId: Record<string, string | undefined>) => ({
+      ...currentSelectedSessionIdByWorkspaceId,
+      [selectedWorkspaceId]: sessionId,
+    }));
+  }, [selectedWorkspaceId]);
 
   return (
     <WorkspaceHomeScreen
@@ -77,7 +97,7 @@ export function AppRoutes(): React.JSX.Element {
       selectedSessionId={selectedSessionId}
       connectionState={workspaceStream.connectionState}
       onSelectWorkspace={selectWorkspace}
-      onSelectSession={setSelectedSessionId}
+      onSelectSession={handleSelectSession}
       actions={actions}
     />
   );

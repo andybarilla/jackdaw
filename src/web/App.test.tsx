@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
 import type { HealthResponse } from "../shared/transport/api.js";
@@ -136,6 +136,59 @@ const OPS_WORKSPACE_DETAIL: WorkspaceDetailDto = {
   artifacts: [],
 };
 
+const SCOPED_SELECTION_DEMO_DETAIL: WorkspaceDetailDto = {
+  ...WORKSPACE_DETAIL,
+  workspace: {
+    ...WORKSPACE_DETAIL.workspace,
+    preferences: { selectedSessionId: "shared-session", attentionView: "all", detailView: "summary" },
+    sessionIds: ["shared-session", "session-running"],
+  },
+  sessions: [
+    {
+      ...WORKSPACE_DETAIL.sessions[0],
+      id: "shared-session",
+      name: "Shared review thread",
+      liveSummary: "Shared session in demo workspace.",
+      pinnedSummary: "Demo shared summary.",
+      latestMeaningfulUpdate: "Shared session in demo workspace.",
+    },
+    {
+      ...WORKSPACE_DETAIL.sessions[1],
+      id: "session-running",
+      name: "Demo preferred session",
+      liveSummary: "Demo preferred session summary.",
+      latestMeaningfulUpdate: "Demo preferred session summary.",
+    },
+  ],
+};
+
+const SCOPED_SELECTION_OPS_DETAIL: WorkspaceDetailDto = {
+  ...OPS_WORKSPACE_DETAIL,
+  workspace: {
+    ...OPS_WORKSPACE_DETAIL.workspace,
+    sessionIds: ["ops-preferred", "shared-session"],
+    preferences: { selectedSessionId: "ops-preferred", attentionView: "all", detailView: "summary" },
+  },
+  sessions: [
+    {
+      ...OPS_WORKSPACE_DETAIL.sessions[0],
+      id: "ops-preferred",
+      name: "Ops preferred session",
+      liveSummary: "Ops preferred session summary.",
+      pinnedSummary: "Ops preferred pinned summary.",
+      latestMeaningfulUpdate: "Ops preferred session summary.",
+    },
+    {
+      ...OPS_WORKSPACE_DETAIL.sessions[0],
+      id: "shared-session",
+      name: "Shared review thread",
+      liveSummary: "Shared session in ops workspace.",
+      pinnedSummary: "Ops shared summary.",
+      latestMeaningfulUpdate: "Shared session in ops workspace.",
+    },
+  ],
+};
+
 function createJsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
     headers: { "Content-Type": "application/json" },
@@ -151,10 +204,14 @@ class MockEventSource implements EventTarget {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   window.history.replaceState({}, "", "/");
 });
 
-function mockFetchImplementation(): void {
+function mockFetchImplementation(detailsByWorkspaceId: Record<string, WorkspaceDetailDto> = {
+  "ws-demo": WORKSPACE_DETAIL,
+  "ws-ops": OPS_WORKSPACE_DETAIL,
+}): void {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL): Promise<Response> => {
     const url = String(input);
 
@@ -166,12 +223,10 @@ function mockFetchImplementation(): void {
       return createJsonResponse(WORKSPACE_SUMMARIES, { status: 200 });
     }
 
-    if (url.endsWith("/workspaces/ws-demo")) {
-      return createJsonResponse(WORKSPACE_DETAIL, { status: 200 });
-    }
-
-    if (url.endsWith("/workspaces/ws-ops")) {
-      return createJsonResponse(OPS_WORKSPACE_DETAIL, { status: 200 });
+    for (const [workspaceId, detail] of Object.entries(detailsByWorkspaceId)) {
+      if (url.endsWith(`/workspaces/${workspaceId}`)) {
+        return createJsonResponse(detail, { status: 200 });
+      }
     }
 
     throw new Error(`Unexpected fetch for ${url}`);
@@ -205,5 +260,30 @@ describe("App", () => {
     });
     const matches = await screen.findAllByText("Ops operator follow-up");
     expect(matches.length).toBeGreaterThan(0);
+  });
+
+  it("scopes the selected session to the active workspace when switching workspaces", async () => {
+    mockFetchImplementation({
+      "ws-demo": SCOPED_SELECTION_DEMO_DETAIL,
+      "ws-ops": SCOPED_SELECTION_OPS_DETAIL,
+    });
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Shared review thread" })).toBeVisible();
+    expect(within(await screen.findByLabelText("Live summary panel")).getByText("Shared session in demo workspace.")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: /demo preferred session/i }));
+    expect(await within(await screen.findByLabelText("Live summary panel")).findByText("Demo preferred session summary.")).toBeVisible();
+
+    fireEvent.change(screen.getByLabelText("Workspace selector"), { target: { value: "ws-ops" } });
+
+    expect(await screen.findByDisplayValue("Ops Workspace")).toBeVisible();
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/workspaces/ws-ops");
+    });
+    expect(await within(await screen.findByLabelText("Live summary panel")).findByText("Ops preferred session summary.")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Ops preferred session" })).toBeVisible();
   });
 });

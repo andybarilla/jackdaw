@@ -216,6 +216,25 @@ function createApiClient(): ApiClient {
   };
 }
 
+interface Deferred<TValue> {
+  promise: Promise<TValue>;
+  resolve: (value: TValue) => void;
+}
+
+function createDeferred<TValue>(): Deferred<TValue> {
+  let resolve: ((value: TValue) => void) | undefined;
+  const promise = new Promise<TValue>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return {
+    promise,
+    resolve: (value: TValue) => {
+      resolve?.(value);
+    },
+  };
+}
+
 function publishEvent(eventSource: FakeEventSource, event: WorkspaceStreamEventDto): void {
   eventSource.dispatchEvent(new MessageEvent(event.type, { data: JSON.stringify(event) }));
 }
@@ -283,5 +302,93 @@ describe("WorkspaceHomeScreen", () => {
       const needsOperatorButtons = within(screen.getByLabelText("Needs operator sessions")).getAllByRole("button");
       expect(needsOperatorButtons[0]).toHaveTextContent("Beta");
     });
+  });
+
+  it("ignores malformed or unsupported SSE payloads and preserves newer live session state over stale detail refreshes", async () => {
+    const eventSource = new FakeEventSource();
+    const staleWorkspaceDetailRefresh = createDeferred<WorkspaceDetailDto>();
+    const apiClient = {
+      ...createApiClient(),
+      getWorkspaceDetail: vi.fn()
+        .mockResolvedValueOnce(WORKSPACE_DETAIL)
+        .mockImplementationOnce(async () => staleWorkspaceDetailRefresh.promise),
+    } satisfies ApiClient;
+
+    render(<WorkspaceHomeHarness apiClient={apiClient} eventSource={eventSource} />);
+
+    const liveSummaryPanel = await screen.findByLabelText("Live summary panel");
+    expect(within(liveSummaryPanel).getByText("Alpha is moving.")).toBeVisible();
+
+    expect(() => {
+      act(() => {
+        eventSource.dispatchEvent(new MessageEvent("session.summary-updated", { data: "{" }));
+      });
+    }).not.toThrow();
+    expect(within(screen.getByLabelText("Live summary panel")).getByText("Alpha is moving.")).toBeVisible();
+
+    act(() => {
+      eventSource.dispatchEvent(new MessageEvent("session.summary-updated", {
+        data: JSON.stringify({
+          version: 2,
+          type: "session.summary-updated",
+          payload: {
+            workspaceId: "ws-demo",
+            sessionId: "session-alpha",
+            liveSummary: "Ignored unsupported event version.",
+            updatedAt: "2026-04-23T12:04:00.000Z",
+          },
+        }),
+      }));
+    });
+    expect(screen.queryByText("Ignored unsupported event version.")).toBeNull();
+
+    act(() => {
+      publishEvent(eventSource, {
+        version: 1,
+        type: "workspace.updated",
+        payload: {
+          workspaceId: "ws-demo",
+          updatedAt: "2026-04-23T12:05:00.000Z",
+        },
+      });
+    });
+
+    act(() => {
+      publishEvent(eventSource, {
+        version: 1,
+        type: "session.summary-updated",
+        payload: {
+          workspaceId: "ws-demo",
+          sessionId: "session-alpha",
+          liveSummary: "Alpha is the newest summary.",
+          updatedAt: "2026-04-23T12:06:00.000Z",
+        },
+      });
+    });
+
+    expect(await within(await screen.findByLabelText("Live summary panel")).findByText("Alpha is the newest summary.")).toBeVisible();
+
+    act(() => {
+      staleWorkspaceDetailRefresh.resolve({
+        ...WORKSPACE_DETAIL,
+        sessions: WORKSPACE_DETAIL.sessions.map((session) => {
+          if (session.id !== "session-alpha") {
+            return session;
+          }
+
+          return {
+            ...session,
+            liveSummary: "Alpha stale detail refresh.",
+            latestMeaningfulUpdate: "Alpha stale detail refresh.",
+            updatedAt: "2026-04-23T12:05:00.000Z",
+          };
+        }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(within(screen.getByLabelText("Live summary panel")).getByText("Alpha is the newest summary.")).toBeVisible();
+    });
+    expect(screen.queryByText("Alpha stale detail refresh.")).toBeNull();
   });
 });

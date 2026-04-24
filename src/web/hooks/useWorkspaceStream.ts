@@ -152,6 +152,23 @@ export function applyWorkspaceStreamEvent(
   return currentDetail;
 }
 
+function parseWorkspaceStreamEvent(data: string): WorkspaceStreamEventDto | undefined {
+  try {
+    const parsedEvent = JSON.parse(data) as Partial<WorkspaceStreamEventDto>;
+    if (parsedEvent === null || typeof parsedEvent !== "object") {
+      return undefined;
+    }
+
+    if (parsedEvent.version !== 1 || typeof parsedEvent.type !== "string" || parsedEvent.payload === undefined) {
+      return undefined;
+    }
+
+    return parsedEvent as WorkspaceStreamEventDto;
+  } catch {
+    return undefined;
+  }
+}
+
 export function useWorkspaceStream(
   workspaceId: string | undefined,
   apiClient: ApiClient,
@@ -161,9 +178,11 @@ export function useWorkspaceStream(
   const [detail, setDetail] = React.useState<Loadable<WorkspaceDetailDto>>({ status: "loading" });
   const [connectionState, setConnectionState] = React.useState<WorkspaceStreamState["connectionState"]>("connecting");
   const stableOrderBySessionIdRef = React.useRef<Map<string, number>>(new Map<string, number>());
+  const latestStreamEventSequenceRef = React.useRef<number>(0);
 
   React.useEffect(() => {
     stableOrderBySessionIdRef.current = new Map<string, number>();
+    latestStreamEventSequenceRef.current = 0;
     if (workspaceId === undefined) {
       setDetail({ status: "loading" });
       setConnectionState("disconnected");
@@ -210,11 +229,17 @@ export function useWorkspaceStream(
     };
 
     const handleStreamEvent = (messageEvent: Event): void => {
-      if (!(messageEvent instanceof MessageEvent)) {
+      if (!(messageEvent instanceof MessageEvent) || typeof messageEvent.data !== "string") {
         return;
       }
 
-      const parsedEvent = JSON.parse(messageEvent.data) as WorkspaceStreamEventDto;
+      const parsedEvent = parseWorkspaceStreamEvent(messageEvent.data);
+      if (parsedEvent === undefined || parsedEvent.payload.workspaceId !== workspaceId) {
+        return;
+      }
+
+      latestStreamEventSequenceRef.current += 1;
+      const eventSequence = latestStreamEventSequenceRef.current;
       setDetail((currentDetail) => {
         if (currentDetail.status !== "ready") {
           return currentDetail;
@@ -223,9 +248,17 @@ export function useWorkspaceStream(
         const appliedUpdate = applyWorkspaceStreamEvent(currentDetail.data, parsedEvent, stableOrderBySessionIdRef.current, apiClient);
         if (appliedUpdate instanceof Promise) {
           void appliedUpdate.then((resolvedDetail) => {
-            if (!cancelled) {
-              setDetail({ status: "ready", data: resolvedDetail });
+            if (cancelled || latestStreamEventSequenceRef.current !== eventSequence) {
+              return;
             }
+
+            setDetail((latestDetail) => {
+              if (latestDetail.status !== "ready") {
+                return latestDetail;
+              }
+
+              return { status: "ready", data: resolvedDetail };
+            });
           });
           return currentDetail;
         }
