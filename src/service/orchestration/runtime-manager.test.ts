@@ -6,7 +6,7 @@ import type { WorkspaceSession } from "../../shared/domain/session.js";
 import type { WorkspaceRepoRoot, WorkspaceWorktree } from "../../shared/domain/workspace.js";
 import { AppStore } from "../persistence/app-store.js";
 import { WorkspaceStore } from "../persistence/workspace-store.js";
-import { WorkspaceRegistry } from "../workspace/workspace-registry.js";
+import { WorkspaceRegistry, type WorkspaceDetailRecord } from "../workspace/workspace-registry.js";
 import type {
   ManagedPiSession,
   PiSessionAdapter,
@@ -133,6 +133,18 @@ async function addWorkspace(registry: WorkspaceRegistry, appDataDir: string, wor
   return { repoRoot, worktree };
 }
 
+async function waitForCondition(condition: () => boolean, failureMessage: string): Promise<void> {
+  const startedAt = Date.now();
+  while (!condition()) {
+    if (Date.now() - startedAt > 1_000) {
+      throw new Error(failureMessage);
+    }
+    await new Promise<void>((resolve: () => void): void => {
+      setTimeout(resolve, 5);
+    });
+  }
+}
+
 function createPersistedSession(overrides: Partial<WorkspaceSession>): WorkspaceSession {
   return {
     id: overrides.id ?? "ses-1",
@@ -228,6 +240,47 @@ describe("RuntimeManager", () => {
       connectionState: "historical",
       reconnectNote: expect.stringContaining("workspace write failed"),
     });
+  });
+
+  it("observes detached initial prompt persistence failures", async () => {
+    const { registry, appDataDir } = await createRegistry();
+    const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
+    const managedSession = new FakeManagedSession("ses-prompt-fail");
+    managedSession.prompt.mockRejectedValue(new Error("provider disconnected"));
+    const adapter = new FakeSessionAdapter([managedSession]);
+    const originalUpsertSession = registry.upsertSession.bind(registry);
+    let upsertCount = 0;
+    vi.spyOn(registry, "upsertSession").mockImplementation(async (
+      session: WorkspaceSession,
+      lastOpenedAt?: string,
+    ): Promise<WorkspaceDetailRecord> => {
+      upsertCount += 1;
+      if (upsertCount === 2) {
+        throw new Error("prompt state write failed");
+      }
+
+      return await originalUpsertSession(session, lastOpenedAt);
+    });
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const runtimeManager = new RuntimeManager({ registry, adapter });
+
+    const result = await runtimeManager.spawnSession({
+      workspaceId: "ws-1",
+      cwd: workspace.worktree.path,
+      repoRoot: workspace.repoRoot.path,
+      worktree: workspace.worktree.path,
+      task: "Implement task with failing prompt persistence",
+    });
+
+    expect(result.result).toEqual({
+      ok: true,
+      acceptedAt: expect.any(String),
+    });
+    await waitForCondition(() => consoleErrorSpy.mock.calls.length > 0, "initial prompt failure was not observed");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Initial prompt failed for session ws-1/ses-prompt-fail: prompt state write failed",
+    );
+    expect(runtimeManager.listActiveSessionKeys()).toEqual(["ws-1::ses-prompt-fail"]);
   });
 
   it("marks spawned records historical and disposes managed sessions when post-create setup fails", async () => {

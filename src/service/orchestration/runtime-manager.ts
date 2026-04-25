@@ -148,6 +148,13 @@ export class RuntimeManager {
       const controller = await this.replaceController(session, managedSession);
       controllerRegistered = true;
       controller.beginInitialPrompt(canonicalInput.task);
+      const promptedSessionId = session.id;
+      const promptedWorkspaceId = session.workspaceId;
+      void controller.waitForInitialPrompt().catch((error: unknown): void => {
+        console.error(
+          `Initial prompt failed for session ${promptedWorkspaceId}/${promptedSessionId}: ${errorMessage(error)}`,
+        );
+      });
 
       return {
         result: {

@@ -300,7 +300,8 @@ export class WorkspaceService {
 
     const result = await this.requireRuntimeManager().steerSession(input);
     if (!result.ok) {
-      return this.createCommandMutation(existingSession, result, input.text, "Steer request rejected");
+      const session = this.findSession(sessionId) ?? existingSession;
+      return this.createCommandMutation(session, result, input.text, "Steer request rejected");
     }
 
     const session = this.findSession(sessionId) ?? existingSession;
@@ -320,7 +321,8 @@ export class WorkspaceService {
 
     const result = await this.requireRuntimeManager().followUpSession(input);
     if (!result.ok) {
-      return this.createCommandMutation(existingSession, result, input.text, "Follow-up rejected");
+      const session = this.findSession(sessionId) ?? existingSession;
+      return this.createCommandMutation(session, result, input.text, "Follow-up rejected");
     }
 
     const session = this.findSession(sessionId) ?? existingSession;
@@ -337,7 +339,8 @@ export class WorkspaceService {
 
     const result = await this.requireRuntimeManager().abortSession({ sessionId });
     if (!result.ok) {
-      return this.createCommandMutation(existingSession, result, result.reason, "Abort rejected");
+      const session = this.findSession(sessionId) ?? existingSession;
+      return this.createCommandMutation(session, result, result.reason, "Abort rejected");
     }
 
     const session = this.findSession(sessionId) ?? existingSession;
@@ -357,7 +360,8 @@ export class WorkspaceService {
 
     const result = await this.requireRuntimeManager().pinSessionSummary(input);
     if (!result.ok) {
-      return this.createCommandMutation(existingSession, result, result.reason, "Pinned summary rejected");
+      const session = this.findSession(sessionId) ?? existingSession;
+      return this.createCommandMutation(session, result, result.reason, "Pinned summary rejected");
     }
 
     const session = this.findSession(sessionId) ?? existingSession;
@@ -384,7 +388,8 @@ export class WorkspaceService {
 
     const result = await this.requireRuntimeManager().openSessionPath(sessionId, input);
     if (!result.ok) {
-      return this.createCommandMutation(existingSession, result, result.reason, "Recent file open rejected");
+      const session = this.findSession(sessionId) ?? existingSession;
+      return this.createCommandMutation(session, result, result.reason, "Recent file open rejected");
     }
 
     const session = this.findSession(sessionId) ?? existingSession;
@@ -404,7 +409,8 @@ export class WorkspaceService {
 
     const result = await this.requireRuntimeManager().runShellFallback(sessionId, command);
     if (!result.ok) {
-      return this.createCommandMutation(existingSession, result, result.reason, "Shell fallback rejected");
+      const session = this.findSession(sessionId) ?? existingSession;
+      return this.createCommandMutation(session, result, result.reason, "Shell fallback rejected");
     }
 
     const session = this.findSession(sessionId) ?? existingSession;
