@@ -53,4 +53,13 @@ describe("service persistence paths", () => {
       cacheDirectoryPath: "/tmp/jackdaw-user-data/workspaces/ws-42/cache",
     });
   });
+
+  it("rejects unsafe workspace id path segments", () => {
+    process.env.JACKDAW_APP_DATA_DIR = "/tmp/jackdaw-user-data";
+
+    expect(() => resolveWorkspacePersistencePaths("")).toThrow(/workspace id/i);
+    expect(() => resolveWorkspacePersistencePaths("../escape")).toThrow(/workspace id/i);
+    expect(() => resolveWorkspacePersistencePaths("nested/workspace")).toThrow(/workspace id/i);
+    expect(() => resolveWorkspacePersistencePaths("nested\\workspace")).toThrow(/workspace id/i);
+  });
 });

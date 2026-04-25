@@ -78,6 +78,38 @@ function createArtifact(overrides: Partial<WorkspaceArtifact> = {}): WorkspaceAr
   };
 }
 
+class BlockingWorkspaceStore extends WorkspaceStore {
+  private shouldBlockNextSave: boolean = false;
+  private blockedSaveStartedResolve: (() => void) | undefined;
+  private blockedSaveReleasePromise: Promise<void> = Promise.resolve();
+  private blockedSaveReleaseResolve: (() => void) | undefined;
+
+  blockNextSave(): Promise<void> {
+    this.shouldBlockNextSave = true;
+    this.blockedSaveReleasePromise = new Promise<void>((resolve) => {
+      this.blockedSaveReleaseResolve = resolve;
+    });
+
+    return new Promise<void>((resolve) => {
+      this.blockedSaveStartedResolve = resolve;
+    });
+  }
+
+  releaseBlockedSave(): void {
+    this.blockedSaveReleaseResolve?.();
+  }
+
+  override async save(state: PersistedWorkspaceState): Promise<void> {
+    if (this.shouldBlockNextSave) {
+      this.shouldBlockNextSave = false;
+      this.blockedSaveStartedResolve?.();
+      await this.blockedSaveReleasePromise;
+    }
+
+    await super.save(state);
+  }
+}
+
 describe("WorkspaceRegistry", () => {
   const directories: string[] = [];
   let originalAppDataDir: string | undefined;
@@ -243,6 +275,41 @@ describe("WorkspaceRegistry", () => {
     })).rejects.toThrow(/missing repo root/i);
   });
 
+  it("rejects workspace creation and updates when a worktree is outside its repo root", async () => {
+    const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
+    directories.push(appDataDir);
+    process.env.JACKDAW_APP_DATA_DIR = appDataDir;
+
+    const registry = await WorkspaceRegistry.load();
+
+    await expect(() => registry.createWorkspace({
+      id: "ws-1",
+      name: "Workspace 1",
+      repoRoots: [repoRoot],
+      worktrees: [
+        {
+          ...worktree,
+          path: "/repos/other/task-3",
+        },
+      ],
+      createdAt: "2026-04-24T10:00:00.000Z",
+      updatedAt: "2026-04-24T10:00:00.000Z",
+    })).rejects.toThrow(/outside|repo root/i);
+
+    await registry.createWorkspace({
+      id: "ws-2",
+      name: "Workspace 2",
+      repoRoots: [repoRoot],
+      createdAt: "2026-04-24T10:00:00.000Z",
+      updatedAt: "2026-04-24T10:00:00.000Z",
+    });
+
+    await expect(() => registry.addWorktree("ws-2", {
+      ...worktree,
+      path: "/repos/other/task-3",
+    })).rejects.toThrow(/outside|repo root/i);
+  });
+
   it("updates workspace metadata without losing persisted local state", async () => {
     const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
     directories.push(appDataDir);
@@ -336,6 +403,51 @@ describe("WorkspaceRegistry", () => {
     expect(rewrittenAppState.workspaces.map((workspace) => workspace.id)).toEqual(["ws-good"]);
   });
 
+  it("skips workspace stores whose parsed id does not match their app-state entry or directory", async () => {
+    const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
+    directories.push(appDataDir);
+    process.env.JACKDAW_APP_DATA_DIR = appDataDir;
+
+    const workspacesDirectoryPath = path.join(appDataDir, "workspaces");
+    await mkdir(path.join(workspacesDirectoryPath, "ws-index"), { recursive: true });
+    await writeFile(path.join(appDataDir, "app-state.json"), JSON.stringify({
+      version: 1,
+      selectedWorkspaceId: "ws-index",
+      workspaces: [
+        {
+          id: "ws-index",
+          name: "Indexed workspace",
+          createdAt: "2026-04-24T09:00:00.000Z",
+          updatedAt: "2026-04-24T09:00:00.000Z",
+        },
+      ],
+    }, null, 2));
+    await writeFile(path.join(workspacesDirectoryPath, "ws-index", "workspace.json"), JSON.stringify({
+      version: 1,
+      workspace: {
+        id: "ws-other",
+        name: "Mismatched workspace",
+        repoRoots: [repoRoot],
+        worktrees: [worktree],
+        sessionIds: [],
+        artifactIds: [],
+        preferences: {},
+        createdAt: "2026-04-24T10:00:00.000Z",
+        updatedAt: "2026-04-24T10:00:00.000Z",
+      },
+      sessions: [],
+      artifacts: [],
+    }, null, 2));
+
+    const registry = await WorkspaceRegistry.load();
+    const rewrittenAppState = JSON.parse(await readFile(path.join(appDataDir, "app-state.json"), "utf8")) as PersistedAppState;
+
+    expect(registry.listWorkspaces()).toEqual([]);
+    expect(registry.getWorkspaceDetail("ws-index")).toBeUndefined();
+    expect(registry.getWorkspaceDetail("ws-other")).toBeUndefined();
+    expect(rewrittenAppState.workspaces).toEqual([]);
+  });
+
   it("recovers from malformed app-state.json by rebuilding from discovered workspace stores", async () => {
     const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
     directories.push(appDataDir);
@@ -416,6 +528,85 @@ describe("WorkspaceRegistry", () => {
     );
 
     consoleWarnSpy.mockRestore();
+  });
+
+  it("caches one workspace store instance per workspace", async () => {
+    const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
+    directories.push(appDataDir);
+    process.env.JACKDAW_APP_DATA_DIR = appDataDir;
+
+    let workspaceStoreFactoryCallCount = 0;
+    const registry = await WorkspaceRegistry.load({
+      appStore: new AppStore(path.join(appDataDir, "app-state.json")),
+      workspaceStoreFactory: (workspaceId: string) => {
+        workspaceStoreFactoryCallCount += 1;
+        return new WorkspaceStore(path.join(appDataDir, "workspaces", workspaceId, "workspace.json"));
+      },
+      workspacesDirectoryPath: path.join(appDataDir, "workspaces"),
+    });
+
+    await registry.createWorkspace({
+      id: "ws-1",
+      name: "Workspace 1",
+      repoRoots: [repoRoot],
+      worktrees: [worktree],
+      createdAt: "2026-04-24T10:00:00.000Z",
+      updatedAt: "2026-04-24T10:00:00.000Z",
+    });
+    await registry.updateWorkspace("ws-1", {
+      description: "Updated local metadata",
+      updatedAt: "2026-04-24T10:30:00.000Z",
+    });
+    await registry.upsertSession(createSession());
+
+    expect(workspaceStoreFactoryCallCount).toBe(1);
+  });
+
+  it("serializes concurrent mutations for the same workspace", async () => {
+    const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
+    directories.push(appDataDir);
+    process.env.JACKDAW_APP_DATA_DIR = appDataDir;
+
+    const workspaceStore = new BlockingWorkspaceStore(path.join(appDataDir, "workspaces", "ws-1", "workspace.json"));
+    const registry = await WorkspaceRegistry.load({
+      appStore: new AppStore(path.join(appDataDir, "app-state.json")),
+      workspaceStoreFactory: () => workspaceStore,
+      workspacesDirectoryPath: path.join(appDataDir, "workspaces"),
+    });
+
+    await registry.createWorkspace({
+      id: "ws-1",
+      name: "Workspace 1",
+      repoRoots: [repoRoot],
+      worktrees: [worktree],
+      createdAt: "2026-04-24T10:00:00.000Z",
+      updatedAt: "2026-04-24T10:00:00.000Z",
+    });
+
+    const firstSaveStarted = workspaceStore.blockNextSave();
+    const firstMutation = registry.upsertSession(createSession({
+      id: "session-a",
+      name: "Concurrent session A",
+      updatedAt: "2026-04-24T11:00:00.000Z",
+    }));
+    await firstSaveStarted;
+
+    const secondMutation = registry.upsertSession(createSession({
+      id: "session-b",
+      name: "Concurrent session B",
+      updatedAt: "2026-04-24T11:01:00.000Z",
+    }));
+    workspaceStore.releaseBlockedSave();
+
+    await Promise.all([firstMutation, secondMutation]);
+
+    const detail = registry.getWorkspaceDetail("ws-1");
+    const persistedWorkspaceState = JSON.parse(
+      await readFile(path.join(appDataDir, "workspaces", "ws-1", "workspace.json"), "utf8"),
+    ) as PersistedWorkspaceState;
+
+    expect(detail?.sessions.map((session) => session.id)).toEqual(["session-a", "session-b"]);
+    expect(persistedWorkspaceState.sessions.map((session) => session.id)).toEqual(["session-a", "session-b"]);
   });
 
   it("reconciles in-memory state after app-state persistence fails so later mutations do not overwrite workspace.json", async () => {

@@ -22,6 +22,7 @@ import {
   isWorkspacePathInside,
   normalizeWorkspacePathForComparison,
 } from "../workspace/workspace-paths.js";
+import { assertSafeWorkspaceId } from "./paths.js";
 
 export interface PersistedWorkspaceIndexEntry {
   id: string;
@@ -80,6 +81,8 @@ export function createPersistedWorkspaceState(workspace: Workspace): PersistedWo
 }
 
 export function workspaceToIndexEntry(workspace: Workspace, lastOpenedAt?: string): PersistedWorkspaceIndexEntry {
+  assertSafeWorkspaceId(workspace.id, "workspace id");
+
   return {
     id: workspace.id,
     name: workspace.name,
@@ -101,7 +104,7 @@ export function parsePersistedAppState(value: unknown): PersistedAppState {
     throw new TypeError("Persisted app state workspaces must be an array");
   }
 
-  const selectedWorkspaceId = readOptionalString(objectValue.selectedWorkspaceId, "Persisted app state selectedWorkspaceId");
+  const selectedWorkspaceId = readOptionalWorkspaceId(objectValue.selectedWorkspaceId, "Persisted app state selectedWorkspaceId");
   const workspaces = workspacesValue.map((entry, index) => parseWorkspaceIndexEntry(entry, index));
 
   const normalizedSelectedWorkspaceId = selectedWorkspaceId !== undefined && workspaces.some((workspace) => workspace.id === selectedWorkspaceId)
@@ -150,7 +153,7 @@ function parseWorkspaceIndexEntry(value: unknown, index: number): PersistedWorks
   const objectValue = readObject(value, `Persisted app state workspaces[${index}]`);
 
   return {
-    id: readRequiredString(objectValue.id, `Persisted app state workspaces[${index}] id`),
+    id: readWorkspaceId(objectValue.id, `Persisted app state workspaces[${index}] id`),
     name: readRequiredString(objectValue.name, `Persisted app state workspaces[${index}] name`),
     description: readOptionalString(objectValue.description, `Persisted app state workspaces[${index}] description`),
     createdAt: readRequiredString(objectValue.createdAt, `Persisted app state workspaces[${index}] createdAt`),
@@ -163,7 +166,7 @@ function parseWorkspace(value: unknown, context: string): Workspace {
   const objectValue = readObject(value, context);
 
   return {
-    id: readRequiredString(objectValue.id, `${context} id`),
+    id: readWorkspaceId(objectValue.id, `${context} id`),
     name: readRequiredString(objectValue.name, `${context} name`),
     description: readOptionalString(objectValue.description, `${context} description`),
     repoRoots: readArray(objectValue.repoRoots, `${context} repoRoots`).map((repoRootValue, index) =>
@@ -255,7 +258,7 @@ function parseWorkspaceSession(value: unknown, context: string, workspaceId: str
     throw new TypeError(`${context} connectionState must be live or historical`);
   }
 
-  const sessionWorkspaceId = readRequiredString(objectValue.workspaceId, `${context} workspaceId`);
+  const sessionWorkspaceId = readWorkspaceId(objectValue.workspaceId, `${context} workspaceId`);
   if (sessionWorkspaceId !== workspaceId) {
     throw new TypeError(`${context} workspaceId must match workspace ${workspaceId}`);
   }
@@ -358,7 +361,7 @@ function parseWorkspaceArtifact(value: unknown, context: string, workspaceId: st
     throw new TypeError(`${context} kind must be a valid artifact kind`);
   }
 
-  const artifactWorkspaceId = readRequiredString(objectValue.workspaceId, `${context} workspaceId`);
+  const artifactWorkspaceId = readWorkspaceId(objectValue.workspaceId, `${context} workspaceId`);
   if (artifactWorkspaceId !== workspaceId) {
     throw new TypeError(`${context} workspaceId must match workspace ${workspaceId}`);
   }
@@ -383,10 +386,15 @@ function assertWorkspaceLinks(
   sessions: readonly WorkspaceSession[],
   artifacts: readonly WorkspaceArtifact[],
 ): void {
+  assertUniqueEntityIds(workspace.repoRoots, "repo root");
+  assertUniqueEntityIds(workspace.worktrees, "worktree");
+  assertUniqueEntityIds(sessions, "session");
+  assertUniqueEntityIds(artifacts, "artifact");
+  assertUniqueStringValues(workspace.sessionIds, "workspace session id");
+  assertUniqueStringValues(workspace.artifactIds, "workspace artifact id");
   assertUniqueRepoRootPaths(workspace.repoRoots);
   assertUniqueWorktreePaths(workspace.worktrees);
 
-  const repoRootIds = new Set<string>(workspace.repoRoots.map((repoRoot) => repoRoot.id));
   const repoRootByPath = new Map<string, WorkspaceRepoRoot>(
     workspace.repoRoots.map((repoRoot) => [normalizeWorkspacePathForComparison(repoRoot.path), repoRoot]),
   );
@@ -397,8 +405,12 @@ function assertWorkspaceLinks(
   const artifactIds = new Set<string>(artifacts.map((artifact) => artifact.id));
 
   for (const worktree of workspace.worktrees) {
-    if (!repoRootIds.has(worktree.repoRootId)) {
+    const repoRoot = workspace.repoRoots.find((candidate) => candidate.id === worktree.repoRootId);
+    if (repoRoot === undefined) {
       throw new TypeError(`Persisted workspace state worktree ${worktree.id} references missing repo root ${worktree.repoRootId}`);
+    }
+    if (!isWorkspacePathInside(repoRoot.path, worktree.path)) {
+      throw new TypeError(`Persisted workspace state worktree ${worktree.id} path ${worktree.path} is outside repo root ${repoRoot.path}`);
     }
   }
   for (const sessionId of workspace.sessionIds) {
@@ -470,6 +482,21 @@ function assertWorkspaceLinks(
   }
 }
 
+function assertUniqueEntityIds(items: readonly { id: string }[], label: string): void {
+  assertUniqueStringValues(items.map((item) => item.id), `${label} id`);
+}
+
+function assertUniqueStringValues(values: readonly string[], label: string): void {
+  const seenValues = new Set<string>();
+
+  for (const value of values) {
+    if (seenValues.has(value)) {
+      throw new TypeError(`Persisted workspace state ${label} must be unique: ${value}`);
+    }
+    seenValues.add(value);
+  }
+}
+
 function assertUniqueRepoRootPaths(repoRoots: readonly WorkspaceRepoRoot[]): void {
   const seenPaths = new Set<string>();
 
@@ -492,6 +519,22 @@ function assertUniqueWorktreePaths(worktrees: readonly WorkspaceWorktree[]): voi
     }
     seenPaths.add(normalizedPath);
   }
+}
+
+function readWorkspaceId(value: unknown, context: string): string {
+  const workspaceId = readRequiredString(value, context);
+  assertSafeWorkspaceId(workspaceId, context);
+  return workspaceId;
+}
+
+function readOptionalWorkspaceId(value: unknown, context: string): string | undefined {
+  const workspaceId = readOptionalString(value, context);
+  if (workspaceId === undefined) {
+    return undefined;
+  }
+
+  assertSafeWorkspaceId(workspaceId, context);
+  return workspaceId;
 }
 
 function readOptionalWorkspacePath(value: unknown, context: string): string | undefined {

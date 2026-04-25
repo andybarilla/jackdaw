@@ -150,6 +150,20 @@ describe("service persistence schema", () => {
     });
   });
 
+  it("rejects unsafe workspace ids in app state", () => {
+    expect(() =>
+      parsePersistedAppState({
+        ...persistedAppState,
+        workspaces: [
+          {
+            ...persistedAppState.workspaces[0],
+            id: "../escape",
+          },
+        ],
+      }),
+    ).toThrow(/workspace id/i);
+  });
+
   it("rejects malformed workspace state safely", () => {
     expect(() =>
       parsePersistedWorkspaceState({
@@ -197,6 +211,23 @@ describe("service persistence schema", () => {
         },
       }),
     ).toThrow(/missing-repo-root/i);
+  });
+
+  it("rejects workspace state with a worktree outside its repo root", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        workspace: {
+          ...persistedWorkspaceState.workspace,
+          worktrees: [
+            {
+              ...persistedWorkspaceState.workspace.worktrees[0],
+              path: "/repos/other/task-3",
+            },
+          ],
+        },
+      }),
+    ).toThrow(/outside|repo root/i);
   });
 
   it("rejects workspace state with preferences linked to missing records", () => {
@@ -251,6 +282,76 @@ describe("service persistence schema", () => {
     ).toThrow(/unique|\/repos\/jackdaw/i);
   });
 
+  it("rejects workspace state with duplicate structural ids", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        workspace: {
+          ...persistedWorkspaceState.workspace,
+          repoRoots: [
+            ...persistedWorkspaceState.workspace.repoRoots,
+            {
+              id: "repo-1",
+              path: "/repos/jackdaw-copy",
+              name: "jackdaw-copy",
+            },
+          ],
+        },
+      }),
+    ).toThrow(/repo root id.*repo-1/i);
+
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        workspace: {
+          ...persistedWorkspaceState.workspace,
+          worktrees: [
+            ...persistedWorkspaceState.workspace.worktrees,
+            {
+              id: "worktree-1",
+              repoRootId: "repo-1",
+              path: "/repos/jackdaw/.worktrees/task-4",
+            },
+          ],
+        },
+      }),
+    ).toThrow(/worktree id.*worktree-1/i);
+
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        workspace: {
+          ...persistedWorkspaceState.workspace,
+          sessionIds: ["session-1", "session-2"],
+        },
+        sessions: [
+          persistedWorkspaceState.sessions[0],
+          {
+            ...persistedWorkspaceState.sessions[0],
+            id: "session-1",
+          },
+        ],
+      }),
+    ).toThrow(/session id.*session-1/i);
+
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        workspace: {
+          ...persistedWorkspaceState.workspace,
+          artifactIds: ["artifact-1", "artifact-2"],
+        },
+        artifacts: [
+          persistedWorkspaceState.artifacts[0],
+          {
+            ...persistedWorkspaceState.artifacts[0],
+            id: "artifact-1",
+          },
+        ],
+      }),
+    ).toThrow(/artifact id.*artifact-1/i);
+  });
+
   it("canonicalizes equivalent normalized paths for persisted session references", () => {
     const parsedState = parsePersistedWorkspaceState({
       ...persistedWorkspaceState,
@@ -267,6 +368,30 @@ describe("service persistence schema", () => {
     expect(parsedState.sessions[0]?.repoRoot).toBe("/repos/jackdaw");
     expect(parsedState.sessions[0]?.worktree).toBe("/repos/jackdaw/.worktrees/task-3");
     expect(parsedState.sessions[0]?.cwd).toBe("/repos/jackdaw/.worktrees/task-3");
+  });
+
+  it("rejects unsafe persisted workspace ids", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        workspace: {
+          ...persistedWorkspaceState.workspace,
+          id: "nested/workspace",
+        },
+        sessions: [
+          {
+            ...persistedWorkspaceState.sessions[0],
+            workspaceId: "nested/workspace",
+          },
+        ],
+        artifacts: [
+          {
+            ...persistedWorkspaceState.artifacts[0],
+            workspaceId: "nested/workspace",
+          },
+        ],
+      }),
+    ).toThrow(/workspace id/i);
   });
 
   it("rejects relative persisted workspace and session paths", () => {

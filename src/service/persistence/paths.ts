@@ -4,6 +4,13 @@ export interface ResolveServiceAppDataDirOptions {
   desktopUserDataDir?: string;
 }
 
+export class WorkspaceIdValidationError extends TypeError {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkspaceIdValidationError";
+  }
+}
+
 export interface ServicePersistencePaths {
   appDataDir: string;
   appStateFilePath: string;
@@ -44,6 +51,8 @@ export function resolveWorkspacePersistencePaths(
   workspaceId: string,
   options: ResolveServiceAppDataDirOptions = {},
 ): WorkspacePersistencePaths {
+  assertSafeWorkspaceId(workspaceId, "workspace id");
+
   const servicePaths = resolveServicePersistencePaths(options);
   const workspaceDirectoryPath = path.join(servicePaths.workspacesDirectoryPath, workspaceId);
 
@@ -53,4 +62,10 @@ export function resolveWorkspacePersistencePaths(
     artifactsDirectoryPath: path.join(workspaceDirectoryPath, "artifacts"),
     cacheDirectoryPath: path.join(workspaceDirectoryPath, "cache"),
   };
+}
+
+export function assertSafeWorkspaceId(workspaceId: string, context: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(workspaceId)) {
+    throw new WorkspaceIdValidationError(`${context} must be a safe workspace id path segment: ${workspaceId}`);
+  }
 }

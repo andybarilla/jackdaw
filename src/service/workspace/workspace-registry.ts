@@ -8,7 +8,7 @@ import {
   type PersistedWorkspaceIndexEntry,
   type PersistedWorkspaceState,
 } from "../persistence/schema.js";
-import { resolveServicePersistencePaths, type ResolveServiceAppDataDirOptions } from "../persistence/paths.js";
+import { assertSafeWorkspaceId, resolveServicePersistencePaths, type ResolveServiceAppDataDirOptions } from "../persistence/paths.js";
 import { WorkspaceStore } from "../persistence/workspace-store.js";
 import { RepoRegistry } from "./repo-registry.js";
 import { linkArtifactToWorkspace, linkSessionToWorkspace, sortArtifactsByWorkspaceOrder, sortSessionsByWorkspaceOrder } from "./session-links.js";
@@ -57,6 +57,8 @@ export class WorkspaceRegistry {
   private readonly workspaces = new Map<string, WorkspaceDetailRecord>();
   private appState: PersistedAppState;
   private readonly repoRegistry = new RepoRegistry();
+  private readonly workspaceMutationQueues = new Map<string, Promise<void>>();
+  private appStateMutationQueue: Promise<void> = Promise.resolve();
 
   private constructor(
     private readonly appStore: AppStore,
@@ -74,7 +76,8 @@ export class WorkspaceRegistry {
 
   static async load(options: WorkspaceRegistryLoadOptions = {}): Promise<WorkspaceRegistry> {
     const appStore = options.appStore ?? AppStore.default();
-    const workspaceStoreFactory = options.workspaceStoreFactory ?? ((workspaceId: string) => WorkspaceStore.default(workspaceId));
+    const rawWorkspaceStoreFactory = options.workspaceStoreFactory ?? ((workspaceId: string) => WorkspaceStore.default(workspaceId));
+    const workspaceStoreFactory = createCachingWorkspaceStoreFactory(rawWorkspaceStoreFactory);
     const workspacesDirectoryPath = options.workspacesDirectoryPath
       ?? resolveServicePersistencePaths(options.persistencePathOptions).workspacesDirectoryPath;
     const appState = await loadRecoverableAppState(appStore);
@@ -90,6 +93,10 @@ export class WorkspaceRegistry {
     const recoveredEntries: PersistedWorkspaceIndexEntry[] = [];
 
     for (const workspaceId of orderedWorkspaceIds) {
+      if (!isSafeWorkspaceId(workspaceId)) {
+        continue;
+      }
+
       const workspaceState = await loadRecoverableWorkspaceState(workspaceStoreFactory, workspaceId);
       if (workspaceState === undefined) {
         continue;
@@ -117,7 +124,7 @@ export class WorkspaceRegistry {
       }
     }
 
-    return new WorkspaceRegistry(appStore, workspaceStoreFactory, recoveredAppState, workspaceDetails, new Set(orderedWorkspaceIds));
+    return new WorkspaceRegistry(appStore, workspaceStoreFactory, recoveredAppState, workspaceDetails, new Set(orderedWorkspaceIds.filter(isSafeWorkspaceId)));
   }
 
   listReservedWorkspaceIds(): string[] {
@@ -137,180 +144,247 @@ export class WorkspaceRegistry {
   }
 
   async createWorkspace(input: CreateWorkspaceRecordInput): Promise<WorkspaceDetailRecord> {
-    if (this.reservedWorkspaceIds.has(input.id) && !this.workspaces.has(input.id)) {
-      throw new Error(`Workspace id is reserved by an unrecovered workspace directory: ${input.id}`);
-    }
+    assertSafeWorkspaceId(input.id, "workspace id");
 
-    let workspace = createWorkspace({
-      id: input.id,
-      name: input.name,
-      description: input.description,
-      repoRoots: [],
-      worktrees: [],
-      sessionIds: [],
-      artifactIds: [],
-      preferences: {},
-      createdAt: input.createdAt,
-      updatedAt: input.updatedAt,
+    return await this.runWorkspaceMutation(input.id, async (): Promise<WorkspaceDetailRecord> => {
+      if (this.workspaces.has(input.id)) {
+        throw new Error(`Workspace id already exists: ${input.id}`);
+      }
+      if (this.reservedWorkspaceIds.has(input.id)) {
+        throw new Error(`Workspace id is reserved by an unrecovered workspace directory: ${input.id}`);
+      }
+
+      let workspace = createWorkspace({
+        id: input.id,
+        name: input.name,
+        description: input.description,
+        repoRoots: [],
+        worktrees: [],
+        sessionIds: [],
+        artifactIds: [],
+        preferences: {},
+        createdAt: input.createdAt,
+        updatedAt: input.updatedAt,
+      });
+
+      for (const repoRoot of input.repoRoots ?? []) {
+        workspace = this.repoRegistry.addRepoRoot(workspace, await canonicalizeRepoRoot(repoRoot));
+      }
+
+      for (const worktree of input.worktrees ?? []) {
+        workspace = this.repoRegistry.addWorktree(workspace, await canonicalizeWorktree(worktree));
+      }
+
+      const workspaceDetail: WorkspaceDetailRecord = {
+        workspace,
+        sessions: [],
+        artifacts: [],
+      };
+
+      await this.persistWorkspaceDetail(workspaceDetail, input.id);
+      return cloneWorkspaceDetailRecord(workspaceDetail);
     });
-
-    for (const repoRoot of input.repoRoots ?? []) {
-      workspace = this.repoRegistry.addRepoRoot(workspace, await canonicalizeRepoRoot(repoRoot));
-    }
-
-    for (const worktree of input.worktrees ?? []) {
-      workspace = this.repoRegistry.addWorktree(workspace, await canonicalizeWorktree(worktree));
-    }
-
-    const workspaceDetail: WorkspaceDetailRecord = {
-      workspace,
-      sessions: [],
-      artifacts: [],
-    };
-
-    await this.persistWorkspaceDetail(workspaceDetail);
-    return cloneWorkspaceDetailRecord(workspaceDetail);
   }
 
   async updateWorkspace(workspaceId: string, input: UpdateWorkspaceRecordInput): Promise<WorkspaceDetailRecord | undefined> {
-    const currentDetail = this.workspaces.get(workspaceId);
-    if (currentDetail === undefined) {
-      return undefined;
-    }
+    return await this.runWorkspaceMutation(workspaceId, async (): Promise<WorkspaceDetailRecord | undefined> => {
+      const currentDetail = this.workspaces.get(workspaceId);
+      if (currentDetail === undefined) {
+        return undefined;
+      }
 
-    const nextWorkspace: Workspace = {
-      ...currentDetail.workspace,
-      name: input.name ?? currentDetail.workspace.name,
-      description: input.description ?? currentDetail.workspace.description,
-      preferences: input.preferences === undefined
-        ? currentDetail.workspace.preferences
-        : { ...currentDetail.workspace.preferences, ...input.preferences },
-      optionalIntegrations: input.optionalIntegrations === undefined
-        ? currentDetail.workspace.optionalIntegrations
-        : { ...currentDetail.workspace.optionalIntegrations, ...input.optionalIntegrations },
-      updatedAt: input.updatedAt ?? new Date().toISOString(),
-    };
-    const nextDetail: WorkspaceDetailRecord = {
-      ...currentDetail,
-      workspace: nextWorkspace,
-    };
+      const nextWorkspace: Workspace = {
+        ...currentDetail.workspace,
+        name: input.name ?? currentDetail.workspace.name,
+        description: input.description ?? currentDetail.workspace.description,
+        preferences: input.preferences === undefined
+          ? currentDetail.workspace.preferences
+          : { ...currentDetail.workspace.preferences, ...input.preferences },
+        optionalIntegrations: input.optionalIntegrations === undefined
+          ? currentDetail.workspace.optionalIntegrations
+          : { ...currentDetail.workspace.optionalIntegrations, ...input.optionalIntegrations },
+        updatedAt: input.updatedAt ?? new Date().toISOString(),
+      };
+      const nextDetail: WorkspaceDetailRecord = {
+        ...currentDetail,
+        workspace: nextWorkspace,
+      };
 
-    await this.persistWorkspaceDetail(nextDetail);
-    return cloneWorkspaceDetailRecord(nextDetail);
+      await this.persistWorkspaceDetail(nextDetail, workspaceId);
+      return cloneWorkspaceDetailRecord(nextDetail);
+    });
   }
 
   async addRepoRoot(workspaceId: string, repoRoot: WorkspaceRepoRoot, updatedAt?: string): Promise<WorkspaceDetailRecord | undefined> {
-    const currentDetail = this.workspaces.get(workspaceId);
-    if (currentDetail === undefined) {
-      return undefined;
-    }
+    return await this.runWorkspaceMutation(workspaceId, async (): Promise<WorkspaceDetailRecord | undefined> => {
+      const currentDetail = this.workspaces.get(workspaceId);
+      if (currentDetail === undefined) {
+        return undefined;
+      }
 
-    const nextWorkspace = this.repoRegistry.addRepoRoot(currentDetail.workspace, await canonicalizeRepoRoot(repoRoot));
-    const nextDetail: WorkspaceDetailRecord = {
-      ...currentDetail,
-      workspace: {
-        ...nextWorkspace,
-        updatedAt: updatedAt ?? new Date().toISOString(),
-      },
-    };
+      const nextWorkspace = this.repoRegistry.addRepoRoot(currentDetail.workspace, await canonicalizeRepoRoot(repoRoot));
+      const nextDetail: WorkspaceDetailRecord = {
+        ...currentDetail,
+        workspace: {
+          ...nextWorkspace,
+          updatedAt: updatedAt ?? new Date().toISOString(),
+        },
+      };
 
-    await this.persistWorkspaceDetail(nextDetail);
-    return cloneWorkspaceDetailRecord(nextDetail);
+      await this.persistWorkspaceDetail(nextDetail, workspaceId);
+      return cloneWorkspaceDetailRecord(nextDetail);
+    });
   }
 
   async addWorktree(workspaceId: string, worktree: WorkspaceWorktree, updatedAt?: string): Promise<WorkspaceDetailRecord | undefined> {
-    const currentDetail = this.workspaces.get(workspaceId);
-    if (currentDetail === undefined) {
-      return undefined;
-    }
+    return await this.runWorkspaceMutation(workspaceId, async (): Promise<WorkspaceDetailRecord | undefined> => {
+      const currentDetail = this.workspaces.get(workspaceId);
+      if (currentDetail === undefined) {
+        return undefined;
+      }
 
-    const nextWorkspace = this.repoRegistry.addWorktree(currentDetail.workspace, await canonicalizeWorktree(worktree));
-    const nextDetail: WorkspaceDetailRecord = {
-      ...currentDetail,
-      workspace: {
-        ...nextWorkspace,
-        updatedAt: updatedAt ?? new Date().toISOString(),
-      },
-    };
+      const nextWorkspace = this.repoRegistry.addWorktree(currentDetail.workspace, await canonicalizeWorktree(worktree));
+      const nextDetail: WorkspaceDetailRecord = {
+        ...currentDetail,
+        workspace: {
+          ...nextWorkspace,
+          updatedAt: updatedAt ?? new Date().toISOString(),
+        },
+      };
 
-    await this.persistWorkspaceDetail(nextDetail);
-    return cloneWorkspaceDetailRecord(nextDetail);
+      await this.persistWorkspaceDetail(nextDetail, workspaceId);
+      return cloneWorkspaceDetailRecord(nextDetail);
+    });
   }
 
   async removeRepoRoot(workspaceId: string, repoRootId: string, updatedAt?: string): Promise<WorkspaceDetailRecord | undefined> {
-    const currentDetail = this.workspaces.get(workspaceId);
-    if (currentDetail === undefined) {
-      return undefined;
-    }
+    return await this.runWorkspaceMutation(workspaceId, async (): Promise<WorkspaceDetailRecord | undefined> => {
+      const currentDetail = this.workspaces.get(workspaceId);
+      if (currentDetail === undefined) {
+        return undefined;
+      }
 
-    const nextWorkspace = removeRepoRootPreservingHistoricalSessionReferences(
-      this.repoRegistry,
-      currentDetail.workspace,
-      currentDetail.sessions,
-      repoRootId,
-    );
-    const nextDetail: WorkspaceDetailRecord = {
-      ...currentDetail,
-      workspace: {
-        ...nextWorkspace,
-        updatedAt: updatedAt ?? new Date().toISOString(),
-      },
-    };
+      const nextWorkspace = removeRepoRootPreservingHistoricalSessionReferences(
+        this.repoRegistry,
+        currentDetail.workspace,
+        currentDetail.sessions,
+        repoRootId,
+      );
+      const nextDetail: WorkspaceDetailRecord = {
+        ...currentDetail,
+        workspace: {
+          ...nextWorkspace,
+          updatedAt: updatedAt ?? new Date().toISOString(),
+        },
+      };
 
-    await this.persistWorkspaceDetail(nextDetail);
-    return cloneWorkspaceDetailRecord(nextDetail);
+      await this.persistWorkspaceDetail(nextDetail, workspaceId);
+      return cloneWorkspaceDetailRecord(nextDetail);
+    });
   }
 
   async upsertSession(session: WorkspaceSession, lastOpenedAt?: string): Promise<WorkspaceDetailRecord> {
-    const canonicalSession = await canonicalizeSessionPaths(session);
-    const currentDetail = this.requireWorkspace(canonicalSession.workspaceId);
-    const sessions = upsertById(currentDetail.sessions, canonicalSession);
-    const linkedWorkspace = linkSessionToWorkspace(currentDetail.workspace, canonicalSession.id);
-    const nextDetail: WorkspaceDetailRecord = {
-      workspace: {
-        ...linkedWorkspace,
-        updatedAt: canonicalSession.updatedAt,
-      },
-      sessions: sortSessionsByWorkspaceOrder(linkedWorkspace, sessions),
-      artifacts: currentDetail.artifacts,
-      lastOpenedAt: lastOpenedAt ?? currentDetail.lastOpenedAt,
-    };
+    return await this.runWorkspaceMutation(session.workspaceId, async (): Promise<WorkspaceDetailRecord> => {
+      const canonicalSession = await canonicalizeSessionPaths(session);
+      const currentDetail = this.requireWorkspace(canonicalSession.workspaceId);
+      const sessions = upsertById(currentDetail.sessions, canonicalSession);
+      const linkedWorkspace = linkSessionToWorkspace(currentDetail.workspace, canonicalSession.id);
+      const nextDetail: WorkspaceDetailRecord = {
+        workspace: {
+          ...linkedWorkspace,
+          updatedAt: canonicalSession.updatedAt,
+        },
+        sessions: sortSessionsByWorkspaceOrder(linkedWorkspace, sessions),
+        artifacts: currentDetail.artifacts,
+        lastOpenedAt: lastOpenedAt ?? currentDetail.lastOpenedAt,
+      };
 
-    await this.persistWorkspaceDetail(nextDetail);
-    return cloneWorkspaceDetailRecord(nextDetail);
+      await this.persistWorkspaceDetail(nextDetail, canonicalSession.workspaceId);
+      return cloneWorkspaceDetailRecord(nextDetail);
+    });
   }
 
   async upsertArtifact(artifact: WorkspaceArtifact, lastOpenedAt?: string): Promise<WorkspaceDetailRecord> {
-    const currentDetail = this.requireWorkspace(artifact.workspaceId);
-    const artifacts = upsertById(currentDetail.artifacts, artifact);
-    const linkedWorkspace = linkArtifactToWorkspace(currentDetail.workspace, artifact.id);
-    const nextDetail: WorkspaceDetailRecord = {
-      workspace: {
-        ...linkedWorkspace,
-        updatedAt: artifact.updatedAt,
-      },
-      sessions: currentDetail.sessions,
-      artifacts: sortArtifactsByWorkspaceOrder(linkedWorkspace, artifacts),
-      lastOpenedAt: lastOpenedAt ?? currentDetail.lastOpenedAt,
-    };
+    return await this.runWorkspaceMutation(artifact.workspaceId, async (): Promise<WorkspaceDetailRecord> => {
+      const currentDetail = this.requireWorkspace(artifact.workspaceId);
+      const artifacts = upsertById(currentDetail.artifacts, artifact);
+      const linkedWorkspace = linkArtifactToWorkspace(currentDetail.workspace, artifact.id);
+      const nextDetail: WorkspaceDetailRecord = {
+        workspace: {
+          ...linkedWorkspace,
+          updatedAt: artifact.updatedAt,
+        },
+        sessions: currentDetail.sessions,
+        artifacts: sortArtifactsByWorkspaceOrder(linkedWorkspace, artifacts),
+        lastOpenedAt: lastOpenedAt ?? currentDetail.lastOpenedAt,
+      };
 
-    await this.persistWorkspaceDetail(nextDetail);
-    return cloneWorkspaceDetailRecord(nextDetail);
+      await this.persistWorkspaceDetail(nextDetail, artifact.workspaceId);
+      return cloneWorkspaceDetailRecord(nextDetail);
+    });
   }
 
   async markWorkspaceOpened(workspaceId: string, openedAt: string): Promise<WorkspaceDetailRecord | undefined> {
-    const currentDetail = this.workspaces.get(workspaceId);
-    if (currentDetail === undefined) {
-      return undefined;
-    }
+    return await this.runWorkspaceMutation(workspaceId, async (): Promise<WorkspaceDetailRecord | undefined> => {
+      const currentDetail = this.workspaces.get(workspaceId);
+      if (currentDetail === undefined) {
+        return undefined;
+      }
 
-    const nextDetail: WorkspaceDetailRecord = {
-      ...currentDetail,
-      lastOpenedAt: openedAt,
-    };
+      const nextDetail: WorkspaceDetailRecord = {
+        ...currentDetail,
+        lastOpenedAt: openedAt,
+      };
 
-    await this.persistWorkspaceDetail(nextDetail);
-    return cloneWorkspaceDetailRecord(nextDetail);
+      await this.persistWorkspaceDetail(nextDetail, workspaceId);
+      return cloneWorkspaceDetailRecord(nextDetail);
+    });
+  }
+
+  private async runWorkspaceMutation<T>(workspaceId: string, mutation: () => Promise<T>): Promise<T> {
+    assertSafeWorkspaceId(workspaceId, "workspace id");
+
+    const previousQueue = this.workspaceMutationQueues.get(workspaceId) ?? Promise.resolve();
+    const operation = (async (): Promise<T> => {
+      try {
+        await previousQueue;
+      } catch {
+        // Keep later mutations moving after an earlier mutation reports its own error.
+      }
+
+      return await mutation();
+    })();
+    const nextQueue = operation.then(
+      (): void => undefined,
+      (): void => undefined,
+    );
+    this.workspaceMutationQueues.set(workspaceId, nextQueue);
+    void nextQueue.then((): void => {
+      if (this.workspaceMutationQueues.get(workspaceId) === nextQueue) {
+        this.workspaceMutationQueues.delete(workspaceId);
+      }
+    });
+
+    return await operation;
+  }
+
+  private async runAppStateMutation<T>(mutation: () => Promise<T>): Promise<T> {
+    const previousQueue = this.appStateMutationQueue;
+    const operation = (async (): Promise<T> => {
+      try {
+        await previousQueue;
+      } catch {
+        // Keep later app-state writes moving after an earlier write reports its own error.
+      }
+
+      return await mutation();
+    })();
+    this.appStateMutationQueue = operation.then(
+      (): void => undefined,
+      (): void => undefined,
+    );
+
+    return await operation;
   }
 
   private requireWorkspace(workspaceId: string): WorkspaceDetailRecord {
@@ -321,29 +395,65 @@ export class WorkspaceRegistry {
     return workspaceDetail;
   }
 
-  private async persistWorkspaceDetail(workspaceDetail: WorkspaceDetailRecord): Promise<void> {
-    const persistedWorkspaceState: PersistedWorkspaceState = {
-      version: 1,
-      workspace: workspaceDetail.workspace,
-      sessions: workspaceDetail.sessions,
-      artifacts: workspaceDetail.artifacts,
-    };
-    const canonicalWorkspaceState = parsePersistedWorkspaceState(persistedWorkspaceState);
-    const canonicalWorkspaceDetail: WorkspaceDetailRecord = {
-      workspace: canonicalWorkspaceState.workspace,
-      sessions: canonicalWorkspaceState.sessions,
-      artifacts: canonicalWorkspaceState.artifacts,
-      lastOpenedAt: workspaceDetail.lastOpenedAt,
-    };
-    const nextAppState = syncAppStateIndex(this.appState, canonicalWorkspaceDetail.workspace, canonicalWorkspaceDetail.lastOpenedAt);
+  private async persistWorkspaceDetail(workspaceDetail: WorkspaceDetailRecord, expectedWorkspaceId: string): Promise<void> {
+    await this.runAppStateMutation(async (): Promise<void> => {
+      const persistedWorkspaceState: PersistedWorkspaceState = {
+        version: 1,
+        workspace: workspaceDetail.workspace,
+        sessions: workspaceDetail.sessions,
+        artifacts: workspaceDetail.artifacts,
+      };
+      const canonicalWorkspaceState = parsePersistedWorkspaceState(persistedWorkspaceState);
+      if (canonicalWorkspaceState.workspace.id !== expectedWorkspaceId) {
+        throw new Error(
+          `Workspace id ${canonicalWorkspaceState.workspace.id} must match persistence slot ${expectedWorkspaceId}`,
+        );
+      }
 
-    await this.workspaceStoreFactory(canonicalWorkspaceDetail.workspace.id).save(canonicalWorkspaceState);
+      const canonicalWorkspaceDetail: WorkspaceDetailRecord = {
+        workspace: canonicalWorkspaceState.workspace,
+        sessions: canonicalWorkspaceState.sessions,
+        artifacts: canonicalWorkspaceState.artifacts,
+        lastOpenedAt: workspaceDetail.lastOpenedAt,
+      };
+      const nextAppState = syncAppStateIndex(this.appState, canonicalWorkspaceDetail.workspace, canonicalWorkspaceDetail.lastOpenedAt);
 
-    this.workspaces.set(canonicalWorkspaceDetail.workspace.id, cloneWorkspaceDetailRecord(canonicalWorkspaceDetail));
-    this.reservedWorkspaceIds.add(canonicalWorkspaceDetail.workspace.id);
-    this.appState = nextAppState;
+      await this.workspaceStoreFactory(canonicalWorkspaceDetail.workspace.id).save(canonicalWorkspaceState);
 
-    await this.appStore.save(nextAppState);
+      this.workspaces.set(canonicalWorkspaceDetail.workspace.id, cloneWorkspaceDetailRecord(canonicalWorkspaceDetail));
+      this.reservedWorkspaceIds.add(canonicalWorkspaceDetail.workspace.id);
+      this.appState = nextAppState;
+
+      await this.appStore.save(nextAppState);
+    });
+  }
+}
+
+function createCachingWorkspaceStoreFactory(
+  rawWorkspaceStoreFactory: (workspaceId: string) => WorkspaceStore,
+): (workspaceId: string) => WorkspaceStore {
+  const workspaceStores = new Map<string, WorkspaceStore>();
+
+  return (workspaceId: string): WorkspaceStore => {
+    assertSafeWorkspaceId(workspaceId, "workspace id");
+
+    const existingStore = workspaceStores.get(workspaceId);
+    if (existingStore !== undefined) {
+      return existingStore;
+    }
+
+    const store = rawWorkspaceStoreFactory(workspaceId);
+    workspaceStores.set(workspaceId, store);
+    return store;
+  };
+}
+
+function isSafeWorkspaceId(workspaceId: string): boolean {
+  try {
+    assertSafeWorkspaceId(workspaceId, "workspace id");
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -375,7 +485,12 @@ async function loadRecoverableWorkspaceState(
   workspaceId: string,
 ): Promise<PersistedWorkspaceState | undefined> {
   try {
-    return await workspaceStoreFactory(workspaceId).load();
+    const workspaceState = await workspaceStoreFactory(workspaceId).load();
+    if (workspaceState !== undefined && workspaceState.workspace.id !== workspaceId) {
+      throw new TypeError(`Persisted workspace id ${workspaceState.workspace.id} must match ${workspaceId}`);
+    }
+
+    return workspaceState;
   } catch {
     return undefined;
   }

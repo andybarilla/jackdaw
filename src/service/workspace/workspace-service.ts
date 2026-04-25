@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import {
   attentionBandForStatus,
@@ -30,6 +31,7 @@ import type {
 } from "../../shared/transport/dto.js";
 import { summarizeWorkspace } from "../../shared/transport/dto.js";
 import { AppStore } from "../persistence/app-store.js";
+import { assertSafeWorkspaceId } from "../persistence/paths.js";
 import { WorkspaceStore } from "../persistence/workspace-store.js";
 import { WorkspaceRegistry, type WorkspaceDetailRecord } from "./workspace-registry.js";
 import {
@@ -65,7 +67,6 @@ export class WorkspaceService {
   private readonly recentAttentionByWorkspace = new Map<string, AttentionEvent[]>();
   private workspaceCounter: number;
   private repoCounter: number;
-  private sessionCounter: number;
   private attentionCounter: number = 0;
 
   private constructor(private readonly registry: WorkspaceRegistry) {
@@ -75,16 +76,23 @@ export class WorkspaceService {
       workspaces.flatMap((workspace) => workspace.repoRoots.map((repoRoot) => repoRoot.id)),
       "repo-",
     );
-    this.sessionCounter = getHighestPrefixedCounter(
-      workspaces.flatMap((workspace) => this.registry.getWorkspaceDetail(workspace.id)?.sessions.map((session) => session.id) ?? []),
-      "ses-",
-    );
   }
 
   static async load(options: WorkspaceServiceLoadOptions): Promise<WorkspaceService> {
     const appStore = new AppStore(path.join(options.appDataDir, "app-state.json"));
-    const workspaceStoreFactory = (workspaceId: string): WorkspaceStore =>
-      new WorkspaceStore(path.join(options.appDataDir, "workspaces", workspaceId, "workspace.json"));
+    const workspaceStores = new Map<string, WorkspaceStore>();
+    const workspaceStoreFactory = (workspaceId: string): WorkspaceStore => {
+      assertSafeWorkspaceId(workspaceId, "workspace id");
+
+      const existingStore = workspaceStores.get(workspaceId);
+      if (existingStore !== undefined) {
+        return existingStore;
+      }
+
+      const store = new WorkspaceStore(path.join(options.appDataDir, "workspaces", workspaceId, "workspace.json"));
+      workspaceStores.set(workspaceId, store);
+      return store;
+    };
     const registry = await WorkspaceRegistry.load({
       appStore,
       workspaceStoreFactory,
@@ -235,9 +243,8 @@ export class WorkspaceService {
     const canonicalInput = await canonicalizeCreateSessionInput(input);
     const resolvedSessionLocation = validateCreateSessionInput(detail, canonicalInput);
 
-    this.sessionCounter += 1;
     const acceptedAt = new Date().toISOString();
-    const sessionId = `ses-${this.sessionCounter}`;
+    const sessionId = createSessionId();
     const session: WorkspaceSession = {
       id: sessionId,
       workspaceId,
@@ -576,6 +583,10 @@ export class WorkspaceService {
   }
 }
 
+function createSessionId(): string {
+  return `ses-${randomUUID()}`;
+}
+
 function createAcceptedResponse(acceptedAt: string): MutationResponseDto {
   return {
     result: {
@@ -664,6 +675,11 @@ function validateCreateSessionInput(detail: WorkspaceDetailRecord, input: Create
   if (worktree !== undefined && worktree.repoRootId !== repoRoot.id) {
     throw new WorkspaceMutationValidationError(
       `worktree ${input.worktree} must belong to repo root ${repoRoot.path}`,
+    );
+  }
+  if (worktree !== undefined && !isWorkspacePathInside(repoRoot.path, worktree.path)) {
+    throw new WorkspaceMutationValidationError(
+      `worktree ${input.worktree} must stay inside repo root ${repoRoot.path}`,
     );
   }
 

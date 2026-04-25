@@ -68,6 +68,7 @@ describe("session routes", () => {
     const createdSession = sessionsBody.sessions.find((session) => session.name === "API route build");
 
     expect(createdSession).toBeDefined();
+    expect(createdSession?.id).toMatch(/^ses-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
     expect(createdSession?.status).toBe("running");
   });
 

@@ -16,7 +16,7 @@ export async function canonicalizeWorkspacePath(filePath: string, context: strin
     return normalizeAbsoluteWorkspacePath(await realpath(filePath));
   } catch (error: unknown) {
     if (isMissingPathError(error)) {
-      return normalizeAbsoluteWorkspacePath(filePath);
+      return await canonicalizeMissingWorkspacePath(filePath);
     }
     throw error;
   }
@@ -29,7 +29,7 @@ export function canonicalizeWorkspacePathSync(filePath: string, context: string)
     return normalizeAbsoluteWorkspacePath(realpathSync(filePath));
   } catch (error: unknown) {
     if (isMissingPathError(error)) {
-      return normalizeAbsoluteWorkspacePath(filePath);
+      return canonicalizeMissingWorkspacePathSync(filePath);
     }
     throw error;
   }
@@ -55,6 +55,56 @@ export function isWorkspacePathInside(parentPath: string, childPath: string): bo
 function assertSupportedWorkspacePath(filePath: string, context: string): void {
   if (!path.isAbsolute(filePath)) {
     throw new WorkspacePathValidationError(`${context} must be an absolute path: ${filePath}`);
+  }
+}
+
+async function canonicalizeMissingWorkspacePath(filePath: string): Promise<string> {
+  const normalizedPath = normalizeAbsoluteWorkspacePath(filePath);
+  const suffixSegments: string[] = [];
+  let candidatePath = normalizedPath;
+
+  while (true) {
+    try {
+      const realAncestorPath = await realpath(candidatePath);
+      return normalizeAbsoluteWorkspacePath(path.join(realAncestorPath, ...suffixSegments));
+    } catch (error: unknown) {
+      if (!isMissingPathError(error)) {
+        throw error;
+      }
+
+      const parentPath = path.dirname(candidatePath);
+      if (parentPath === candidatePath) {
+        return normalizedPath;
+      }
+
+      suffixSegments.unshift(path.basename(candidatePath));
+      candidatePath = parentPath;
+    }
+  }
+}
+
+function canonicalizeMissingWorkspacePathSync(filePath: string): string {
+  const normalizedPath = normalizeAbsoluteWorkspacePath(filePath);
+  const suffixSegments: string[] = [];
+  let candidatePath = normalizedPath;
+
+  while (true) {
+    try {
+      const realAncestorPath = realpathSync(candidatePath);
+      return normalizeAbsoluteWorkspacePath(path.join(realAncestorPath, ...suffixSegments));
+    } catch (error: unknown) {
+      if (!isMissingPathError(error)) {
+        throw error;
+      }
+
+      const parentPath = path.dirname(candidatePath);
+      if (parentPath === candidatePath) {
+        return normalizedPath;
+      }
+
+      suffixSegments.unshift(path.basename(candidatePath));
+      candidatePath = parentPath;
+    }
   }
 }
 
