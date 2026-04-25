@@ -124,6 +124,59 @@ describe("indexWorkspaceArtifacts", () => {
     }));
   });
 
+  it("preserves a legacy single-root file-backed artifact id after adding a repo with the same docs path", async () => {
+    const firstRepoPath = await createTempRepo();
+    const secondRepoPath = await createTempRepo();
+    const duplicateRelativePath = "docs/superpowers/plans/2026-04-24-shared-plan.md";
+    await mkdir(path.dirname(path.join(firstRepoPath, duplicateRelativePath)), { recursive: true });
+    await mkdir(path.dirname(path.join(secondRepoPath, duplicateRelativePath)), { recursive: true });
+    await writeFile(path.join(firstRepoPath, duplicateRelativePath), "# First repo plan\n", { encoding: "utf8" });
+    await writeFile(path.join(secondRepoPath, duplicateRelativePath), "# Second repo plan\n", { encoding: "utf8" });
+
+    const singleRootArtifacts = await indexWorkspaceArtifacts({
+      workspace: createWorkspaceWithRepoRoots([{ id: "repo-first", path: firstRepoPath, name: "first" }]),
+      sessions: [],
+    });
+    const legacyArtifact = singleRootArtifacts[0];
+    expect(legacyArtifact).toBeDefined();
+
+    const artifacts = await indexWorkspaceArtifacts({
+      workspace: createWorkspaceWithRepoRoots([
+        { id: "repo-first", path: firstRepoPath, name: "first" },
+        { id: "repo-second", path: secondRepoPath, name: "second" },
+      ]),
+      sessions: [],
+      existingArtifacts: legacyArtifact === undefined
+        ? []
+        : [{
+            id: legacyArtifact.id,
+            workspaceId: legacyArtifact.workspaceId,
+            kind: legacyArtifact.kind,
+            title: legacyArtifact.title,
+            filePath: legacyArtifact.filePath,
+            linkedSessionIds: legacyArtifact.linkedSessionIds,
+            linkedWorkItemIds: legacyArtifact.linkedWorkItemIds,
+            createdAt: legacyArtifact.createdAt,
+            updatedAt: legacyArtifact.updatedAt,
+          }],
+    });
+
+    const firstRepoArtifact = artifacts.find((artifact) => artifact.repoRootId === "repo-first");
+    const secondRepoArtifact = artifacts.find((artifact) => artifact.repoRootId === "repo-second");
+
+    expect(artifacts).toHaveLength(2);
+    expect(firstRepoArtifact).toEqual(expect.objectContaining({
+      id: legacyArtifact?.id,
+      repoRootId: "repo-first",
+      title: "First repo plan",
+    }));
+    expect(secondRepoArtifact).toEqual(expect.objectContaining({
+      repoRootId: "repo-second",
+      title: "Second repo plan",
+    }));
+    expect(secondRepoArtifact?.id).not.toBe(legacyArtifact?.id);
+  });
+
   it("keeps seeded artifact identities separate across repo roots with duplicate docs paths", async () => {
     const firstRepoPath = await createTempRepo();
     const secondRepoPath = await createTempRepo();

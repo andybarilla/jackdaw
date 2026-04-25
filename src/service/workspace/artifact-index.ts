@@ -52,10 +52,12 @@ function findExistingArtifact(
   workspaceId: string,
   repoRootId: string,
   relativePath: string,
+  absolutePath: string,
   kind: ArtifactKind,
   isSingleRepoRoot: boolean,
 ): WorkspaceArtifact | undefined {
   const normalizedRelativePath = normalizeForId(relativePath);
+  const generatedFileBackedId = makeArtifactId(workspaceId, absolutePath);
 
   return existingArtifacts.find((artifact) => {
     if (artifact.workspaceId !== workspaceId
@@ -69,7 +71,11 @@ function findExistingArtifact(
       return artifact.repoRootId === repoRootId;
     }
 
-    return isSingleRepoRoot;
+    if (isSingleRepoRoot) {
+      return true;
+    }
+
+    return artifact.id === generatedFileBackedId;
   });
 }
 
@@ -187,6 +193,7 @@ export async function indexWorkspaceArtifacts(input: ArtifactIndexInput): Promis
         input.workspace.id,
         repoRoot.id,
         relativePath,
+        absolutePath,
         kind,
         input.workspace.repoRoots.length === 1,
       );
