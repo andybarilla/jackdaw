@@ -12,6 +12,11 @@ import { resolveServicePersistencePaths, type ResolveServiceAppDataDirOptions } 
 import { WorkspaceStore } from "../persistence/workspace-store.js";
 import { RepoRegistry } from "./repo-registry.js";
 import { linkArtifactToWorkspace, linkSessionToWorkspace, sortArtifactsByWorkspaceOrder, sortSessionsByWorkspaceOrder } from "./session-links.js";
+import {
+  canonicalizeWorkspacePath,
+  normalizeWorkspacePathForComparison,
+  workspacePathsMatch,
+} from "./workspace-paths.js";
 import type { WorkspaceArtifact } from "../../shared/domain/artifact.js";
 import type { WorkspaceSession } from "../../shared/domain/session.js";
 import { createWorkspace, type Workspace, type WorkspaceRepoRoot, type WorkspaceWorktree } from "../../shared/domain/workspace.js";
@@ -150,11 +155,11 @@ export class WorkspaceRegistry {
     });
 
     for (const repoRoot of input.repoRoots ?? []) {
-      workspace = this.repoRegistry.addRepoRoot(workspace, repoRoot);
+      workspace = this.repoRegistry.addRepoRoot(workspace, await canonicalizeRepoRoot(repoRoot));
     }
 
     for (const worktree of input.worktrees ?? []) {
-      workspace = this.repoRegistry.addWorktree(workspace, worktree);
+      workspace = this.repoRegistry.addWorktree(workspace, await canonicalizeWorktree(worktree));
     }
 
     const workspaceDetail: WorkspaceDetailRecord = {
@@ -200,7 +205,7 @@ export class WorkspaceRegistry {
       return undefined;
     }
 
-    const nextWorkspace = this.repoRegistry.addRepoRoot(currentDetail.workspace, repoRoot);
+    const nextWorkspace = this.repoRegistry.addRepoRoot(currentDetail.workspace, await canonicalizeRepoRoot(repoRoot));
     const nextDetail: WorkspaceDetailRecord = {
       ...currentDetail,
       workspace: {
@@ -219,7 +224,7 @@ export class WorkspaceRegistry {
       return undefined;
     }
 
-    const nextWorkspace = this.repoRegistry.addWorktree(currentDetail.workspace, worktree);
+    const nextWorkspace = this.repoRegistry.addWorktree(currentDetail.workspace, await canonicalizeWorktree(worktree));
     const nextDetail: WorkspaceDetailRecord = {
       ...currentDetail,
       workspace: {
@@ -257,13 +262,14 @@ export class WorkspaceRegistry {
   }
 
   async upsertSession(session: WorkspaceSession, lastOpenedAt?: string): Promise<WorkspaceDetailRecord> {
-    const currentDetail = this.requireWorkspace(session.workspaceId);
-    const sessions = upsertById(currentDetail.sessions, session);
-    const linkedWorkspace = linkSessionToWorkspace(currentDetail.workspace, session.id);
+    const canonicalSession = await canonicalizeSessionPaths(session);
+    const currentDetail = this.requireWorkspace(canonicalSession.workspaceId);
+    const sessions = upsertById(currentDetail.sessions, canonicalSession);
+    const linkedWorkspace = linkSessionToWorkspace(currentDetail.workspace, canonicalSession.id);
     const nextDetail: WorkspaceDetailRecord = {
       workspace: {
         ...linkedWorkspace,
-        updatedAt: session.updatedAt,
+        updatedAt: canonicalSession.updatedAt,
       },
       sessions: sortSessionsByWorkspaceOrder(linkedWorkspace, sessions),
       artifacts: currentDetail.artifacts,
@@ -322,15 +328,22 @@ export class WorkspaceRegistry {
       sessions: workspaceDetail.sessions,
       artifacts: workspaceDetail.artifacts,
     };
-    parsePersistedWorkspaceState(persistedWorkspaceState);
-    const nextAppState = syncAppStateIndex(this.appState, workspaceDetail.workspace, workspaceDetail.lastOpenedAt);
+    const canonicalWorkspaceState = parsePersistedWorkspaceState(persistedWorkspaceState);
+    const canonicalWorkspaceDetail: WorkspaceDetailRecord = {
+      workspace: canonicalWorkspaceState.workspace,
+      sessions: canonicalWorkspaceState.sessions,
+      artifacts: canonicalWorkspaceState.artifacts,
+      lastOpenedAt: workspaceDetail.lastOpenedAt,
+    };
+    const nextAppState = syncAppStateIndex(this.appState, canonicalWorkspaceDetail.workspace, canonicalWorkspaceDetail.lastOpenedAt);
 
-    await this.workspaceStoreFactory(workspaceDetail.workspace.id).save(persistedWorkspaceState);
-    await this.appStore.save(nextAppState);
+    await this.workspaceStoreFactory(canonicalWorkspaceDetail.workspace.id).save(canonicalWorkspaceState);
 
-    this.workspaces.set(workspaceDetail.workspace.id, cloneWorkspaceDetailRecord(workspaceDetail));
-    this.reservedWorkspaceIds.add(workspaceDetail.workspace.id);
+    this.workspaces.set(canonicalWorkspaceDetail.workspace.id, cloneWorkspaceDetailRecord(canonicalWorkspaceDetail));
+    this.reservedWorkspaceIds.add(canonicalWorkspaceDetail.workspace.id);
     this.appState = nextAppState;
+
+    await this.appStore.save(nextAppState);
   }
 }
 
@@ -368,6 +381,31 @@ async function loadRecoverableWorkspaceState(
   }
 }
 
+async function canonicalizeRepoRoot(repoRoot: WorkspaceRepoRoot): Promise<WorkspaceRepoRoot> {
+  return {
+    ...repoRoot,
+    path: await canonicalizeWorkspacePath(repoRoot.path, `repo root ${repoRoot.id} path`),
+  };
+}
+
+async function canonicalizeWorktree(worktree: WorkspaceWorktree): Promise<WorkspaceWorktree> {
+  return {
+    ...worktree,
+    path: await canonicalizeWorkspacePath(worktree.path, `worktree ${worktree.id} path`),
+  };
+}
+
+async function canonicalizeSessionPaths(session: WorkspaceSession): Promise<WorkspaceSession> {
+  return {
+    ...session,
+    repoRoot: await canonicalizeWorkspacePath(session.repoRoot, `session ${session.id} repoRoot`),
+    worktree: session.worktree === undefined
+      ? undefined
+      : await canonicalizeWorkspacePath(session.worktree, `session ${session.id} worktree`),
+    cwd: await canonicalizeWorkspacePath(session.cwd, `session ${session.id} cwd`),
+  };
+}
+
 function removeRepoRootPreservingHistoricalSessionReferences(
   repoRegistry: RepoRegistry,
   workspace: Workspace,
@@ -383,10 +421,13 @@ function removeRepoRootPreservingHistoricalSessionReferences(
   const referencedWorktreePaths = new Set<string>(
     sessions
       .map((session) => session.worktree)
-      .filter((worktreePath): worktreePath is string => worktreePath !== undefined),
+      .filter((worktreePath): worktreePath is string => worktreePath !== undefined)
+      .map((worktreePath) => normalizeWorkspacePathForComparison(worktreePath)),
   );
-  const referencesRemovedRepoRoot = sessions.some((session) => session.repoRoot === repoRoot.path);
-  const referencesRemovedWorktree = removedWorktrees.some((worktree) => referencedWorktreePaths.has(worktree.path));
+  const referencesRemovedRepoRoot = sessions.some((session) => workspacePathsMatch(session.repoRoot, repoRoot.path));
+  const referencesRemovedWorktree = removedWorktrees.some((worktree) =>
+    referencedWorktreePaths.has(normalizeWorkspacePathForComparison(worktree.path)),
+  );
 
   if (!referencesRemovedRepoRoot && !referencesRemovedWorktree) {
     return repoRegistry.removeRepoRoot(workspace, repoRootId);

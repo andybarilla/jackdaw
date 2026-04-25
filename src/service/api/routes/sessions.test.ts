@@ -145,6 +145,20 @@ describe("session routes", () => {
     expect(invalidArtifactResponse.statusCode).toBe(400);
     expect(invalidArtifactResponse.json<{ error: string }>().error).toContain("linkedArtifactIds");
 
+    const relativeCwdResponse = await server.inject({
+      method: "POST",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
+      payload: {
+        workspaceId: TEST_WORKSPACE_ID,
+        cwd: "relative/cwd",
+        task: "Use a relative cwd",
+        repoRoot: "/workspace/jackdaw",
+      },
+    });
+
+    expect(relativeCwdResponse.statusCode).toBe(400);
+    expect(relativeCwdResponse.json<{ error: string }>().error).toContain("absolute path");
+
     const sessionsResponse = await server.inject({
       method: "GET",
       url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,

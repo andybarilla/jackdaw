@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ import type { WorkspaceRepoRoot, WorkspaceWorktree } from "../../shared/domain/w
 import { WorkspaceRegistry } from "./workspace-registry.js";
 import { AppStore } from "../persistence/app-store.js";
 import { WorkspaceStore } from "../persistence/workspace-store.js";
-import type { PersistedAppState } from "../persistence/schema.js";
+import type { PersistedAppState, PersistedWorkspaceState } from "../persistence/schema.js";
 
 const repoRoot: WorkspaceRepoRoot = {
   id: "repo-1",
@@ -136,6 +136,51 @@ describe("WorkspaceRegistry", () => {
     expect(detail?.sessions[0]?.linkedResources.artifactIds).toEqual(["artifact-1"]);
     expect(detail?.artifacts[0]?.linkedSessionIds).toEqual(["session-1"]);
     expect(detail?.lastOpenedAt).toBe("2026-04-24T11:05:00.000Z");
+  });
+
+  it("canonicalizes existing repo, worktree, and session paths before persistence", async () => {
+    const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
+    directories.push(appDataDir);
+    process.env.JACKDAW_APP_DATA_DIR = appDataDir;
+
+    const realRepoPath = path.join(appDataDir, "repos", "jackdaw");
+    const realWorktreePath = path.join(realRepoPath, ".worktrees", "task-3");
+    const aliasDirectoryPath = path.join(appDataDir, "aliases");
+    const repoAliasPath = path.join(aliasDirectoryPath, "jackdaw-link");
+    await mkdir(realWorktreePath, { recursive: true });
+    await mkdir(aliasDirectoryPath, { recursive: true });
+    await symlink(realRepoPath, repoAliasPath, "dir");
+
+    const canonicalRepoPath = await realpath(realRepoPath);
+    const canonicalWorktreePath = await realpath(realWorktreePath);
+    const registry = await WorkspaceRegistry.load();
+
+    await registry.createWorkspace({
+      id: "ws-1",
+      name: "Workspace 1",
+      repoRoots: [{ ...repoRoot, path: `${repoAliasPath}/` }],
+      worktrees: [{ ...worktree, path: path.join(repoAliasPath, ".worktrees", "task-3", ".") }],
+      createdAt: "2026-04-24T10:00:00.000Z",
+      updatedAt: "2026-04-24T10:00:00.000Z",
+    });
+    await registry.upsertSession(createSession({
+      repoRoot: repoAliasPath,
+      worktree: path.join(repoAliasPath, ".worktrees", "task-3"),
+      cwd: path.join(repoAliasPath, ".worktrees", "task-3", "."),
+    }));
+
+    const detail = registry.getWorkspaceDetail("ws-1");
+
+    expect(detail?.workspace.repoRoots[0]?.path).toBe(canonicalRepoPath);
+    expect(detail?.workspace.worktrees[0]?.path).toBe(canonicalWorktreePath);
+    expect(detail?.sessions[0]?.repoRoot).toBe(canonicalRepoPath);
+    expect(detail?.sessions[0]?.worktree).toBe(canonicalWorktreePath);
+    expect(detail?.sessions[0]?.cwd).toBe(canonicalWorktreePath);
+    await expect(() => registry.addRepoRoot("ws-1", {
+      id: "repo-2",
+      path: realRepoPath,
+      name: "duplicate",
+    })).rejects.toThrow(/duplicate repo root/i);
   });
 
   it("preserves repo-root metadata needed by historical sessions when removing a repo root", async () => {
@@ -373,50 +418,66 @@ describe("WorkspaceRegistry", () => {
     consoleWarnSpy.mockRestore();
   });
 
-  it("keeps in-memory state unchanged when app-state persistence fails and recovers the workspace on next load", async () => {
+  it("reconciles in-memory state after app-state persistence fails so later mutations do not overwrite workspace.json", async () => {
     const appDataDir = await mkdtemp(path.join(os.tmpdir(), "jackdaw-workspace-registry-"));
     directories.push(appDataDir);
     process.env.JACKDAW_APP_DATA_DIR = appDataDir;
 
-    class FailingAppStore extends AppStore {
-      override async load(): Promise<PersistedAppState> {
-        return {
-          version: 1,
-          workspaces: [],
-        };
-      }
+    class FailingSecondSaveAppStore extends AppStore {
+      private saveCallCount: number = 0;
 
-      override async save(): Promise<void> {
-        throw new Error("app-state write failed");
+      override async save(state: PersistedAppState): Promise<void> {
+        this.saveCallCount += 1;
+        if (this.saveCallCount === 2) {
+          throw new Error("app-state write failed");
+        }
+
+        await super.save(state);
       }
     }
 
     const registry = await WorkspaceRegistry.load({
-      appStore: new FailingAppStore(path.join(appDataDir, "app-state.json")),
+      appStore: new FailingSecondSaveAppStore(path.join(appDataDir, "app-state.json")),
       workspaceStoreFactory: (workspaceId: string) => new WorkspaceStore(path.join(appDataDir, "workspaces", workspaceId, "workspace.json")),
       workspacesDirectoryPath: path.join(appDataDir, "workspaces"),
     });
 
-    await expect(() => registry.createWorkspace({
+    await registry.createWorkspace({
       id: "ws-1",
       name: "Workspace 1",
       repoRoots: [repoRoot],
       worktrees: [worktree],
       createdAt: "2026-04-24T10:00:00.000Z",
       updatedAt: "2026-04-24T10:00:00.000Z",
+    });
+
+    await expect(() => registry.updateWorkspace("ws-1", {
+      description: "Updated after workspace save",
+      updatedAt: "2026-04-24T10:30:00.000Z",
     })).rejects.toThrow(/app-state write failed/i);
 
-    expect(registry.listWorkspaces()).toEqual([]);
-    expect(registry.getWorkspaceDetail("ws-1")).toBeUndefined();
+    expect(registry.getWorkspaceDetail("ws-1")?.workspace.description).toBe("Updated after workspace save");
 
-    const recoveredRegistry = await WorkspaceRegistry.load({
+    await registry.upsertSession(createSession({
+      id: "session-after-failure",
+      name: "Mutation after partial failure",
+      updatedAt: "2026-04-24T11:30:00.000Z",
+    }));
+
+    const persistedWorkspaceState = JSON.parse(
+      await readFile(path.join(appDataDir, "workspaces", "ws-1", "workspace.json"), "utf8"),
+    ) as PersistedWorkspaceState;
+
+    expect(persistedWorkspaceState.workspace.description).toBe("Updated after workspace save");
+    expect(persistedWorkspaceState.sessions.map((session) => session.id)).toEqual(["session-after-failure"]);
+
+    const reloadedRegistry = await WorkspaceRegistry.load({
       appStore: new AppStore(path.join(appDataDir, "app-state.json")),
       workspaceStoreFactory: (workspaceId: string) => new WorkspaceStore(path.join(appDataDir, "workspaces", workspaceId, "workspace.json")),
       workspacesDirectoryPath: path.join(appDataDir, "workspaces"),
     });
 
-    expect(recoveredRegistry.listWorkspaces().map((workspace) => workspace.id)).toEqual(["ws-1"]);
-    expect(recoveredRegistry.getWorkspaceDetail("ws-1")?.workspace.name).toBe("Workspace 1");
-    await expect(readFile(path.join(appDataDir, "app-state.json"), "utf8")).resolves.toContain('"id": "ws-1"');
+    expect(reloadedRegistry.getWorkspaceDetail("ws-1")?.workspace.description).toBe("Updated after workspace save");
+    expect(reloadedRegistry.getWorkspaceDetail("ws-1")?.sessions.map((session) => session.id)).toEqual(["session-after-failure"]);
   });
 });

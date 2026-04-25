@@ -1,4 +1,3 @@
-import path from "node:path";
 import { isArtifactKind, type WorkspaceArtifact } from "../../shared/domain/artifact.js";
 import {
   isInterventionKind,
@@ -18,6 +17,11 @@ import type {
   WorkspaceRepoRoot,
   WorkspaceWorktree,
 } from "../../shared/domain/workspace.js";
+import {
+  canonicalizeWorkspacePathSync,
+  isWorkspacePathInside,
+  normalizeWorkspacePathForComparison,
+} from "../workspace/workspace-paths.js";
 
 export interface PersistedWorkspaceIndexEntry {
   id: string;
@@ -185,7 +189,7 @@ function parseRepoRoot(value: unknown, context: string): WorkspaceRepoRoot {
 
   return {
     id: readRequiredString(objectValue.id, `${context} id`),
-    path: readRequiredString(objectValue.path, `${context} path`),
+    path: canonicalizeWorkspacePathSync(readRequiredString(objectValue.path, `${context} path`), `${context} path`),
     name: readRequiredString(objectValue.name, `${context} name`),
     defaultBranch: readOptionalString(objectValue.defaultBranch, `${context} defaultBranch`),
   };
@@ -197,7 +201,7 @@ function parseWorktree(value: unknown, context: string): WorkspaceWorktree {
   return {
     id: readRequiredString(objectValue.id, `${context} id`),
     repoRootId: readRequiredString(objectValue.repoRootId, `${context} repoRootId`),
-    path: readRequiredString(objectValue.path, `${context} path`),
+    path: canonicalizeWorkspacePathSync(readRequiredString(objectValue.path, `${context} path`), `${context} path`),
     branch: readOptionalString(objectValue.branch, `${context} branch`),
     label: readOptionalString(objectValue.label, `${context} label`),
   };
@@ -260,9 +264,9 @@ function parseWorkspaceSession(value: unknown, context: string, workspaceId: str
     id: readRequiredString(objectValue.id, `${context} id`),
     workspaceId: sessionWorkspaceId,
     name: readRequiredString(objectValue.name, `${context} name`),
-    repoRoot: readRequiredString(objectValue.repoRoot, `${context} repoRoot`),
-    worktree: readOptionalString(objectValue.worktree, `${context} worktree`),
-    cwd: readRequiredString(objectValue.cwd, `${context} cwd`),
+    repoRoot: canonicalizeWorkspacePathSync(readRequiredString(objectValue.repoRoot, `${context} repoRoot`), `${context} repoRoot`),
+    worktree: readOptionalWorkspacePath(objectValue.worktree, `${context} worktree`),
+    cwd: canonicalizeWorkspacePathSync(readRequiredString(objectValue.cwd, `${context} cwd`), `${context} cwd`),
     branch: readOptionalString(objectValue.branch, `${context} branch`),
     runtime: parseSessionRuntimeInfo(objectValue.runtime, `${context} runtime`),
     status,
@@ -380,13 +384,14 @@ function assertWorkspaceLinks(
   artifacts: readonly WorkspaceArtifact[],
 ): void {
   assertUniqueRepoRootPaths(workspace.repoRoots);
+  assertUniqueWorktreePaths(workspace.worktrees);
 
   const repoRootIds = new Set<string>(workspace.repoRoots.map((repoRoot) => repoRoot.id));
   const repoRootByPath = new Map<string, WorkspaceRepoRoot>(
-    workspace.repoRoots.map((repoRoot) => [normalizePathForComparison(repoRoot.path), repoRoot]),
+    workspace.repoRoots.map((repoRoot) => [normalizeWorkspacePathForComparison(repoRoot.path), repoRoot]),
   );
   const worktreeByPath = new Map<string, WorkspaceWorktree>(
-    workspace.worktrees.map((worktree) => [normalizePathForComparison(worktree.path), worktree]),
+    workspace.worktrees.map((worktree) => [normalizeWorkspacePathForComparison(worktree.path), worktree]),
   );
   const sessionIds = new Set<string>(sessions.map((session) => session.id));
   const artifactIds = new Set<string>(artifacts.map((artifact) => artifact.id));
@@ -420,19 +425,19 @@ function assertWorkspaceLinks(
     if (!workspace.sessionIds.includes(session.id)) {
       throw new TypeError(`Persisted workspace state session ${session.id} is not linked from workspace.sessionIds`);
     }
-    const sessionRepoRoot = repoRootByPath.get(normalizePathForComparison(session.repoRoot));
+    const sessionRepoRoot = repoRootByPath.get(normalizeWorkspacePathForComparison(session.repoRoot));
     if (sessionRepoRoot === undefined) {
       throw new TypeError(`Persisted workspace state session ${session.id} references unregistered repo root ${session.repoRoot}`);
     }
 
     if (session.worktree !== undefined) {
-      const worktree = worktreeByPath.get(normalizePathForComparison(session.worktree));
+      const worktree = worktreeByPath.get(normalizeWorkspacePathForComparison(session.worktree));
       if (worktree === undefined) {
         throw new TypeError(`Persisted workspace state session ${session.id} references unregistered worktree ${session.worktree}`);
       }
 
       const worktreeRepoRoot = workspace.repoRoots.find((repoRoot) => repoRoot.id === worktree.repoRootId);
-      if (worktreeRepoRoot === undefined || normalizePathForComparison(worktreeRepoRoot.path) !== normalizePathForComparison(sessionRepoRoot.path)) {
+      if (worktreeRepoRoot === undefined || normalizeWorkspacePathForComparison(worktreeRepoRoot.path) !== normalizeWorkspacePathForComparison(sessionRepoRoot.path)) {
         throw new TypeError(
           `Persisted workspace state session ${session.id} worktree ${session.worktree} does not belong to repo root ${session.repoRoot}`,
         );
@@ -440,7 +445,7 @@ function assertWorkspaceLinks(
     }
 
     const cwdBasePath = session.worktree ?? session.repoRoot;
-    if (!isPathInsideWorkspace(cwdBasePath, session.cwd)) {
+    if (!isWorkspacePathInside(cwdBasePath, session.cwd)) {
       throw new TypeError(`Persisted workspace state session ${session.id} cwd ${session.cwd} is outside ${cwdBasePath}`);
     }
 
@@ -469,7 +474,7 @@ function assertUniqueRepoRootPaths(repoRoots: readonly WorkspaceRepoRoot[]): voi
   const seenPaths = new Set<string>();
 
   for (const repoRoot of repoRoots) {
-    const normalizedPath = normalizePathForComparison(repoRoot.path);
+    const normalizedPath = normalizeWorkspacePathForComparison(repoRoot.path);
     if (seenPaths.has(normalizedPath)) {
       throw new TypeError(`Persisted workspace state repo root path must be unique: ${repoRoot.path}`);
     }
@@ -477,13 +482,21 @@ function assertUniqueRepoRootPaths(repoRoots: readonly WorkspaceRepoRoot[]): voi
   }
 }
 
-function normalizePathForComparison(filePath: string): string {
-  return path.resolve(filePath);
+function assertUniqueWorktreePaths(worktrees: readonly WorkspaceWorktree[]): void {
+  const seenPaths = new Set<string>();
+
+  for (const worktree of worktrees) {
+    const normalizedPath = normalizeWorkspacePathForComparison(worktree.path);
+    if (seenPaths.has(normalizedPath)) {
+      throw new TypeError(`Persisted workspace state worktree path must be unique: ${worktree.path}`);
+    }
+    seenPaths.add(normalizedPath);
+  }
 }
 
-function isPathInsideWorkspace(parentPath: string, childPath: string): boolean {
-  const relativePath = path.relative(normalizePathForComparison(parentPath), normalizePathForComparison(childPath));
-  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+function readOptionalWorkspacePath(value: unknown, context: string): string | undefined {
+  const filePath = readOptionalString(value, context);
+  return filePath === undefined ? undefined : canonicalizeWorkspacePathSync(filePath, context);
 }
 
 function readObject(value: unknown, context: string): Record<string, unknown> {

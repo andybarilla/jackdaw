@@ -154,6 +154,18 @@ describe("workspace routes", () => {
 
     expect(addRepoResponse.statusCode).toBe(400);
     expect(addRepoResponse.json<{ error: string }>().error).toContain("repo root path must be unique");
+
+    const relativePathResponse = await server.inject({
+      method: "POST",
+      url: "/workspaces",
+      payload: {
+        name: "Relative repo workspace",
+        repoRoots: ["relative/repo"],
+      },
+    });
+
+    expect(relativePathResponse.statusCode).toBe(400);
+    expect(relativePathResponse.json<{ error: string }>().error).toContain("absolute path");
   });
 
   it("rejects invalid workspace payloads at runtime", async () => {

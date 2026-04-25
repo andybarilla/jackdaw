@@ -32,6 +32,13 @@ import { summarizeWorkspace } from "../../shared/transport/dto.js";
 import { AppStore } from "../persistence/app-store.js";
 import { WorkspaceStore } from "../persistence/workspace-store.js";
 import { WorkspaceRegistry, type WorkspaceDetailRecord } from "./workspace-registry.js";
+import {
+  canonicalizeWorkspacePath,
+  isWorkspacePathInside,
+  normalizeWorkspacePathForComparison,
+  workspacePathsMatch,
+  WorkspacePathValidationError,
+} from "./workspace-paths.js";
 
 export interface WorkspaceMutationEvent {
   workspaceId: string;
@@ -121,11 +128,12 @@ export class WorkspaceService {
   }
 
   async createWorkspace(input: CreateWorkspaceDto): Promise<WorkspaceMutationResult<WorkspaceDetailDto>> {
-    assertUniqueNewRepoRootPaths([], input.repoRoots ?? []);
+    const canonicalRepoPaths = await canonicalizeMutationPaths(input.repoRoots ?? [], "repoRoots");
+    assertUniqueNewRepoRootPaths([], canonicalRepoPaths);
     this.workspaceCounter += 1;
     const createdAt = new Date().toISOString();
     const workspaceId = `ws-${this.workspaceCounter}`;
-    const repoRoots = (input.repoRoots ?? []).map((repoPath) => this.createRepoRoot(repoPath));
+    const repoRoots = canonicalRepoPaths.map((repoPath) => this.createRepoRoot(repoPath));
     const detail = await this.registry.createWorkspace({
       id: workspaceId,
       name: input.name,
@@ -191,8 +199,9 @@ export class WorkspaceService {
       return undefined;
     }
 
-    assertUniqueNewRepoRootPaths(currentDetail.workspace.repoRoots, [input.path]);
-    const repoRoot = this.createRepoRoot(input.path, input.name, input.defaultBranch);
+    const canonicalRepoPath = await canonicalizeMutationPath(input.path, "repo path");
+    assertUniqueNewRepoRootPaths(currentDetail.workspace.repoRoots, [canonicalRepoPath]);
+    const repoRoot = this.createRepoRoot(canonicalRepoPath, input.name, input.defaultBranch);
     const detail = await this.registry.addRepoRoot(workspaceId, repoRoot);
     if (detail === undefined) {
       return undefined;
@@ -223,7 +232,8 @@ export class WorkspaceService {
       return undefined;
     }
 
-    const resolvedSessionLocation = validateCreateSessionInput(detail, input);
+    const canonicalInput = await canonicalizeCreateSessionInput(input);
+    const resolvedSessionLocation = validateCreateSessionInput(detail, canonicalInput);
 
     this.sessionCounter += 1;
     const acceptedAt = new Date().toISOString();
@@ -231,24 +241,24 @@ export class WorkspaceService {
     const session: WorkspaceSession = {
       id: sessionId,
       workspaceId,
-      name: input.name ?? input.task,
+      name: canonicalInput.name ?? canonicalInput.task,
       repoRoot: resolvedSessionLocation.repoRoot.path,
       worktree: resolvedSessionLocation.worktree?.path,
-      cwd: input.cwd,
-      branch: input.branch,
+      cwd: canonicalInput.cwd,
+      branch: canonicalInput.branch,
       runtime: {
-        agent: input.agent ?? "implementer",
-        model: input.model ?? "sonnet",
+        agent: canonicalInput.agent ?? "implementer",
+        model: canonicalInput.model ?? "sonnet",
         runtime: "pi",
       },
       status: "running",
-      liveSummary: `Created session for: ${input.task}`,
-      latestMeaningfulUpdate: `Accepted session request for ${input.task}.`,
+      liveSummary: `Created session for: ${canonicalInput.task}`,
+      latestMeaningfulUpdate: `Accepted session request for ${canonicalInput.task}.`,
       currentActivity: "Queued in local workspace service.",
       recentFiles: [],
       linkedResources: {
-        artifactIds: structuredClone(input.linkedArtifactIds ?? []),
-        workItemIds: structuredClone(input.linkedWorkItemIds ?? []),
+        artifactIds: structuredClone(canonicalInput.linkedArtifactIds ?? []),
+        workItemIds: structuredClone(canonicalInput.linkedWorkItemIds ?? []),
         reviewIds: [],
       },
       connectionState: "live",
@@ -257,7 +267,7 @@ export class WorkspaceService {
     };
 
     await this.registry.upsertSession(session);
-    this.appendAttentionEvent(session, acceptedAt, "Session created", `Accepted session request for ${input.task}.`, "operator");
+    this.appendAttentionEvent(session, acceptedAt, "Session created", `Accepted session request for ${canonicalInput.task}.`, "operator");
 
     const events: WorkspaceMutationEvent[] = [
       { workspaceId, event: createWorkspaceUpdatedEvent(workspaceId, acceptedAt) },
@@ -575,11 +585,35 @@ function createAcceptedResponse(acceptedAt: string): MutationResponseDto {
   };
 }
 
+async function canonicalizeCreateSessionInput(input: CreateSessionDto): Promise<CreateSessionDto> {
+  return {
+    ...input,
+    cwd: await canonicalizeMutationPath(input.cwd, "cwd"),
+    repoRoot: input.repoRoot === undefined ? undefined : await canonicalizeMutationPath(input.repoRoot, "repoRoot"),
+    worktree: input.worktree === undefined ? undefined : await canonicalizeMutationPath(input.worktree, "worktree"),
+  };
+}
+
+async function canonicalizeMutationPaths(filePaths: readonly string[], context: string): Promise<string[]> {
+  return Promise.all(filePaths.map((filePath, index) => canonicalizeMutationPath(filePath, `${context}[${index}]`)));
+}
+
+async function canonicalizeMutationPath(filePath: string, context: string): Promise<string> {
+  try {
+    return await canonicalizeWorkspacePath(filePath, context);
+  } catch (error: unknown) {
+    if (error instanceof WorkspacePathValidationError) {
+      throw new WorkspaceMutationValidationError(error.message);
+    }
+    throw error;
+  }
+}
+
 function assertUniqueNewRepoRootPaths(existingRepoRoots: readonly WorkspaceRepoRoot[], newRepoPaths: readonly string[]): void {
-  const seenPaths = new Set<string>(existingRepoRoots.map((repoRoot) => normalizePathForComparison(repoRoot.path)));
+  const seenPaths = new Set<string>(existingRepoRoots.map((repoRoot) => normalizeWorkspacePathForComparison(repoRoot.path)));
 
   for (const repoPath of newRepoPaths) {
-    const normalizedRepoPath = normalizePathForComparison(repoPath);
+    const normalizedRepoPath = normalizeWorkspacePathForComparison(repoPath);
     if (seenPaths.has(normalizedRepoPath)) {
       throw new WorkspaceMutationValidationError(`repo root path must be unique: ${repoPath}`);
     }
@@ -623,7 +657,7 @@ function validateCreateSessionInput(detail: WorkspaceDetailRecord, input: Create
 
   const repoRoot = resolveRepoRoot(detail, input, worktree);
   const cwdBasePath = worktree?.path ?? repoRoot.path;
-  if (!isPathInsideWorkspace(cwdBasePath, input.cwd)) {
+  if (!isWorkspacePathInside(cwdBasePath, input.cwd)) {
     throw new WorkspaceMutationValidationError(`cwd must stay within ${cwdBasePath}: ${input.cwd}`);
   }
 
@@ -668,8 +702,10 @@ function resolveRepoRoot(
     }
   }
 
-  const containingRepoRoots = detail.workspace.repoRoots.filter((candidate) => isPathInsideWorkspace(candidate.path, input.cwd));
-  containingRepoRoots.sort((left, right) => normalizePathForComparison(right.path).length - normalizePathForComparison(left.path).length);
+  const containingRepoRoots = detail.workspace.repoRoots.filter((candidate) => isWorkspacePathInside(candidate.path, input.cwd));
+  containingRepoRoots.sort((left, right) =>
+    normalizeWorkspacePathForComparison(right.path).length - normalizeWorkspacePathForComparison(left.path).length,
+  );
   const inferredRepoRoot = containingRepoRoots[0];
   if (inferredRepoRoot === undefined) {
     throw new WorkspaceMutationValidationError(
@@ -681,16 +717,7 @@ function resolveRepoRoot(
 }
 
 function pathsMatch(leftPath: string, rightPath: string): boolean {
-  return normalizePathForComparison(leftPath) === normalizePathForComparison(rightPath);
-}
-
-function normalizePathForComparison(filePath: string): string {
-  return path.resolve(filePath);
-}
-
-function isPathInsideWorkspace(parentPath: string, childPath: string): boolean {
-  const relativePath = path.relative(normalizePathForComparison(parentPath), normalizePathForComparison(childPath));
-  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+  return workspacePathsMatch(leftPath, rightPath);
 }
 
 function getHighestPrefixedCounter(ids: readonly string[], prefix: string): number {

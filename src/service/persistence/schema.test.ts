@@ -251,8 +251,8 @@ describe("service persistence schema", () => {
     ).toThrow(/unique|\/repos\/jackdaw/i);
   });
 
-  it("accepts equivalent normalized paths for persisted session references", () => {
-    expect(parsePersistedWorkspaceState({
+  it("canonicalizes equivalent normalized paths for persisted session references", () => {
+    const parsedState = parsePersistedWorkspaceState({
       ...persistedWorkspaceState,
       sessions: [
         {
@@ -262,7 +262,40 @@ describe("service persistence schema", () => {
           cwd: "/repos/jackdaw/.worktrees/task-3/",
         },
       ],
-    }).sessions[0]?.repoRoot).toBe("/repos/jackdaw/");
+    });
+
+    expect(parsedState.sessions[0]?.repoRoot).toBe("/repos/jackdaw");
+    expect(parsedState.sessions[0]?.worktree).toBe("/repos/jackdaw/.worktrees/task-3");
+    expect(parsedState.sessions[0]?.cwd).toBe("/repos/jackdaw/.worktrees/task-3");
+  });
+
+  it("rejects relative persisted workspace and session paths", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        workspace: {
+          ...persistedWorkspaceState.workspace,
+          repoRoots: [
+            {
+              ...persistedWorkspaceState.workspace.repoRoots[0],
+              path: "repos/jackdaw",
+            },
+          ],
+        },
+      }),
+    ).toThrow(/absolute path/i);
+
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        sessions: [
+          {
+            ...persistedWorkspaceState.sessions[0],
+            cwd: "relative/cwd",
+          },
+        ],
+      }),
+    ).toThrow(/absolute path/i);
   });
 
   it("rejects workspace state when a session repo root is not registered", () => {
