@@ -69,9 +69,6 @@ const DEMO_WORKSPACE: Workspace = {
     attentionView: "all",
     detailView: "summary",
   },
-  optionalIntegrations: {
-    hqProjectId: "project-demo-live-workspace",
-  },
   createdAt: "2026-04-23T09:00:00.000Z",
   updatedAt: "2026-04-23T10:15:00.000Z",
 };
@@ -118,7 +115,6 @@ const DEMO_SESSIONS: WorkspaceSession[] = [
       artifactIds: ["artifact-plan-snapshot"],
       workItemIds: ["task-service-demo-state"],
       reviewIds: ["review-service-routes"],
-      hqWorkItemId: "hq-work-item-demo-state",
     },
     connectionState: "live",
     sessionFile: ".pi/sessions/ses-awaiting-input.json",

@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import http, { type IncomingMessage, type RequestOptions } from "node:http";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { AddressInfo } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { createServer } from "../../server.js";
 import { DEMO_WORKSPACE_ID } from "../../demo-state.js";
-import type { WorkspaceStreamEventDto } from "../../../shared/transport/dto.js";
+import type { WorkspaceDetailDto, WorkspaceStreamEventDto } from "../../../shared/transport/dto.js";
 
 interface SseEventMessage {
   id?: string;
@@ -152,6 +155,50 @@ describe("workspace SSE stream", () => {
     expect(snapshotEvent.data?.payload.workspaceId).toBe(DEMO_WORKSPACE_ID);
 
     streamConnection.close();
+  });
+
+  it("includes indexed file-backed artifacts in the initial snapshot", async () => {
+    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "jackdaw-sse-artifacts-"));
+    await fs.mkdir(path.join(repoRoot, "docs", "superpowers", "specs"), { recursive: true });
+    await fs.writeFile(
+      path.join(repoRoot, "docs", "superpowers", "specs", "2026-04-25-stream-context.md"),
+      "# Stream Context Spec\n\nIndexed from a local file-backed workspace.",
+      "utf8",
+    );
+
+    const { baseUrl } = await createListeningServer();
+    const createResponse = await fetch(`${baseUrl}/workspaces`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "SSE artifact workspace",
+        repoRoots: [repoRoot],
+      }),
+    });
+    const createdWorkspace = await createResponse.json() as WorkspaceDetailDto;
+    const streamConnection = await connectToWorkspaceEvents(baseUrl, createdWorkspace.workspace.id);
+
+    try {
+      const snapshotEvent = await streamConnection.nextEvent();
+
+      expect(snapshotEvent.event).toBe("workspace.snapshot");
+      expect(snapshotEvent.data?.type).toBe("workspace.snapshot");
+      if (snapshotEvent.data?.type !== "workspace.snapshot") {
+        throw new Error("Expected workspace snapshot event data");
+      }
+      expect(snapshotEvent.data.payload.detail.artifacts).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "spec",
+          title: "Stream Context Spec",
+          filePath: "docs/superpowers/specs/2026-04-25-stream-context.md",
+        }),
+      ]));
+    } finally {
+      streamConnection.close();
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
   });
 
   it("replays missed events after the last seen event id", async () => {

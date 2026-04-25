@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { DemoStateStore } from "../../demo-state.js";
 import type { WorkspaceEventBus, WorkspaceEventEnvelope } from "./event-bus.js";
+import { mergeIndexedArtifacts } from "../../workspace/workspace-detail.js";
 import type { WorkspaceSnapshotEventDto, WorkspaceStreamEventDto } from "../../../shared/transport/dto.js";
 
 export interface WorkspaceStreamRoutesOptions {
@@ -78,15 +79,19 @@ export async function registerWorkspaceStreamRoutes(
       }
     };
 
-    const createSnapshotEvent = (): WorkspaceStreamEventDto => ({
-      version: 1,
-      type: "workspace.snapshot",
-      payload: {
-        workspaceId: request.params.workspaceId,
-        detail: options.store.getWorkspaceDetail(request.params.workspaceId) ?? detail,
-        emittedAt: new Date().toISOString(),
-      } satisfies WorkspaceSnapshotEventDto,
-    });
+    const createSnapshotEvent = async (): Promise<WorkspaceStreamEventDto> => {
+      const snapshotDetail = await mergeIndexedArtifacts(options.store.getWorkspaceDetail(request.params.workspaceId) ?? detail);
+
+      return {
+        version: 1,
+        type: "workspace.snapshot",
+        payload: {
+          workspaceId: request.params.workspaceId,
+          detail: snapshotDetail,
+          emittedAt: new Date().toISOString(),
+        } satisfies WorkspaceSnapshotEventDto,
+      };
+    };
 
     const lastEventIdHeader = Array.isArray(request.headers["last-event-id"])
       ? request.headers["last-event-id"][0]
@@ -95,7 +100,7 @@ export async function registerWorkspaceStreamRoutes(
     if (typeof lastEventIdHeader === "string" && lastEventIdHeader.length > 0) {
       const replay = options.eventBus.replaySince(request.params.workspaceId, lastEventIdHeader);
       if (replay === undefined || !replay.canReplay) {
-        const snapshotEnvelope = options.eventBus.createTransientEvent(request.params.workspaceId, createSnapshotEvent());
+        const snapshotEnvelope = options.eventBus.createTransientEvent(request.params.workspaceId, await createSnapshotEvent());
         if (!trySendEnvelope(snapshotEnvelope)) {
           return;
         }
@@ -107,7 +112,7 @@ export async function registerWorkspaceStreamRoutes(
         }
       }
     } else {
-      const snapshotEnvelope = options.eventBus.createTransientEvent(request.params.workspaceId, createSnapshotEvent());
+      const snapshotEnvelope = options.eventBus.createTransientEvent(request.params.workspaceId, await createSnapshotEvent());
       if (!trySendEnvelope(snapshotEnvelope)) {
         return;
       }
