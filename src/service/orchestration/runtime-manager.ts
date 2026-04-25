@@ -271,15 +271,18 @@ export class RuntimeManager {
     }
 
     try {
-      await this.registry.upsertSession({
-        ...lookup.session,
-        recentFiles: mergeRecentFiles(lookup.session.recentFiles, [{
+      const updatedSession = await this.updateSessionFresh(sessionId, (currentSession: WorkspaceSession): WorkspaceSession => ({
+        ...currentSession,
+        recentFiles: mergeRecentFiles(currentSession.recentFiles, [{
           path: resolvedPath.path,
           operation: "unknown",
           timestamp: acceptedAt,
         }], 10),
         updatedAt: acceptedAt,
-      });
+      }));
+      if (updatedSession === undefined) {
+        return rejectedCommand(`Session not found: ${sessionId}`);
+      }
     } catch (error: unknown) {
       return rejectedPersistenceCommand(error);
     }
@@ -305,39 +308,45 @@ export class RuntimeManager {
     }
 
     const startedAt = this.nowIso();
+    let shellSession: WorkspaceSession;
     try {
-      await this.registry.upsertSession({
-        ...lookup.session,
+      const updatedSession = await this.updateSessionFresh(sessionId, (currentSession: WorkspaceSession): WorkspaceSession => ({
+        ...currentSession,
         status: "running",
         currentTool: "shell fallback",
         currentActivity: `Shell fallback running: ${command}`,
         liveSummary: `Shell fallback running: ${command}`,
         updatedAt: startedAt,
-      });
+      }));
+      if (updatedSession === undefined) {
+        return rejectedCommand(`Session not found: ${sessionId}`);
+      }
+      shellSession = updatedSession;
     } catch (error: unknown) {
       return rejectedPersistenceCommand(error);
     }
 
     try {
-      const result = await this.shellExecutor(command, lookup.session.cwd, {
+      const result = await this.shellExecutor(command, shellSession.cwd, {
         timeoutMs: 120_000,
         maxOutputBytes: 32_000,
       });
       const completedAt = this.nowIso();
       const summary = summarizeShellResult(result.command, result.exitCode, result.timedOut);
       const status: WorkspaceSession["status"] = result.exitCode === 0 && !result.timedOut ? "idle" : "blocked";
-      const refreshedSession = this.findSession(sessionId)?.session ?? lookup.session;
-
       try {
-        await this.registry.upsertSession({
-          ...refreshedSession,
+        const updatedSession = await this.updateSessionFresh(sessionId, (currentSession: WorkspaceSession): WorkspaceSession => ({
+          ...currentSession,
           status,
           currentTool: undefined,
           currentActivity: summary,
           liveSummary: summary,
           latestMeaningfulUpdate: previewShellOutput(result.output) || summary,
           updatedAt: completedAt,
-        });
+        }));
+        if (updatedSession === undefined) {
+          return rejectedCommand(`Session not found: ${sessionId}`);
+        }
       } catch (error: unknown) {
         return rejectedPersistenceCommand(error);
       }
@@ -349,17 +358,19 @@ export class RuntimeManager {
     } catch (error: unknown) {
       const failedAt = this.nowIso();
       const message = errorMessage(error);
-      const refreshedSession = this.findSession(sessionId)?.session ?? lookup.session;
       try {
-        await this.registry.upsertSession({
-          ...refreshedSession,
+        const updatedSession = await this.updateSessionFresh(sessionId, (currentSession: WorkspaceSession): WorkspaceSession => ({
+          ...currentSession,
           status: "failed",
           currentTool: undefined,
           currentActivity: `Shell fallback failed: ${message}`,
           liveSummary: `Shell fallback failed: ${command}`,
           latestMeaningfulUpdate: message,
           updatedAt: failedAt,
-        });
+        }));
+        if (updatedSession === undefined) {
+          return rejectedCommand(`Session not found: ${sessionId}`);
+        }
       } catch (persistenceError: unknown) {
         return rejectedPersistenceCommand(persistenceError);
       }
@@ -517,6 +528,19 @@ export class RuntimeManager {
     this.recentAttentionByWorkspace.set(session.workspaceId, [event, ...currentEvents].slice(0, 50));
   }
 
+  private async updateSessionFresh(
+    sessionId: string,
+    update: (session: WorkspaceSession) => WorkspaceSession | Promise<WorkspaceSession>,
+  ): Promise<WorkspaceSession | undefined> {
+    const lookup = this.findSession(sessionId);
+    if (lookup === undefined) {
+      return undefined;
+    }
+
+    const detail = await this.registry.updateSession(lookup.workspaceId, sessionId, update);
+    return detail?.sessions.find((session) => session.id === sessionId);
+  }
+
   private async markSessionHistorical(session: WorkspaceSession, reconnectNote: string): Promise<void> {
     await this.registry.upsertSession({
       ...session,
@@ -604,17 +628,13 @@ export class RuntimeManager {
         path: canonicalPath,
       };
     } catch (error: unknown) {
-      if (error instanceof WorkspacePathValidationError) {
-        return {
+      return {
+        ok: false,
+        result: {
           ok: false,
-          result: {
-            ok: false,
-            reason: error.message,
-          },
-        };
-      }
-
-      throw error;
+          reason: error instanceof WorkspacePathValidationError ? error.message : errorMessage(error),
+        },
+      };
     }
   }
 

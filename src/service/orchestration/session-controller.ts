@@ -226,7 +226,7 @@ export class SessionController {
     this.managedSession = managedSession;
     const generation = ++this.managedSessionGeneration;
     this.unsubscribe = managedSession.subscribe((event: unknown): Promise<void> => {
-      return this.handleSessionEventForGeneration(event, generation).catch((): void => undefined);
+      return this.handleSessionEventForGeneration(event, generation);
     });
   }
 
@@ -248,11 +248,6 @@ export class SessionController {
       occurredAt,
     }, event);
 
-    if (normalized.activity !== undefined) {
-      this.activities.push(normalized.activity);
-      this.activities.splice(0, Math.max(0, this.activities.length - 50));
-    }
-
     if (normalized.patch === undefined && normalized.recentFiles === undefined && normalized.activity === undefined) {
       return;
     }
@@ -273,6 +268,8 @@ export class SessionController {
     });
 
     if (normalized.activity !== undefined) {
+      this.activities.push(normalized.activity);
+      this.activities.splice(0, Math.max(0, this.activities.length - 50));
       this.onRuntimeActivity?.(this.currentSession, normalized.activity);
     }
   }
@@ -305,13 +302,13 @@ export class SessionController {
     try {
       await submit();
       const pendingIntervention = createIntervention(kind, text, "pending-observation", requestedAt);
-      const observedAt = this.findObservedActivityTimestamp(requestedAt);
+      const observedAt = kind === "abort" ? requestedAt : this.findObservedActivityTimestamp(requestedAt);
       const pendingPersistenceFailure = await this.updateSessionForCommand({
         lastIntervention: observedAt === undefined
           ? pendingIntervention
           : markInterventionObserved(pendingIntervention, observedAt),
         status: kind === "abort" ? "idle" : "running",
-        currentActivity: interventionPendingSummary(kind),
+        currentActivity: kind === "abort" ? interventionObservedSummary(kind) : interventionPendingSummary(kind),
         updatedAt: observedAt ?? requestedAt,
       });
       if (pendingPersistenceFailure !== undefined) {
@@ -386,8 +383,8 @@ export class SessionController {
       ...this.session,
       ...patch,
     };
-    this.session = structuredClone(nextSession);
     await this.repository.upsertSession(nextSession);
+    this.session = structuredClone(nextSession);
   }
 
   private async updateSession(patch: Partial<WorkspaceSession>): Promise<void> {
@@ -497,6 +494,10 @@ function interventionAcceptedSummary(kind: SessionInterventionKind): string {
 
 function interventionPendingSummary(kind: SessionInterventionKind): string {
   return `${interventionLabel(kind)} pending runtime observation`;
+}
+
+function interventionObservedSummary(kind: SessionInterventionKind): string {
+  return `${interventionLabel(kind)} observed locally`;
 }
 
 function interventionLabel(kind: SessionInterventionKind): string {

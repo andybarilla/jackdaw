@@ -319,16 +319,19 @@ describe("SessionController", () => {
     expect(managedSession.steer).not.toHaveBeenCalled();
   });
 
-  it("catches subscription listener persistence failures at the subscription boundary", async () => {
+  it("propagates subscription listener persistence failures without advancing in-memory session state", async () => {
     const session = createSession();
     const repository = new RejectingSessionRepository(session);
     const managedSession = new FakeManagedSession(session.id, session.sessionFile);
-    createController({ session, managedSession, repository });
+    const { controller } = createController({ session, managedSession, repository });
 
     await expect(managedSession.emitAndWait({
       type: "message_update",
       assistantMessageEvent: { type: "text_delta", delta: "streaming" },
-    })).resolves.toBeUndefined();
+    })).rejects.toThrow("persistence unavailable");
+
+    expect(controller.currentSession.liveSummary).toBe("Running task");
+    expect(controller.currentSession.currentActivity).toBeUndefined();
   });
 
   it("keeps pending interventions pending until later meaningful non-local activity", async () => {
@@ -438,6 +441,22 @@ describe("SessionController", () => {
         timestamp: "2026-04-25T10:00:00.001Z",
       },
     ]);
+  });
+
+  it("marks successful abort interventions observed immediately", async () => {
+    const { controller, repository } = createController();
+
+    const result = await controller.abort();
+
+    expect(result.ok).toBe(true);
+    expect(repository.session.status).toBe("idle");
+    expect(repository.session.currentActivity).toBe("Abort observed locally");
+    expect(repository.session.lastIntervention).toMatchObject({
+      kind: "abort",
+      status: "observed",
+      text: "Abort requested by operator.",
+      observedAt: "2026-04-25T10:00:00.000Z",
+    });
   });
 
   it("records local submission failures without pretending they were observed", async () => {

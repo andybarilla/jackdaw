@@ -520,7 +520,7 @@ describe("RuntimeManager", () => {
       worktree: workspace.worktree.path,
       task: "Need shell fallback",
     });
-    vi.spyOn(registry, "upsertSession").mockRejectedValueOnce(new Error("shell state write failed"));
+    vi.spyOn(registry, "updateSession").mockRejectedValueOnce(new Error("shell state write failed"));
 
     const result = await runtimeManager.runShellFallback(spawned.session!.id, "pwd");
 
@@ -581,6 +581,50 @@ describe("RuntimeManager", () => {
     });
   });
 
+  it("merges open-path recent files into the freshest session state", async () => {
+    const { registry, appDataDir } = await createRegistry();
+    const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
+    await registry.upsertSession(createPersistedSession({
+      id: "ses-open-merge",
+      workspaceId: "ws-1",
+      repoRoot: workspace.repoRoot.path,
+      worktree: workspace.worktree.path,
+      cwd: workspace.worktree.path,
+      currentActivity: "Original activity",
+    }));
+    const runtimeManager = new RuntimeManager({
+      registry,
+      adapter: new FakeSessionAdapter(),
+      pathOpener: {
+        async openPath(_targetPath: string): Promise<void> {
+          const session = registry.getWorkspaceDetail("ws-1")!.sessions[0]!;
+          await registry.upsertSession({
+            ...session,
+            currentActivity: "Controller activity during path open",
+            liveSummary: "Controller updated summary",
+            updatedAt: "2026-04-25T10:00:00.010Z",
+          });
+        },
+      },
+      now: () => new Date("2026-04-25T10:00:00.000Z"),
+    });
+
+    const result = await runtimeManager.openSessionPath("ses-open-merge", {
+      workspaceId: "ws-1",
+      path: ".",
+      revealInFileManager: true,
+    });
+    const session = registry.getWorkspaceDetail("ws-1")?.sessions[0];
+
+    expect(result.ok).toBe(true);
+    expect(session).toMatchObject({
+      id: "ses-open-merge",
+      currentActivity: "Controller activity during path open",
+      liveSummary: "Controller updated summary",
+    });
+    expect(session?.recentFiles).toEqual([{ path: workspace.worktree.path, operation: "unknown", timestamp: "2026-04-25T10:00:00.000Z" }]);
+  });
+
   it("returns rejected open-path commands when recent-file persistence fails", async () => {
     const { registry, appDataDir } = await createRegistry();
     const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
@@ -591,7 +635,7 @@ describe("RuntimeManager", () => {
       worktree: workspace.worktree.path,
       cwd: workspace.worktree.path,
     }));
-    vi.spyOn(registry, "upsertSession").mockRejectedValueOnce(new Error("recent file write failed"));
+    vi.spyOn(registry, "updateSession").mockRejectedValueOnce(new Error("recent file write failed"));
     const runtimeManager = new RuntimeManager({
       registry,
       adapter: new FakeSessionAdapter(),

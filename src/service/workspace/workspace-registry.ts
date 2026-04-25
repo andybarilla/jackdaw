@@ -287,19 +287,35 @@ export class WorkspaceRegistry {
     return await this.runWorkspaceMutation(session.workspaceId, async (): Promise<WorkspaceDetailRecord> => {
       const canonicalSession = await canonicalizeSessionPaths(session);
       const currentDetail = this.requireWorkspace(canonicalSession.workspaceId);
-      const sessions = upsertById(currentDetail.sessions, canonicalSession);
-      const linkedWorkspace = linkSessionToWorkspace(currentDetail.workspace, canonicalSession.id);
-      const nextDetail: WorkspaceDetailRecord = {
-        workspace: {
-          ...linkedWorkspace,
-          updatedAt: canonicalSession.updatedAt,
-        },
-        sessions: sortSessionsByWorkspaceOrder(linkedWorkspace, sessions),
-        artifacts: currentDetail.artifacts,
-        lastOpenedAt: lastOpenedAt ?? currentDetail.lastOpenedAt,
-      };
+      const nextDetail = await this.createSessionUpsertDetail(currentDetail, canonicalSession, lastOpenedAt);
 
       await this.persistWorkspaceDetail(nextDetail, canonicalSession.workspaceId);
+      return cloneWorkspaceDetailRecord(nextDetail);
+    });
+  }
+
+  async updateSession(
+    workspaceId: string,
+    sessionId: string,
+    update: (session: WorkspaceSession) => WorkspaceSession | Promise<WorkspaceSession>,
+    lastOpenedAt?: string,
+  ): Promise<WorkspaceDetailRecord | undefined> {
+    return await this.runWorkspaceMutation(workspaceId, async (): Promise<WorkspaceDetailRecord | undefined> => {
+      const currentDetail = this.workspaces.get(workspaceId);
+      const currentSession = currentDetail?.sessions.find((session) => session.id === sessionId);
+      if (currentDetail === undefined || currentSession === undefined) {
+        return undefined;
+      }
+
+      const updatedSession = await update(structuredClone(currentSession));
+      if (updatedSession.id !== sessionId || updatedSession.workspaceId !== workspaceId) {
+        throw new Error(`Updated session must preserve workspace id and session id: ${workspaceId}/${sessionId}`);
+      }
+
+      const canonicalSession = await canonicalizeSessionPaths(updatedSession);
+      const nextDetail = await this.createSessionUpsertDetail(currentDetail, canonicalSession, lastOpenedAt);
+
+      await this.persistWorkspaceDetail(nextDetail, workspaceId);
       return cloneWorkspaceDetailRecord(nextDetail);
     });
   }
@@ -393,6 +409,24 @@ export class WorkspaceRegistry {
       throw new Error(`Workspace not found: ${workspaceId}`);
     }
     return workspaceDetail;
+  }
+
+  private async createSessionUpsertDetail(
+    currentDetail: WorkspaceDetailRecord,
+    canonicalSession: WorkspaceSession,
+    lastOpenedAt?: string,
+  ): Promise<WorkspaceDetailRecord> {
+    const sessions = upsertById(currentDetail.sessions, canonicalSession);
+    const linkedWorkspace = linkSessionToWorkspace(currentDetail.workspace, canonicalSession.id);
+    return {
+      workspace: {
+        ...linkedWorkspace,
+        updatedAt: canonicalSession.updatedAt,
+      },
+      sessions: sortSessionsByWorkspaceOrder(linkedWorkspace, sessions),
+      artifacts: currentDetail.artifacts,
+      lastOpenedAt: lastOpenedAt ?? currentDetail.lastOpenedAt,
+    };
   }
 
   private async persistWorkspaceDetail(workspaceDetail: WorkspaceDetailRecord, expectedWorkspaceId: string): Promise<void> {
