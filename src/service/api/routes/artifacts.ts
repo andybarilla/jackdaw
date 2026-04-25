@@ -13,13 +13,18 @@ function withoutLocalFields(artifact: IndexedWorkspaceArtifact): WorkspaceArtifa
   return workspaceArtifact;
 }
 
+function isReadableArtifactError(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+  return code === "ENOENT" || code === "EACCES" || code === "EPERM";
+}
+
 async function getIndexedArtifacts(store: DemoStateStore, workspaceId: string): Promise<IndexedWorkspaceArtifact[] | undefined> {
   const detail = store.getWorkspaceDetail(workspaceId);
   if (detail === undefined) {
     return undefined;
   }
 
-  return indexWorkspaceArtifacts({ workspace: detail.workspace, sessions: detail.sessions });
+  return indexWorkspaceArtifacts({ workspace: detail.workspace, sessions: detail.sessions, existingArtifacts: detail.artifacts });
 }
 
 export async function registerArtifactRoutes(app: FastifyInstance, options: ArtifactRoutesOptions): Promise<void> {
@@ -49,11 +54,20 @@ export async function registerArtifactRoutes(app: FastifyInstance, options: Arti
       return;
     }
 
-    const detail = await readIndexedArtifact(artifact);
-    return {
-      artifact: withoutLocalFields(detail.artifact),
-      content: detail.content,
-      readOnly: true,
-    };
+    try {
+      const detail = await readIndexedArtifact(artifact);
+      return {
+        artifact: withoutLocalFields(detail.artifact),
+        content: detail.content,
+        readOnly: true,
+      };
+    } catch (error: unknown) {
+      if (isReadableArtifactError(error)) {
+        await reply.code(404).send({ error: "Artifact file not found" });
+        return;
+      }
+
+      throw error;
+    }
   });
 }

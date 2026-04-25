@@ -8,7 +8,7 @@ function withoutLocalArtifactFields(artifact: IndexedWorkspaceArtifact): Workspa
 }
 
 export async function mergeIndexedArtifacts(detail: WorkspaceDetailDto): Promise<WorkspaceDetailDto> {
-  const indexedArtifacts = await indexWorkspaceArtifacts({ workspace: detail.workspace, sessions: detail.sessions });
+  const indexedArtifacts = await indexWorkspaceArtifacts({ workspace: detail.workspace, sessions: detail.sessions, existingArtifacts: detail.artifacts });
   const indexedArtifactIds = new Set(indexedArtifacts.map((artifact) => artifact.id));
 
   return {

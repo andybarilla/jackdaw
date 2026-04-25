@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { promises as fs } from "node:fs";
+import * as fs from "node:fs/promises";
 import path from "node:path";
 import type { ArtifactKind, WorkspaceArtifact } from "../../shared/domain/artifact.js";
 import type { WorkspaceSession } from "../../shared/domain/session.js";
@@ -20,6 +20,7 @@ const ARTIFACT_DIRECTORY_KINDS: ReadonlyArray<{ segment: string; kind: ArtifactK
 export interface ArtifactIndexInput {
   workspace: Workspace;
   sessions?: WorkspaceSession[];
+  existingArtifacts?: WorkspaceArtifact[];
 }
 
 export interface IndexedWorkspaceArtifact extends WorkspaceArtifact {
@@ -39,6 +40,20 @@ function normalizeForId(filePath: string): string {
 function makeArtifactId(workspaceId: string, absolutePath: string): string {
   const digest = createHash("sha1").update(normalizeForId(absolutePath)).digest("hex").slice(0, 16);
   return `artifact-${workspaceId}-${digest}`;
+}
+
+function isSkippableFileError(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+  return code === "ENOENT" || code === "EACCES" || code === "EPERM";
+}
+
+function findExistingArtifact(existingArtifacts: WorkspaceArtifact[], workspaceId: string, relativePath: string, kind: ArtifactKind): WorkspaceArtifact | undefined {
+  const normalizedRelativePath = normalizeForId(relativePath);
+
+  return existingArtifacts.find((artifact) => artifact.workspaceId === workspaceId
+    && artifact.filePath !== undefined
+    && normalizeForId(artifact.filePath) === normalizedRelativePath
+    && artifact.kind === kind);
 }
 
 function getArtifactKind(relativePath: string): ArtifactKind | undefined {
@@ -125,6 +140,7 @@ function matchesSessionFile(session: WorkspaceSession, repoRoot: WorkspaceRepoRo
 export async function indexWorkspaceArtifacts(input: ArtifactIndexInput): Promise<IndexedWorkspaceArtifact[]> {
   const artifacts: IndexedWorkspaceArtifact[] = [];
   const sessions = input.sessions ?? [];
+  const existingArtifacts = input.existingArtifacts ?? [];
 
   for (const repoRoot of input.workspace.repoRoots) {
     const candidateFiles = await walkFiles(path.join(repoRoot.path, "docs"));
@@ -136,26 +152,42 @@ export async function indexWorkspaceArtifacts(input: ArtifactIndexInput): Promis
         continue;
       }
 
-      const [stat, content] = await Promise.all([
-        fs.stat(absolutePath),
-        fs.readFile(absolutePath, "utf8"),
-      ]);
-      const linkedSessionIds = sessions
+      let stat: Awaited<ReturnType<typeof fs.stat>>;
+      let content: string;
+      try {
+        [stat, content] = await Promise.all([
+          fs.stat(absolutePath),
+          fs.readFile(absolutePath, "utf8"),
+        ]);
+      } catch (error: unknown) {
+        if (isSkippableFileError(error)) {
+          continue;
+        }
+        throw error;
+      }
+
+      const existingArtifact = findExistingArtifact(existingArtifacts, input.workspace.id, relativePath, kind);
+      const discoveredLinkedSessionIds = sessions
         .filter((session) => matchesSessionFile(session, repoRoot, absolutePath, relativePath))
         .map((session) => session.id);
+      const linkedSessionIds = Array.from(new Set([
+        ...(existingArtifact?.linkedSessionIds ?? []),
+        ...discoveredLinkedSessionIds,
+      ]));
       const timestamp = stat.mtime.toISOString();
 
       artifacts.push({
-        id: makeArtifactId(input.workspace.id, absolutePath),
+        id: existingArtifact?.id ?? makeArtifactId(input.workspace.id, absolutePath),
         workspaceId: input.workspace.id,
         kind,
-        title: titleFromContent(content, absolutePath),
+        title: existingArtifact?.title ?? titleFromContent(content, absolutePath),
         filePath: normalizeForId(relativePath),
         absolutePath,
         repoRootId: repoRoot.id,
+        sourceSessionId: existingArtifact?.sourceSessionId,
         linkedSessionIds,
-        linkedWorkItemIds: [],
-        createdAt: stat.birthtime.toISOString(),
+        linkedWorkItemIds: existingArtifact?.linkedWorkItemIds ?? [],
+        createdAt: existingArtifact?.createdAt ?? stat.birthtime.toISOString(),
         updatedAt: timestamp,
       });
     }
