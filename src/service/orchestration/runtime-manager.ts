@@ -1,0 +1,875 @@
+import { spawn } from "node:child_process";
+import path from "node:path";
+import type { AttentionEvent } from "../../shared/domain/attention.js";
+import type {
+  AbortSessionCommand,
+  CommandResult,
+  FollowUpSessionCommand,
+  OpenPathCommand,
+  PinSummaryCommand,
+  ShellFallbackCommand,
+  SpawnSessionCommand,
+  SteerSessionCommand,
+} from "../../shared/domain/commands.js";
+import type {
+  SessionIntervention,
+  SessionInterventionKind,
+  SessionRecentFile,
+  WorkspaceSession,
+} from "../../shared/domain/session.js";
+import type { WorkspaceRepoRoot, WorkspaceWorktree } from "../../shared/domain/workspace.js";
+import { stripTerminalControlSequences } from "../../utils/plain-text.js";
+import type { WorkspaceDetailRecord, WorkspaceRegistry } from "../workspace/workspace-registry.js";
+import {
+  canonicalizeWorkspacePath,
+  isWorkspacePathInside,
+  normalizeWorkspacePathForComparison,
+  workspacePathsMatch,
+  WorkspacePathValidationError,
+} from "../workspace/workspace-paths.js";
+import { AttentionEngine, createSessionKey } from "./attention-engine.js";
+import type { NormalizedSessionActivity } from "./event-normalizer.js";
+import type { ManagedPiSession, PiSessionAdapter } from "./session-adapter.js";
+import { SessionController, type SessionControllerRepository } from "./session-controller.js";
+
+export interface RuntimeManagerOptions {
+  registry: WorkspaceRegistry;
+  adapter: PiSessionAdapter;
+  attentionEngine?: AttentionEngine;
+  shellExecutor?: ShellExecutor;
+  pathOpener?: WorkspacePathOpener;
+  now?: () => Date;
+}
+
+export interface SpawnSessionResult {
+  result: CommandResult;
+  session?: WorkspaceSession;
+}
+
+export interface ReconnectSessionResult {
+  workspaceId: string;
+  sessionId: string;
+  connectionState: WorkspaceSession["connectionState"];
+}
+
+export interface ShellCommandExecutionResult {
+  command: string;
+  cwd: string;
+  exitCode: number | undefined;
+  output: string;
+  timedOut: boolean;
+}
+
+export interface ShellExecutorOptions {
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+}
+
+export type ShellExecutor = (
+  command: string,
+  cwd: string,
+  options?: ShellExecutorOptions,
+) => Promise<ShellCommandExecutionResult>;
+
+export interface WorkspacePathOpenOptions {
+  revealInFileManager?: boolean;
+  openInTerminal?: boolean;
+}
+
+export interface WorkspacePathOpener {
+  openPath(targetPath: string, options: WorkspacePathOpenOptions): Promise<void>;
+  openExternalTerminal?(cwd: string): Promise<void>;
+}
+
+export class RuntimeManagerValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RuntimeManagerValidationError";
+  }
+}
+
+export class RuntimeManager {
+  private readonly controllers = new Map<string, SessionController>();
+  private readonly registry: WorkspaceRegistry;
+  private readonly adapter: PiSessionAdapter;
+  private readonly attentionEngine: AttentionEngine;
+  private readonly shellExecutor: ShellExecutor;
+  private readonly pathOpener: WorkspacePathOpener;
+  private readonly now: () => Date;
+  private readonly recentAttentionByWorkspace = new Map<string, AttentionEvent[]>();
+
+  constructor(options: RuntimeManagerOptions) {
+    this.registry = options.registry;
+    this.adapter = options.adapter;
+    this.attentionEngine = options.attentionEngine ?? new AttentionEngine();
+    this.shellExecutor = options.shellExecutor ?? createBoundedShellExecutor();
+    this.pathOpener = options.pathOpener ?? createDefaultPathOpener();
+    this.now = options.now ?? (() => new Date());
+  }
+
+  async spawnSession(input: SpawnSessionCommand): Promise<SpawnSessionResult> {
+    const detail = this.registry.getWorkspaceDetail(input.workspaceId);
+    if (detail === undefined) {
+      return {
+        result: {
+          ok: false,
+          reason: `Workspace not found: ${input.workspaceId}`,
+        },
+      };
+    }
+
+    const acceptedAt = this.nowIso();
+
+    try {
+      const canonicalInput = await canonicalizeSpawnSessionInput(input);
+      const location = resolveSessionLocation(detail, canonicalInput);
+      const managedSession = await this.adapter.spawnSession({
+        workspaceId: input.workspaceId,
+        cwd: canonicalInput.cwd,
+        task: canonicalInput.task,
+        modelId: canonicalInput.model,
+        agentName: canonicalInput.agent,
+      });
+      const session = createWorkspaceSessionFromManagedSession({
+        command: canonicalInput,
+        detail,
+        location,
+        managedSession,
+        acceptedAt,
+      });
+
+      await this.registry.upsertSession(session, acceptedAt);
+      this.attentionEngine.recordSession(session);
+      const controller = this.createController(session, managedSession);
+      this.setController(controller);
+      controller.beginInitialPrompt(canonicalInput.task);
+
+      return {
+        result: {
+          ok: true,
+          acceptedAt,
+        },
+        session: controller.currentSession,
+      };
+    } catch (error: unknown) {
+      return {
+        result: {
+          ok: false,
+          reason: errorMessage(error),
+        },
+      };
+    }
+  }
+
+  async steerSession(input: SteerSessionCommand): Promise<CommandResult> {
+    const lookup = this.findSession(input.sessionId);
+    if (lookup === undefined) {
+      return rejectedCommand(`Session not found: ${input.sessionId}`);
+    }
+
+    const controller = this.controllers.get(createSessionKey(lookup.session.workspaceId, lookup.session.id));
+    if (controller === undefined) {
+      return await this.recordUnmanagedInterventionFailure(lookup.session, "steer", input.text);
+    }
+
+    return await controller.steer(input.text);
+  }
+
+  async followUpSession(input: FollowUpSessionCommand): Promise<CommandResult> {
+    const lookup = this.findSession(input.sessionId);
+    if (lookup === undefined) {
+      return rejectedCommand(`Session not found: ${input.sessionId}`);
+    }
+
+    const controller = this.controllers.get(createSessionKey(lookup.session.workspaceId, lookup.session.id));
+    if (controller === undefined) {
+      return await this.recordUnmanagedInterventionFailure(lookup.session, "follow-up", input.text);
+    }
+
+    return await controller.followUp(input.text);
+  }
+
+  async abortSession(input: AbortSessionCommand): Promise<CommandResult> {
+    const lookup = this.findSession(input.sessionId);
+    if (lookup === undefined) {
+      return rejectedCommand(`Session not found: ${input.sessionId}`);
+    }
+
+    const controller = this.controllers.get(createSessionKey(lookup.session.workspaceId, lookup.session.id));
+    if (controller === undefined) {
+      return await this.recordUnmanagedInterventionFailure(lookup.session, "abort", "Abort requested by operator.");
+    }
+
+    return await controller.abort();
+  }
+
+  async pinSessionSummary(input: PinSummaryCommand): Promise<CommandResult> {
+    const lookup = this.findSession(input.sessionId);
+    if (lookup === undefined) {
+      return rejectedCommand(`Session not found: ${input.sessionId}`);
+    }
+
+    const controller = this.controllers.get(createSessionKey(lookup.session.workspaceId, lookup.session.id));
+    if (controller !== undefined) {
+      return await controller.pinSummary(input.summary);
+    }
+
+    const acceptedAt = this.nowIso();
+    await this.registry.upsertSession({
+      ...lookup.session,
+      pinnedSummary: input.summary,
+      updatedAt: acceptedAt,
+    });
+
+    return {
+      ok: true,
+      acceptedAt,
+    };
+  }
+
+  async openSessionPath(sessionId: string, input: OpenPathCommand): Promise<CommandResult> {
+    const lookup = this.findSession(sessionId);
+    if (lookup === undefined) {
+      return rejectedCommand(`Session not found: ${sessionId}`);
+    }
+    if (lookup.session.workspaceId !== input.workspaceId) {
+      return rejectedCommand(`workspaceId must match the session workspace: ${lookup.session.workspaceId}`);
+    }
+
+    const acceptedAt = this.nowIso();
+    const resolvedPath = await this.resolveSessionPath(lookup.session, input.path);
+    if (!resolvedPath.ok) {
+      return resolvedPath.result;
+    }
+
+    try {
+      if (input.revealInFileManager === true) {
+        await this.pathOpener.openPath(resolvedPath.path, { revealInFileManager: true });
+      }
+      if (input.openInTerminal === true) {
+        await this.pathOpener.openExternalTerminal?.(lookup.session.cwd);
+      }
+    } catch (error: unknown) {
+      return rejectedCommand(errorMessage(error));
+    }
+
+    await this.registry.upsertSession({
+      ...lookup.session,
+      recentFiles: mergeRecentFiles(lookup.session.recentFiles, [{
+        path: resolvedPath.path,
+        operation: "unknown",
+        timestamp: acceptedAt,
+      }], 10),
+      updatedAt: acceptedAt,
+    });
+
+    return {
+      ok: true,
+      acceptedAt,
+    };
+  }
+
+  async runShellFallback(sessionId: string, command: string): Promise<CommandResult>;
+  async runShellFallback(input: ShellFallbackCommand): Promise<CommandResult>;
+  async runShellFallback(sessionOrCommand: string | ShellFallbackCommand, maybeCommand?: string): Promise<CommandResult> {
+    const sessionId = typeof sessionOrCommand === "string" ? sessionOrCommand : sessionOrCommand.sessionId;
+    const command = typeof sessionOrCommand === "string" ? maybeCommand : sessionOrCommand.command;
+    if (command === undefined || command.trim().length === 0) {
+      return rejectedCommand("Shell command must not be empty.");
+    }
+
+    const lookup = this.findSession(sessionId);
+    if (lookup === undefined) {
+      return rejectedCommand(`Session not found: ${sessionId}`);
+    }
+
+    const startedAt = this.nowIso();
+    await this.registry.upsertSession({
+      ...lookup.session,
+      status: "running",
+      currentTool: "shell fallback",
+      currentActivity: `Shell fallback running: ${command}`,
+      liveSummary: `Shell fallback running: ${command}`,
+      updatedAt: startedAt,
+    });
+
+    try {
+      const result = await this.shellExecutor(command, lookup.session.cwd, {
+        timeoutMs: 120_000,
+        maxOutputBytes: 32_000,
+      });
+      const completedAt = this.nowIso();
+      const summary = summarizeShellResult(result.command, result.exitCode, result.timedOut);
+      const status: WorkspaceSession["status"] = result.exitCode === 0 && !result.timedOut ? "idle" : "blocked";
+      const refreshedSession = this.findSession(sessionId)?.session ?? lookup.session;
+
+      await this.registry.upsertSession({
+        ...refreshedSession,
+        status,
+        currentTool: undefined,
+        currentActivity: summary,
+        liveSummary: summary,
+        latestMeaningfulUpdate: previewShellOutput(result.output) || summary,
+        updatedAt: completedAt,
+      });
+
+      return {
+        ok: true,
+        acceptedAt: startedAt,
+      };
+    } catch (error: unknown) {
+      const failedAt = this.nowIso();
+      const message = errorMessage(error);
+      const refreshedSession = this.findSession(sessionId)?.session ?? lookup.session;
+      await this.registry.upsertSession({
+        ...refreshedSession,
+        status: "failed",
+        currentTool: undefined,
+        currentActivity: `Shell fallback failed: ${message}`,
+        liveSummary: `Shell fallback failed: ${command}`,
+        latestMeaningfulUpdate: message,
+        updatedAt: failedAt,
+      });
+
+      return rejectedCommand(message);
+    }
+  }
+
+  listWorkspaceSessions(workspaceId: string): WorkspaceSession[] {
+    const detail = this.registry.getWorkspaceDetail(workspaceId);
+    if (detail === undefined) {
+      return [];
+    }
+
+    return this.attentionEngine.rankWorkspaceSessions(detail.workspace, detail.sessions);
+  }
+
+  listActiveSessionKeys(): string[] {
+    return [...this.controllers.keys()].sort();
+  }
+
+  listRecentAttention(workspaceId: string): AttentionEvent[] {
+    return structuredClone(this.recentAttentionByWorkspace.get(workspaceId) ?? []);
+  }
+
+  getSessionWorkspaceId(sessionId: string): string | undefined {
+    return this.findSession(sessionId)?.session.workspaceId;
+  }
+
+  async reconnectPersistedSessions(workspaceId?: string): Promise<ReconnectSessionResult[]> {
+    const workspaceIds = workspaceId === undefined
+      ? this.registry.listWorkspaces().map((workspace) => workspace.id)
+      : [workspaceId];
+    const results: ReconnectSessionResult[] = [];
+
+    for (const candidateWorkspaceId of workspaceIds) {
+      const detail = this.registry.getWorkspaceDetail(candidateWorkspaceId);
+      if (detail === undefined) {
+        continue;
+      }
+
+      for (const session of detail.sessions) {
+        results.push(await this.reconnectSession(session));
+      }
+    }
+
+    return results;
+  }
+
+  async reconnectSession(session: WorkspaceSession): Promise<ReconnectSessionResult> {
+    const key = createSessionKey(session.workspaceId, session.id);
+    const existingController = this.controllers.get(key);
+    if (existingController !== undefined) {
+      return {
+        workspaceId: session.workspaceId,
+        sessionId: session.id,
+        connectionState: "live",
+      };
+    }
+
+    if (session.sessionFile === undefined) {
+      await this.markSessionHistorical(session, createReconnectNote("No pi session file was recorded for this session."));
+      return {
+        workspaceId: session.workspaceId,
+        sessionId: session.id,
+        connectionState: "historical",
+      };
+    }
+
+    try {
+      const managedSession = await this.adapter.reconnectSession({
+        workspaceId: session.workspaceId,
+        sessionId: session.id,
+        cwd: session.cwd,
+        sessionFile: session.sessionFile,
+        modelId: session.runtime.model,
+        agentName: session.runtime.agent,
+      });
+      const liveSession: WorkspaceSession = {
+        ...session,
+        connectionState: "live",
+        reconnectNote: undefined,
+        sessionFile: managedSession.sessionFile ?? session.sessionFile,
+        runtime: {
+          ...session.runtime,
+          model: managedSession.modelId ?? session.runtime.model,
+          runtime: "pi",
+        },
+        updatedAt: this.nowIso(),
+      };
+
+      await this.registry.upsertSession(liveSession);
+      const controller = this.createController(liveSession, managedSession);
+      this.setController(controller);
+      await controller.reconcilePendingInterventionFromHistory();
+
+      return {
+        workspaceId: session.workspaceId,
+        sessionId: session.id,
+        connectionState: "live",
+      };
+    } catch (error: unknown) {
+      this.controllers.get(key)?.dispose();
+      this.controllers.delete(key);
+      await this.markSessionHistorical(session, createReconnectNote(errorMessage(error)));
+      return {
+        workspaceId: session.workspaceId,
+        sessionId: session.id,
+        connectionState: "historical",
+      };
+    }
+  }
+
+  private createController(session: WorkspaceSession, managedSession: ManagedPiSession): SessionController {
+    return new SessionController({
+      session,
+      managedSession,
+      repository: new RegistrySessionControllerRepository(this.registry),
+      now: this.now,
+      onRuntimeActivity: (updatedSession: WorkspaceSession, activity: NormalizedSessionActivity): void => {
+        this.appendRuntimeAttention(updatedSession, activity);
+      },
+    });
+  }
+
+  private setController(controller: SessionController): void {
+    const key = createSessionKey(controller.workspaceId, controller.sessionId);
+    this.controllers.get(key)?.dispose();
+    this.controllers.set(key, controller);
+  }
+
+  private appendRuntimeAttention(session: WorkspaceSession, activity: NormalizedSessionActivity): void {
+    const event = this.attentionEngine.createRuntimeAttentionEvent(session, activity);
+    const currentEvents = this.recentAttentionByWorkspace.get(session.workspaceId) ?? [];
+    this.recentAttentionByWorkspace.set(session.workspaceId, [event, ...currentEvents].slice(0, 50));
+  }
+
+  private async markSessionHistorical(session: WorkspaceSession, reconnectNote: string): Promise<void> {
+    await this.registry.upsertSession({
+      ...session,
+      connectionState: "historical",
+      reconnectNote,
+      updatedAt: this.nowIso(),
+    });
+  }
+
+  private async recordUnmanagedInterventionFailure(
+    session: WorkspaceSession,
+    kind: SessionInterventionKind,
+    text: string,
+  ): Promise<CommandResult> {
+    const requestedAt = this.nowIso();
+    const reason = "Session is historical and cannot be controlled.";
+    await this.registry.upsertSession({
+      ...session,
+      lastIntervention: {
+        kind,
+        status: "failed-locally",
+        text,
+        requestedAt,
+        errorMessage: reason,
+      } satisfies SessionIntervention,
+      updatedAt: requestedAt,
+    });
+
+    return rejectedCommand(reason);
+  }
+
+  private async resolveSessionPath(session: WorkspaceSession, requestedPath: string): Promise<ResolvedSessionPath> {
+    try {
+      const absolutePath = path.isAbsolute(requestedPath) ? requestedPath : path.join(session.cwd, requestedPath);
+      const canonicalPath = await canonicalizeWorkspacePath(absolutePath, "open path");
+      if (!isWorkspacePathInside(session.repoRoot, canonicalPath)) {
+        return {
+          ok: false,
+          result: {
+            ok: false,
+            reason: `open path must stay inside session repo root ${session.repoRoot}: ${requestedPath}`,
+          },
+        };
+      }
+
+      return {
+        ok: true,
+        path: canonicalPath,
+      };
+    } catch (error: unknown) {
+      if (error instanceof WorkspacePathValidationError) {
+        return {
+          ok: false,
+          result: {
+            ok: false,
+            reason: error.message,
+          },
+        };
+      }
+
+      throw error;
+    }
+  }
+
+  private findSession(sessionId: string): { workspaceId: string; session: WorkspaceSession } | undefined {
+    for (const workspace of this.registry.listWorkspaces()) {
+      const detail = this.registry.getWorkspaceDetail(workspace.id);
+      const session = detail?.sessions.find((candidate) => candidate.id === sessionId);
+      if (session !== undefined) {
+        return {
+          workspaceId: workspace.id,
+          session,
+        };
+      }
+    }
+
+    return undefined;
+  }
+
+  private nowIso(): string {
+    return this.now().toISOString();
+  }
+}
+
+class RegistrySessionControllerRepository implements SessionControllerRepository {
+  constructor(private readonly registry: WorkspaceRegistry) {}
+
+  async getWorkspaceSession(workspaceId: string, sessionId: string): Promise<WorkspaceSession | undefined> {
+    return this.registry.getWorkspaceDetail(workspaceId)?.sessions.find((session) => session.id === sessionId);
+  }
+
+  async upsertSession(session: WorkspaceSession): Promise<void> {
+    await this.registry.upsertSession(session);
+  }
+}
+
+type ResolvedSessionPath =
+  | { ok: true; path: string }
+  | { ok: false; result: Extract<CommandResult, { ok: false }> };
+
+interface CanonicalSpawnSessionCommand extends SpawnSessionCommand {
+  cwd: string;
+  repoRoot?: string;
+  worktree?: string;
+}
+
+interface ResolvedSessionLocation {
+  repoRoot: WorkspaceRepoRoot;
+  worktree?: WorkspaceWorktree;
+}
+
+interface CreateWorkspaceSessionInput {
+  command: CanonicalSpawnSessionCommand;
+  detail: WorkspaceDetailRecord;
+  location: ResolvedSessionLocation;
+  managedSession: ManagedPiSession;
+  acceptedAt: string;
+}
+
+async function canonicalizeSpawnSessionInput(input: SpawnSessionCommand): Promise<CanonicalSpawnSessionCommand> {
+  return {
+    ...input,
+    cwd: await canonicalizeWorkspacePath(input.cwd, "cwd"),
+    repoRoot: input.repoRoot === undefined ? undefined : await canonicalizeWorkspacePath(input.repoRoot, "repoRoot"),
+    worktree: input.worktree === undefined ? undefined : await canonicalizeWorkspacePath(input.worktree, "worktree"),
+  };
+}
+
+function resolveSessionLocation(
+  detail: WorkspaceDetailRecord,
+  input: CanonicalSpawnSessionCommand,
+): ResolvedSessionLocation {
+  const worktree = input.worktree === undefined
+    ? undefined
+    : detail.workspace.worktrees.find((candidate) => workspacePathsMatch(candidate.path, input.worktree!));
+  if (input.worktree !== undefined && worktree === undefined) {
+    throw new RuntimeManagerValidationError(`worktree must reference a registered worktree in workspace ${detail.workspace.id}: ${input.worktree}`);
+  }
+
+  const repoRoot = resolveRepoRoot(detail, input, worktree);
+  const cwdBasePath = worktree?.path ?? repoRoot.path;
+  if (!isWorkspacePathInside(cwdBasePath, input.cwd)) {
+    throw new RuntimeManagerValidationError(`cwd must stay within ${cwdBasePath}: ${input.cwd}`);
+  }
+  if (worktree !== undefined && worktree.repoRootId !== repoRoot.id) {
+    throw new RuntimeManagerValidationError(`worktree ${worktree.path} must belong to repo root ${repoRoot.path}`);
+  }
+
+  const workspaceArtifactIds = new Set(detail.workspace.artifactIds);
+  for (const artifactId of input.linkedArtifactIds ?? []) {
+    if (!workspaceArtifactIds.has(artifactId)) {
+      throw new RuntimeManagerValidationError(`linkedArtifactIds must reference existing workspace artifacts: ${artifactId}`);
+    }
+  }
+
+  return { repoRoot, worktree };
+}
+
+function resolveRepoRoot(
+  detail: WorkspaceDetailRecord,
+  input: CanonicalSpawnSessionCommand,
+  worktree: WorkspaceWorktree | undefined,
+): WorkspaceRepoRoot {
+  if (input.repoRoot !== undefined) {
+    const repoRoot = detail.workspace.repoRoots.find((candidate) => workspacePathsMatch(candidate.path, input.repoRoot!));
+    if (repoRoot === undefined) {
+      throw new RuntimeManagerValidationError(`repoRoot must reference a registered repo root in workspace ${detail.workspace.id}: ${input.repoRoot}`);
+    }
+    return repoRoot;
+  }
+
+  if (worktree !== undefined) {
+    const repoRoot = detail.workspace.repoRoots.find((candidate) => candidate.id === worktree.repoRootId);
+    if (repoRoot !== undefined) {
+      return repoRoot;
+    }
+  }
+
+  const containingRepoRoots = detail.workspace.repoRoots.filter((candidate) => isWorkspacePathInside(candidate.path, input.cwd));
+  containingRepoRoots.sort((left, right) =>
+    normalizeWorkspacePathForComparison(right.path).length - normalizeWorkspacePathForComparison(left.path).length,
+  );
+  const repoRoot = containingRepoRoots[0];
+  if (repoRoot === undefined) {
+    throw new RuntimeManagerValidationError(`repoRoot must reference a registered repo root in workspace ${detail.workspace.id}: ${input.cwd}`);
+  }
+
+  return repoRoot;
+}
+
+function createWorkspaceSessionFromManagedSession(input: CreateWorkspaceSessionInput): WorkspaceSession {
+  const command = input.command;
+  const worktree = input.location.worktree;
+
+  return {
+    id: input.managedSession.sessionId,
+    workspaceId: command.workspaceId,
+    name: command.name?.trim() || command.task,
+    repoRoot: input.location.repoRoot.path,
+    worktree: worktree?.path,
+    cwd: command.cwd,
+    branch: command.branch ?? worktree?.branch ?? input.location.repoRoot.defaultBranch,
+    runtime: {
+      agent: command.agent ?? "implementer",
+      model: command.model ?? input.managedSession.modelId,
+      runtime: "pi",
+    },
+    status: "running",
+    liveSummary: `Queued initial prompt: ${command.task}`,
+    latestMeaningfulUpdate: `Accepted session request for ${command.task}.`,
+    currentActivity: "Queued initial prompt in pi.",
+    currentTool: undefined,
+    recentFiles: [],
+    linkedResources: {
+      artifactIds: structuredClone(command.linkedArtifactIds ?? []),
+      workItemIds: structuredClone(command.linkedWorkItemIds ?? []),
+      reviewIds: [],
+    },
+    connectionState: "live",
+    sessionFile: input.managedSession.sessionFile,
+    reconnectNote: undefined,
+    startedAt: input.acceptedAt,
+    updatedAt: input.acceptedAt,
+  };
+}
+
+function rejectedCommand(reason: string): CommandResult {
+  return {
+    ok: false,
+    reason,
+  };
+}
+
+function createReconnectNote(reason: string): string {
+  return `Could not reconnect after restart. Metadata remains visible locally, but steer/follow-up/abort only work for sessions reattached in-process. Reason: ${reason}`;
+}
+
+function mergeRecentFiles(
+  existingFiles: readonly SessionRecentFile[],
+  incomingFiles: readonly SessionRecentFile[],
+  limit: number,
+): SessionRecentFile[] {
+  const seenPaths = new Set<string>();
+  const mergedFiles: SessionRecentFile[] = [];
+
+  for (const file of [...incomingFiles, ...existingFiles]) {
+    if (file.path.trim().length === 0 || seenPaths.has(file.path)) {
+      continue;
+    }
+
+    seenPaths.add(file.path);
+    mergedFiles.push({ ...file });
+  }
+
+  return mergedFiles.slice(0, limit);
+}
+
+function createBoundedShellExecutor(defaultOptions: ShellExecutorOptions = {}): ShellExecutor {
+  return async (command: string, cwd: string, options: ShellExecutorOptions = {}): Promise<ShellCommandExecutionResult> => {
+    const timeoutMs = options.timeoutMs ?? defaultOptions.timeoutMs ?? 120_000;
+    const maxOutputBytes = options.maxOutputBytes ?? defaultOptions.maxOutputBytes ?? 32_000;
+
+    return await new Promise<ShellCommandExecutionResult>((resolve, reject) => {
+      const child = spawn(command, {
+        cwd,
+        env: process.env,
+        shell: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let output = "";
+      let settled = false;
+      const timeout = setTimeout((): void => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        child.kill("SIGTERM");
+        resolve({
+          command,
+          cwd,
+          exitCode: undefined,
+          output: truncateOutput(output, maxOutputBytes),
+          timedOut: true,
+        });
+      }, timeoutMs);
+
+      const collectOutput = (chunk: Buffer | string): void => {
+        const chunkText = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        output = truncateOutput(output + chunkText, maxOutputBytes);
+      };
+
+      child.stdout?.on("data", collectOutput);
+      child.stderr?.on("data", collectOutput);
+      child.on("error", (error: Error): void => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timeout);
+        reject(error);
+      });
+      child.on("close", (code: number | null): void => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timeout);
+        resolve({
+          command,
+          cwd,
+          exitCode: code ?? undefined,
+          output: truncateOutput(output, maxOutputBytes),
+          timedOut: false,
+        });
+      });
+    });
+  };
+}
+
+function createDefaultPathOpener(): WorkspacePathOpener {
+  return {
+    async openPath(targetPath: string): Promise<void> {
+      spawnDetached(getOpenCommand(targetPath));
+    },
+    async openExternalTerminal(cwd: string): Promise<void> {
+      spawnDetached(getTerminalCommand(cwd));
+    },
+  };
+}
+
+interface SpawnCommand {
+  command: string;
+  args: string[];
+  cwd?: string;
+}
+
+function spawnDetached(command: SpawnCommand): void {
+  const child = spawn(command.command, command.args, {
+    cwd: command.cwd,
+    detached: true,
+    stdio: "ignore",
+    shell: false,
+  });
+  child.unref();
+}
+
+function getOpenCommand(targetPath: string): SpawnCommand {
+  if (process.platform === "darwin") {
+    return { command: "open", args: [targetPath] };
+  }
+  if (process.platform === "win32") {
+    return { command: "cmd", args: ["/c", "start", "", targetPath] };
+  }
+
+  return { command: "xdg-open", args: [targetPath] };
+}
+
+function getTerminalCommand(cwd: string): SpawnCommand {
+  if (process.platform === "darwin") {
+    return { command: "open", args: ["-a", "Terminal", cwd] };
+  }
+  if (process.platform === "win32") {
+    return { command: "cmd", args: ["/c", "start", "cmd", "/K", "cd", "/d", cwd] };
+  }
+
+  return { command: "x-terminal-emulator", args: [], cwd };
+}
+
+function summarizeShellResult(command: string, exitCode: number | undefined, timedOut: boolean): string {
+  if (timedOut) {
+    return `Shell fallback timed out: ${command}`;
+  }
+  if (exitCode === 0) {
+    return `Shell fallback completed: ${command}`;
+  }
+  if (exitCode === undefined) {
+    return `Shell fallback ended without an exit code: ${command}`;
+  }
+  return `Shell fallback exited ${exitCode}: ${command}`;
+}
+
+function previewShellOutput(output: string): string {
+  return stripTerminalControlSequences(output)
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .slice(0, 8)
+    .join("\n")
+    .slice(0, 800);
+}
+
+function truncateOutput(output: string, maxOutputBytes: number): string {
+  if (Buffer.byteLength(output, "utf8") <= maxOutputBytes) {
+    return output;
+  }
+
+  return output.slice(Math.max(0, output.length - maxOutputBytes));
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
