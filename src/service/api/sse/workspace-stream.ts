@@ -57,9 +57,12 @@ export async function registerWorkspaceStreamRoutes(
 
     const sendEnvelope = (envelope: WorkspaceEventEnvelope): void => {
       try {
-        reply.raw.write(`id: ${envelope.id}\n`);
-        reply.raw.write(`event: ${envelope.event.type}\n`);
-        reply.raw.write(`data: ${JSON.stringify(envelope.event)}\n\n`);
+        const payload = `id: ${envelope.id}\nevent: ${envelope.event.type}\ndata: ${JSON.stringify(envelope.event)}\n\n`;
+        const acceptedByKernelBuffer = reply.raw.write(payload);
+        if (!acceptedByKernelBuffer) {
+          closeStream();
+          throw new Error("SSE subscriber backpressure limit reached");
+        }
       } catch (error) {
         closeStream();
         throw error;

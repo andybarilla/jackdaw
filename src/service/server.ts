@@ -6,6 +6,7 @@ import { registerArtifactRoutes } from "./api/routes/artifacts.js";
 import { registerSettingsRoutes } from "./api/routes/settings.js";
 import { createWorkspaceEventBus } from "./api/sse/event-bus.js";
 import { registerWorkspaceStreamRoutes } from "./api/sse/workspace-stream.js";
+import { createSessionRuntimeManager } from "./orchestration/runtime-manager.js";
 import { createDemoStateStore, type DemoStateStore } from "./demo-state.js";
 
 const DEV_ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
@@ -56,6 +57,7 @@ export function createServer(options: ServiceServerOptions): FastifyInstance {
 
   const store = options.store ?? createDemoStateStore();
   const eventBus = createWorkspaceEventBus();
+  const runtimeManager = createSessionRuntimeManager({ store, eventBus });
   const version = options.version ?? "0.1.0";
 
   void app.register(registerHealthRoutes, {
@@ -68,7 +70,7 @@ export function createServer(options: ServiceServerOptions): FastifyInstance {
   });
   void app.register(registerSessionRoutes, {
     store,
-    eventBus,
+    runtimeManager,
   });
   void app.register(registerArtifactRoutes);
   void app.register(registerSettingsRoutes);

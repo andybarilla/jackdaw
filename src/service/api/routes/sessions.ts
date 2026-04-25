@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { DemoStateStore } from "../../demo-state.js";
-import type { WorkspaceEventBus } from "../sse/event-bus.js";
+import type { SessionRuntimeManager } from "../../orchestration/runtime-manager.js";
 import type {
   CreateSessionDto,
   FollowUpSessionDto,
@@ -14,7 +14,7 @@ import type {
 
 export interface SessionRoutesOptions {
   store: DemoStateStore;
-  eventBus: WorkspaceEventBus;
+  runtimeManager: SessionRuntimeManager;
 }
 
 const workspaceIdParamsSchema = {
@@ -139,16 +139,12 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "workspaceId must match the route parameter" });
       }
 
-      const createdSession = options.store.createWorkspaceSession(request.params.workspaceId, request.body);
+      const createdSession = await options.runtimeManager.createWorkspaceSession(request.params.workspaceId, request.body);
       if (createdSession === undefined) {
         return reply.code(404).send({ error: "Workspace not found" });
       }
 
-      for (const { workspaceId, event } of createdSession.events) {
-        options.eventBus.publish(workspaceId, event);
-      }
-
-      return reply.code(202).send(createdSession.response);
+      return reply.code(createdSession.result.ok ? 202 : 500).send(createdSession);
     },
   );
 
@@ -165,16 +161,12 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "sessionId must match the route parameter" });
       }
 
-      const mutation = options.store.steerSession(request.params.sessionId, request.body);
+      const mutation = await options.runtimeManager.steerSession(request.params.sessionId, request.body);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
 
-      for (const { workspaceId, event } of mutation.events) {
-        options.eventBus.publish(workspaceId, event);
-      }
-
-      return reply.code(202).send(mutation.response);
+      return reply.code(mutation.result.ok ? 202 : 500).send(mutation);
     },
   );
 
@@ -191,16 +183,12 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "sessionId must match the route parameter" });
       }
 
-      const mutation = options.store.followUpSession(request.params.sessionId, request.body);
+      const mutation = await options.runtimeManager.followUpSession(request.params.sessionId, request.body);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
 
-      for (const { workspaceId, event } of mutation.events) {
-        options.eventBus.publish(workspaceId, event);
-      }
-
-      return reply.code(202).send(mutation.response);
+      return reply.code(mutation.result.ok ? 202 : 500).send(mutation);
     },
   );
 
@@ -212,16 +200,12 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
       },
     },
     async (request, reply): Promise<MutationResponseDto> => {
-      const mutation = options.store.abortSession(request.params.sessionId);
+      const mutation = await options.runtimeManager.abortSession(request.params.sessionId);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
 
-      for (const { workspaceId, event } of mutation.events) {
-        options.eventBus.publish(workspaceId, event);
-      }
-
-      return reply.code(202).send(mutation.response);
+      return reply.code(mutation.result.ok ? 202 : 500).send(mutation);
     },
   );
 
@@ -238,16 +222,12 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "sessionId must match the route parameter" });
       }
 
-      const mutation = options.store.pinSessionSummary(request.params.sessionId, request.body);
+      const mutation = await options.runtimeManager.pinSessionSummary(request.params.sessionId, request.body);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
 
-      for (const { workspaceId, event } of mutation.events) {
-        options.eventBus.publish(workspaceId, event);
-      }
-
-      return reply.code(202).send(mutation.response);
+      return reply.code(mutation.result.ok ? 202 : 500).send(mutation);
     },
   );
 
@@ -269,16 +249,12 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "workspaceId must match the session workspace" });
       }
 
-      const mutation = options.store.openSessionPath(request.params.sessionId, request.body);
+      const mutation = await options.runtimeManager.openSessionPath(request.params.sessionId, request.body);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
 
-      for (const { workspaceId, event } of mutation.events) {
-        options.eventBus.publish(workspaceId, event);
-      }
-
-      return reply.code(202).send(mutation.response);
+      return reply.code(mutation.result.ok ? 202 : 500).send(mutation);
     },
   );
 
@@ -295,16 +271,12 @@ export async function registerSessionRoutes(app: FastifyInstance, options: Sessi
         return reply.code(400).send({ error: "sessionId must match the route parameter" });
       }
 
-      const mutation = options.store.runSessionShell(request.params.sessionId, request.body.command);
+      const mutation = await options.runtimeManager.runSessionShell(request.params.sessionId, request.body.command);
       if (mutation === undefined) {
         return reply.code(404).send({ error: "Session not found" });
       }
 
-      for (const { workspaceId, event } of mutation.events) {
-        options.eventBus.publish(workspaceId, event);
-      }
-
-      return reply.code(202).send(mutation.response);
+      return reply.code(mutation.result.ok ? 202 : 500).send(mutation);
     },
   );
 }

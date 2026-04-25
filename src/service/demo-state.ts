@@ -663,7 +663,7 @@ export function createDemoStateStore(): DemoStateStore {
         requestedAt: acceptedAt,
       };
       session.status = "running";
-      session.liveSummary = input.text;
+      session.currentActivity = `Steer sent: ${input.text}`;
       session.updatedAt = acceptedAt;
       touchWorkspace(session.workspaceId, acceptedAt);
       appendAttentionEvent(session, acceptedAt, "Steer request accepted", input.text, "operator");
@@ -790,7 +790,6 @@ export function createDemoStateStore(): DemoStateStore {
 
       const acceptedAt = new Date().toISOString();
       session.currentActivity = `Shell fallback requested: ${command}`;
-      session.liveSummary = `Shell fallback queued: ${command}`;
       session.updatedAt = acceptedAt;
       touchWorkspace(session.workspaceId, acceptedAt);
       appendAttentionEvent(session, acceptedAt, "Shell fallback requested", command, "operator");
