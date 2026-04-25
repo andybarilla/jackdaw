@@ -63,10 +63,6 @@ export function RecentEventsPanel({ session, recentAttention, linkedArtifacts }:
             <dt>Reviews</dt>
             <dd>{session.linkedResources.reviewIds.length > 0 ? session.linkedResources.reviewIds.join(", ") : "No linked reviews"}</dd>
           </div>
-          <div>
-            <dt>HQ work item</dt>
-            <dd>{session.linkedResources.hqWorkItemId ?? "No HQ work item linked"}</dd>
-          </div>
         </dl>
       </div>
     </section>

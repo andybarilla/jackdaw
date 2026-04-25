@@ -260,6 +260,8 @@ describe("SessionCommandCenter", () => {
     expect(within(commandCenter).getByText(/plan · Workspace GUI successor plan/)).toBeVisible();
     expect(within(commandCenter).getByText("task-8")).toBeVisible();
     expect(within(commandCenter).getByText("review-17")).toBeVisible();
+    expect(within(commandCenter).queryByText("HQ work item")).toBeNull();
+    expect(within(commandCenter).queryByText("hq-321")).toBeNull();
     expect(within(commandCenter).getByRole("button", { name: "Spawn session" })).toBeVisible();
     expect(within(commandCenter).getByRole("button", { name: "Steer" })).toBeVisible();
     expect(within(commandCenter).getByRole("button", { name: "Follow-up" })).toBeVisible();
