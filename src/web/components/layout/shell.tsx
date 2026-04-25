@@ -11,6 +11,8 @@ export interface ShellProps {
   workspaces: WorkspaceSummaryDto[];
   selectedWorkspaceId?: string;
   onSelectWorkspace: (workspaceId: string) => void;
+  onOpenWorkspaceExplorer?: () => void;
+  onOpenSettings?: () => void;
   rail: React.ReactNode;
   main: React.ReactNode;
   aside: React.ReactNode;
@@ -26,6 +28,8 @@ export function Shell(props: ShellProps): React.JSX.Element {
         workspaces={props.workspaces}
         selectedWorkspaceId={props.selectedWorkspaceId}
         onSelectWorkspace={props.onSelectWorkspace}
+        onOpenWorkspaceExplorer={props.onOpenWorkspaceExplorer}
+        onOpenSettings={props.onOpenSettings}
       />
       <main>
         <SplitPane rail={props.rail} main={props.main} aside={props.aside} />

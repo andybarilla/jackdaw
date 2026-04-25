@@ -376,3 +376,122 @@ textarea:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+.topbar-nav {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.topbar-nav button,
+.secondary-button,
+.link-button,
+.artifact-list-item {
+  border: var(--border);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  padding: 7px 10px;
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-0);
+  text-align: left;
+}
+
+.screen-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  border-bottom: var(--border);
+  background: var(--bg-0);
+}
+
+.screen-header h2,
+.panel h3,
+.linked-items-panel h5,
+.artifact-preview h2 {
+  margin: 0;
+  color: var(--fg-0);
+}
+
+.explorer-screen,
+.artifact-viewer-screen,
+.settings-screen {
+  min-height: 100vh;
+  padding: 18px;
+  background: radial-gradient(circle at top right, rgb(255 77 0 / 0.08), transparent 30%), var(--bg-0);
+}
+
+.explorer-grid,
+.artifact-viewer-layout {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.explorer-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.explorer-artifacts {
+  grid-column: 1 / -1;
+}
+
+.artifact-viewer-layout {
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+}
+
+.artifact-list,
+.context-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.context-list li,
+.artifact-list-item {
+  display: grid;
+  gap: 4px;
+}
+
+.artifact-list-item {
+  width: 100%;
+  text-align: left;
+}
+
+.artifact-list-item.selected {
+  border-color: var(--accent);
+}
+
+.artifact-kind,
+.artifact-path,
+.context-list span {
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.artifact-title {
+  color: var(--fg-0);
+}
+
+.artifact-preview {
+  min-width: 0;
+}
+
+.artifact-content {
+  overflow: auto;
+  max-height: 70vh;
+  padding: 14px;
+  border: var(--border);
+  background: var(--bg-0);
+  color: var(--fg-1);
+  white-space: pre-wrap;
+}

@@ -72,8 +72,8 @@ export function createServer(options: ServiceServerOptions): FastifyInstance {
     store,
     runtimeManager,
   });
-  void app.register(registerArtifactRoutes);
-  void app.register(registerSettingsRoutes);
+  void app.register(registerArtifactRoutes, { store });
+  void app.register(registerSettingsRoutes, { store });
   void app.register(registerWorkspaceStreamRoutes, {
     store,
     eventBus,

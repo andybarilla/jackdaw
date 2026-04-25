@@ -18,6 +18,9 @@ export interface WorkspaceHomeScreenProps {
   connectionState: "connecting" | "live" | "disconnected";
   onSelectWorkspace: (workspaceId: string) => void;
   onSelectSession: (sessionId: string) => void;
+  onOpenArtifact?: (artifactId: string) => void;
+  onOpenWorkspaceExplorer?: () => void;
+  onOpenSettings?: () => void;
   actions: WorkspaceActionHandlers;
 }
 
@@ -56,7 +59,7 @@ export function WorkspaceHomeScreen(props: WorkspaceHomeScreenProps): React.JSX.
     : loadingPanel("Select a workspace session to see the command center preview.");
 
   const aside = detail !== undefined
-    ? <ContextPanel workspace={detail.workspace} artifacts={detail.artifacts} />
+    ? <ContextPanel workspace={detail.workspace} artifacts={detail.artifacts} selectedSession={selectedSession} onOpenArtifact={props.onOpenArtifact} />
     : loadingPanel("Workspace context will appear here.");
 
   return (
@@ -68,6 +71,8 @@ export function WorkspaceHomeScreen(props: WorkspaceHomeScreenProps): React.JSX.
         workspaces={summaries}
         selectedWorkspaceId={props.selectedWorkspaceId}
         onSelectWorkspace={props.onSelectWorkspace}
+        onOpenWorkspaceExplorer={props.onOpenWorkspaceExplorer}
+        onOpenSettings={props.onOpenSettings}
         rail={rail}
         main={main}
         aside={aside}

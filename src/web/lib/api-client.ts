@@ -1,5 +1,5 @@
 import type { HealthResponse, RendererBootstrap } from "../../shared/transport/api.js";
-import type { WorkspaceDetailDto, WorkspaceSummaryDto } from "../../shared/transport/dto.js";
+import type { ArtifactDetailDto, ArtifactListDto, IntegrationSettingsDto, WorkspaceDetailDto, WorkspaceSummaryDto } from "../../shared/transport/dto.js";
 
 declare global {
   interface Window {
@@ -14,6 +14,9 @@ export interface ApiClient {
   getHealth(): Promise<HealthResponse>;
   listWorkspaces(): Promise<WorkspaceSummaryDto[]>;
   getWorkspaceDetail(workspaceId: string): Promise<WorkspaceDetailDto>;
+  listWorkspaceArtifacts(workspaceId: string): Promise<ArtifactListDto>;
+  getArtifactDetail(workspaceId: string, artifactId: string): Promise<ArtifactDetailDto>;
+  getIntegrationSettings(): Promise<IntegrationSettingsDto>;
 }
 
 export function resolveBootstrap(): RendererBootstrap {
@@ -57,6 +60,15 @@ export function createApiClient(serviceBaseUrl: string): ApiClient {
     },
     getWorkspaceDetail: async (workspaceId: string): Promise<WorkspaceDetailDto> => {
       return fetchJson<WorkspaceDetailDto>(serviceBaseUrl, `/workspaces/${workspaceId}`, "Workspace detail fetch failed");
+    },
+    listWorkspaceArtifacts: async (workspaceId: string): Promise<ArtifactListDto> => {
+      return fetchJson<ArtifactListDto>(serviceBaseUrl, `/workspaces/${workspaceId}/artifacts`, "Artifact index fetch failed");
+    },
+    getArtifactDetail: async (workspaceId: string, artifactId: string): Promise<ArtifactDetailDto> => {
+      return fetchJson<ArtifactDetailDto>(serviceBaseUrl, `/workspaces/${workspaceId}/artifacts/${artifactId}`, "Artifact fetch failed");
+    },
+    getIntegrationSettings: async (): Promise<IntegrationSettingsDto> => {
+      return fetchJson<IntegrationSettingsDto>(serviceBaseUrl, "/settings/integrations", "Settings fetch failed");
     },
   };
 }

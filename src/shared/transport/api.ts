@@ -1,8 +1,11 @@
 import type {
   CreateSessionDto,
   AddWorkspaceRepoDto,
+  ArtifactDetailDto,
+  ArtifactListDto,
   CreateWorkspaceDto,
   FollowUpSessionDto,
+  IntegrationSettingsDto,
   MutationResponseDto,
   OpenPathDto,
   PinSummaryDto,
@@ -53,6 +56,15 @@ export interface ApiContract {
   };
   "GET /workspaces/:workspaceId/sessions": {
     response: SessionsListDto;
+  };
+  "GET /workspaces/:workspaceId/artifacts": {
+    response: ArtifactListDto;
+  };
+  "GET /workspaces/:workspaceId/artifacts/:artifactId": {
+    response: ArtifactDetailDto;
+  };
+  "GET /settings/integrations": {
+    response: IntegrationSettingsDto;
   };
   "POST /workspaces/:workspaceId/sessions": {
     body: CreateSessionDto;

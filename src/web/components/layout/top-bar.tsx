@@ -9,6 +9,8 @@ export interface TopBarProps {
   workspaces: WorkspaceSummaryDto[];
   selectedWorkspaceId?: string;
   onSelectWorkspace: (workspaceId: string) => void;
+  onOpenWorkspaceExplorer?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export function TopBar({
@@ -18,6 +20,8 @@ export function TopBar({
   workspaces,
   selectedWorkspaceId,
   onSelectWorkspace,
+  onOpenWorkspaceExplorer,
+  onOpenSettings,
 }: TopBarProps): React.JSX.Element {
   return (
     <header className="topbar">
@@ -54,6 +58,10 @@ export function TopBar({
             <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
           ))}
         </select>
+        <div className="topbar-nav" aria-label="Workspace navigation">
+          {onOpenWorkspaceExplorer !== undefined && <button type="button" onClick={onOpenWorkspaceExplorer}>Explorer</button>}
+          {onOpenSettings !== undefined && <button type="button" onClick={onOpenSettings}>Settings</button>}
+        </div>
         <div className="topbar-meta" aria-label="Service metadata">
           <span>{platform}</span>
           <span>stream {connectionState}</span>
