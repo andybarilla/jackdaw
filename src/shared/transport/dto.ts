@@ -38,6 +38,28 @@ export interface SessionsListDto {
   sessions: WorkspaceSession[];
 }
 
+export interface ArtifactListDto {
+  workspaceId: string;
+  artifacts: WorkspaceArtifact[];
+}
+
+export interface ArtifactDetailDto {
+  artifact: WorkspaceArtifact;
+  content: string;
+  readOnly: true;
+}
+
+export interface IntegrationSettingsDto {
+  hq: {
+    status: "not-configured" | "configured";
+    linkedIds: {
+      projectId?: string;
+      workItemIds: string[];
+      sessionIds: string[];
+    };
+  };
+}
+
 export interface CreateWorkspaceDto {
   name: string;
   description?: string;

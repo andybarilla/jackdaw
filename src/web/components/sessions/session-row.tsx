@@ -74,7 +74,7 @@ function linkedItemLabel(session: WorkspaceSession, artifacts: WorkspaceArtifact
     return `${linkedPlanOrSpec.kind} · ${linkedPlanOrSpec.title}`;
   }
 
-  const workItemId = session.linkedResources.workItemIds[0] ?? session.linkedResources.hqWorkItemId;
+  const workItemId = session.linkedResources.workItemIds[0];
   if (workItemId !== undefined) {
     return `work item · ${workItemId}`;
   }

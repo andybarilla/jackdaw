@@ -92,7 +92,7 @@ export class SessionController {
           currentTool: undefined,
           updatedAt: occurredAt,
         });
-      }).catch((): void => undefined);
+      });
     });
   }
 

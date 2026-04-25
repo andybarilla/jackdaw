@@ -1,13 +1,19 @@
 import React from "react";
 import type { WorkspaceArtifact } from "../../../shared/domain/artifact.js";
+import type { WorkspaceSession } from "../../../shared/domain/session.js";
 import type { Workspace } from "../../../shared/domain/workspace.js";
+import { LinkedItemsPanel } from "./linked-items-panel.js";
+import { RepoList } from "./repo-list.js";
+import { WorktreeList } from "./worktree-list.js";
 
 export interface ContextPanelProps {
   workspace: Workspace;
   artifacts: WorkspaceArtifact[];
+  selectedSession?: WorkspaceSession;
+  onOpenArtifact?: (artifactId: string) => void;
 }
 
-export function ContextPanel({ workspace, artifacts }: ContextPanelProps): React.JSX.Element {
+export function ContextPanel({ workspace, artifacts, selectedSession, onOpenArtifact }: ContextPanelProps): React.JSX.Element {
   return (
     <aside className="panel workspace-context-panel" aria-label="Workspace context panel">
       <div className="panel-header">
@@ -21,32 +27,15 @@ export function ContextPanel({ workspace, artifacts }: ContextPanelProps): React
 
       <div className="context-section">
         <h4>Repo roots</h4>
-        <ul>
-          {workspace.repoRoots.map((repoRoot) => (
-            <li key={repoRoot.id}>{repoRoot.name} · {repoRoot.path}</li>
-          ))}
-        </ul>
+        <RepoList repos={workspace.repoRoots} />
       </div>
 
       <div className="context-section">
         <h4>Worktrees</h4>
-        <ul>
-          {workspace.worktrees.map((worktree) => (
-            <li key={worktree.id}>{worktree.label ?? worktree.branch ?? worktree.path} · {worktree.path}</li>
-          ))}
-          {workspace.worktrees.length === 0 && <li>No worktrees tracked yet.</li>}
-        </ul>
+        <WorktreeList worktrees={workspace.worktrees} />
       </div>
 
-      <div className="context-section">
-        <h4>Linked artifacts</h4>
-        <ul>
-          {artifacts.slice(0, 4).map((artifact) => (
-            <li key={artifact.id}>{artifact.kind} · {artifact.title}</li>
-          ))}
-          {artifacts.length === 0 && <li>No linked artifacts yet.</li>}
-        </ul>
-      </div>
+      <LinkedItemsPanel session={selectedSession} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
     </aside>
   );
 }

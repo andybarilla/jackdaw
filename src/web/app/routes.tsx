@@ -4,11 +4,18 @@ import type { WorkspaceDetailDto, WorkspaceSummaryDto } from "../../shared/trans
 import { useWorkspaceActions } from "../hooks/useWorkspaceActions.js";
 import { useWorkspaceSelection } from "../hooks/useWorkspaceSelection.js";
 import { useWorkspaceStream, type Loadable } from "../hooks/useWorkspaceStream.js";
+import { ArtifactViewerScreen } from "../screens/artifacts/artifact-viewer-screen.js";
 import { WorkspaceHomeScreen } from "../screens/home/workspace-home-screen.js";
+import { SettingsScreen } from "../screens/settings/settings-screen.js";
+import { WorkspaceExplorerScreen } from "../screens/workspace/workspace-explorer-screen.js";
 import { useAppServices } from "./providers.js";
+
+type AppRoute = "sessions" | "workspace-explorer" | "artifact-viewer" | "settings";
 
 export function AppRoutes(): React.JSX.Element {
   const { apiClient, bootstrap } = useAppServices();
+  const [route, setRoute] = React.useState<AppRoute>("sessions");
+  const [selectedArtifactId, setSelectedArtifactId] = React.useState<string | undefined>(undefined);
   const [health, setHealth] = React.useState<Loadable<HealthResponse>>({ status: "loading" });
   const [workspaceSummaries, setWorkspaceSummaries] = React.useState<Loadable<WorkspaceSummaryDto[]>>({ status: "loading" });
   const { selectedWorkspaceId, selectWorkspace } = useWorkspaceSelection(
@@ -87,6 +94,43 @@ export function AppRoutes(): React.JSX.Element {
     }));
   }, [selectedWorkspaceId]);
 
+  const handleOpenArtifact = React.useCallback((artifactId: string): void => {
+    setSelectedArtifactId(artifactId);
+    setRoute("artifact-viewer");
+  }, []);
+
+  const handleBackToSessions = React.useCallback((): void => {
+    setRoute("sessions");
+  }, []);
+
+  if (route === "settings") {
+    return <SettingsScreen apiClient={apiClient} onBackToSessions={handleBackToSessions} />;
+  }
+
+  if (workspaceStream.detail.status === "ready" && route === "workspace-explorer") {
+    return (
+      <WorkspaceExplorerScreen
+        detail={workspaceStream.detail.data}
+        selectedArtifactId={selectedArtifactId}
+        onOpenArtifact={handleOpenArtifact}
+        onBackToSessions={handleBackToSessions}
+      />
+    );
+  }
+
+  if (workspaceStream.detail.status === "ready" && route === "artifact-viewer") {
+    return (
+      <ArtifactViewerScreen
+        apiClient={apiClient}
+        workspaceId={workspaceStream.detail.data.workspace.id}
+        artifacts={workspaceStream.detail.data.artifacts}
+        selectedArtifactId={selectedArtifactId}
+        onSelectArtifact={setSelectedArtifactId}
+        onBackToSessions={handleBackToSessions}
+      />
+    );
+  }
+
   return (
     <WorkspaceHomeScreen
       platform={bootstrap.platform}
@@ -98,6 +142,9 @@ export function AppRoutes(): React.JSX.Element {
       connectionState={workspaceStream.connectionState}
       onSelectWorkspace={selectWorkspace}
       onSelectSession={handleSelectSession}
+      onOpenArtifact={handleOpenArtifact}
+      onOpenWorkspaceExplorer={() => setRoute("workspace-explorer")}
+      onOpenSettings={() => setRoute("settings")}
       actions={actions}
     />
   );

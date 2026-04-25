@@ -91,6 +91,26 @@ describe("AttentionRail", () => {
     expect(within(needsOperatorGroup).getByText(/plan · Workspace GUI successor plan/)).toBeVisible();
   });
 
+  it("does not expose HQ-only work item links in session rows", () => {
+    render(
+      <AttentionRail
+        sessions={[
+          {
+            ...SESSIONS[1],
+            linkedResources: { artifactIds: [], workItemIds: [], reviewIds: [], hqWorkItemId: "hq-321" },
+          },
+        ]}
+        artifacts={ARTIFACTS}
+        selectedSessionId="session-running"
+        onSelectSession={vi.fn()}
+      />,
+    );
+
+    const activeGroup = screen.getByLabelText("Active sessions");
+    expect(within(activeGroup).getByText("No linked plan, spec, or work item.")).toBeVisible();
+    expect(within(activeGroup).queryByText("hq-321")).toBeNull();
+  });
+
   it("calls onSelectSession when an operator chooses a different session", () => {
     const onSelectSession = vi.fn();
     render(

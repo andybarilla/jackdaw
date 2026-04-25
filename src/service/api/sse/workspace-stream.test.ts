@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import http, { type IncomingMessage, type RequestOptions } from "node:http";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { AddressInfo } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { createServer } from "../../server.js";
@@ -9,7 +12,7 @@ import {
   TEST_AWAITING_INPUT_SESSION_ID,
   TEST_WORKSPACE_ID,
 } from "../../test-helpers.js";
-import type { WorkspaceStreamEventDto } from "../../../shared/transport/dto.js";
+import type { WorkspaceDetailDto, WorkspaceStreamEventDto } from "../../../shared/transport/dto.js";
 
 interface SseEventMessage {
   id?: string;
@@ -167,6 +170,50 @@ describe("workspace SSE stream", () => {
     streamConnection.close();
   });
 
+  it("includes indexed file-backed artifacts in the initial snapshot", async () => {
+    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "jackdaw-sse-artifacts-"));
+    await fs.mkdir(path.join(repoRoot, "docs", "superpowers", "specs"), { recursive: true });
+    await fs.writeFile(
+      path.join(repoRoot, "docs", "superpowers", "specs", "2026-04-25-stream-context.md"),
+      "# Stream Context Spec\n\nIndexed from a local file-backed workspace.",
+      "utf8",
+    );
+
+    const { baseUrl } = await createListeningServer();
+    const createResponse = await fetch(`${baseUrl}/workspaces`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "SSE artifact workspace",
+        repoRoots: [repoRoot],
+      }),
+    });
+    const createdWorkspace = await createResponse.json() as WorkspaceDetailDto;
+    const streamConnection = await connectToWorkspaceEvents(baseUrl, createdWorkspace.workspace.id);
+
+    try {
+      const snapshotEvent = await streamConnection.nextEvent();
+
+      expect(snapshotEvent.event).toBe("workspace.snapshot");
+      expect(snapshotEvent.data?.type).toBe("workspace.snapshot");
+      if (snapshotEvent.data?.type !== "workspace.snapshot") {
+        throw new Error("Expected workspace snapshot event data");
+      }
+      expect(snapshotEvent.data.payload.detail.artifacts).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "spec",
+          title: "Stream Context Spec",
+          filePath: "docs/superpowers/specs/2026-04-25-stream-context.md",
+        }),
+      ]));
+    } finally {
+      streamConnection.close();
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   it("replays missed events after the last seen event id", async () => {
     const { baseUrl } = await createListeningServer();
     const firstConnection = await connectToWorkspaceEvents(baseUrl, TEST_WORKSPACE_ID);
@@ -273,16 +320,18 @@ describe("workspace SSE stream", () => {
       },
       body: JSON.stringify({
         sessionId: TEST_AWAITING_INPUT_SESSION_ID,
-        text: "Need another update for SSE verification.",
+        text: "Emit an intervention update event.",
       }),
     });
 
     expect(mutationResponse.status).toBe(202);
 
-    const eventMessage = await streamConnection.nextEvent();
+    const nextEvent = await streamConnection.nextEvent();
 
-    expect(eventMessage.event).toBe("session.intervention-changed");
-    expect(eventMessage.data?.payload.workspaceId).toBe(TEST_WORKSPACE_ID);
+    expect(nextEvent.id).toBeDefined();
+    expect(nextEvent.data?.version).toBe(1);
+    expect(["session.intervention-changed", "session.summary-updated"]).toContain(nextEvent.event);
+    expect(nextEvent.data?.payload.workspaceId).toBe(TEST_WORKSPACE_ID);
 
     streamConnection.close();
   });

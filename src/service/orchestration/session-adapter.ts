@@ -112,7 +112,11 @@ class AgentManagedPiSession implements ManagedPiSession {
 
   subscribe(listener: PiSessionEventListener): () => void {
     return this.session.subscribe((event: AgentSessionEvent): void => {
-      void Promise.resolve(listener(event));
+      void Promise.resolve(listener(event)).catch((error: unknown): void => {
+        queueMicrotask((): void => {
+          throw error;
+        });
+      });
     });
   }
 

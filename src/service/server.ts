@@ -76,8 +76,12 @@ export function createServer(options: ServiceServerOptions): FastifyInstance {
     workspaceService: workspaceServicePromise,
     eventBus,
   });
-  void app.register(registerArtifactRoutes);
-  void app.register(registerSettingsRoutes);
+  void app.register(registerArtifactRoutes, {
+    workspaceService: workspaceServicePromise,
+  });
+  void app.register(registerSettingsRoutes, {
+    workspaceService: workspaceServicePromise,
+  });
   void app.register(registerWorkspaceStreamRoutes, {
     workspaceService: workspaceServicePromise,
     eventBus,

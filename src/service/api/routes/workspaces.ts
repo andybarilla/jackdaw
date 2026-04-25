@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { WorkspaceMutationValidationError, type WorkspaceService } from "../../workspace/workspace-service.js";
 import type { WorkspaceEventBus } from "../sse/event-bus.js";
+import { mergeIndexedArtifacts } from "../../workspace/workspace-detail.js";
 import type {
   AddWorkspaceRepoDto,
   CreateWorkspaceDto,
@@ -112,7 +113,7 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, options: Wor
         return reply.code(404).send({ error: "Workspace not found" });
       }
 
-      return detail;
+      return mergeIndexedArtifacts(detail);
     },
   );
 

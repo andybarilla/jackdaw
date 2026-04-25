@@ -51,6 +51,10 @@ export interface CommandAccepted {
 export interface CommandRejected {
   ok: false;
   reason: string;
+  code?: string;
+  message?: string;
+  retryable?: boolean;
+  sessionState?: "degraded";
 }
 
 export type CommandResult = CommandAccepted | CommandRejected;

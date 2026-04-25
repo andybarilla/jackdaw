@@ -261,6 +261,19 @@ describe("SessionController", () => {
     expect(managedSession.dispose).toHaveBeenCalledOnce();
   });
 
+  it("propagates initial prompt failure persistence errors", async () => {
+    const session = createSession();
+    const repository = new RejectingSessionRepository(session);
+    const managedSession = new FakeManagedSession(session.id, session.sessionFile);
+    managedSession.prompt.mockRejectedValue(new Error("provider disconnected"));
+    const { controller } = createController({ session, managedSession, repository });
+
+    controller.beginInitialPrompt("Run the task.");
+
+    await expect(controller.waitForInitialPrompt()).rejects.toThrow("persistence unavailable");
+    expect(controller.currentSession.status).toBe("running");
+  });
+
   it("waits for in-flight mutations before disposal completes", async () => {
     const session = createSession();
     const repository = new DeferredFirstUpsertRepository(session);
