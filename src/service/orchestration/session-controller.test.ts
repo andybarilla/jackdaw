@@ -252,13 +252,71 @@ describe("SessionController", () => {
     const { controller, repository } = createController({ managedSession });
 
     controller.beginInitialPrompt("Run the task.");
-    controller.dispose();
+    await controller.dispose();
     prompt.reject(new Error("provider disconnected"));
     await controller.waitForInitialPrompt();
 
     expect(repository.session.status).toBe("running");
     expect(repository.session.liveSummary).toBe("Running task");
     expect(managedSession.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("waits for in-flight mutations before disposal completes", async () => {
+    const session = createSession();
+    const repository = new DeferredFirstUpsertRepository(session);
+    const managedSession = new FakeManagedSession(session.id, session.sessionFile);
+    const { controller } = createController({ session, managedSession, repository });
+
+    const eventPromise = controller.handleSessionEvent({
+      type: "tool_execution_start",
+      toolCallId: "call-1",
+      toolName: "read",
+      args: { path: "src/index.ts" },
+    });
+    await repository.waitForFirstUpsertStarted();
+
+    let disposeCompleted = false;
+    const disposePromise = controller.dispose().then((): void => {
+      disposeCompleted = true;
+    });
+    await Promise.resolve();
+
+    expect(disposeCompleted).toBe(false);
+
+    repository.releaseFirstUpsert();
+    await Promise.all([eventPromise, disposePromise]);
+
+    expect(disposeCompleted).toBe(true);
+    expect(managedSession.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("returns rejected command results when pin summary persistence fails", async () => {
+    const session = createSession();
+    const repository = new RejectingSessionRepository(session);
+    const managedSession = new FakeManagedSession(session.id, session.sessionFile);
+    const { controller } = createController({ session, managedSession, repository });
+
+    const result = await controller.pinSummary("Keep this visible.");
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "Failed to persist session state: persistence unavailable",
+    });
+  });
+
+  it("does not submit interventions when the local accepted state cannot be persisted", async () => {
+    const session = createSession();
+    const repository = new RejectingSessionRepository(session);
+    const managedSession = new FakeManagedSession(session.id, session.sessionFile);
+    const { controller } = createController({ session, managedSession, repository });
+
+    const result = await controller.steer("Focus on the failing orchestration test.");
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "Failed to persist session state: persistence unavailable",
+    });
+    expect(managedSession.steer).not.toHaveBeenCalled();
   });
 
   it("catches subscription listener persistence failures at the subscription boundary", async () => {

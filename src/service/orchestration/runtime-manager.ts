@@ -119,17 +119,21 @@ export class RuntimeManager {
     }
 
     const acceptedAt = this.nowIso();
+    let managedSession: ManagedPiSession | undefined;
+    let session: WorkspaceSession | undefined;
+    let sessionPersistenceAttempted = false;
+    let controllerRegistered = false;
 
     try {
       const canonicalInput = await canonicalizeSpawnSessionInput(input);
       const location = resolveSessionLocation(detail, canonicalInput);
-      const managedSession = await this.adapter.spawnSession({
+      managedSession = await this.adapter.spawnSession({
         workspaceId: input.workspaceId,
         cwd: canonicalInput.cwd,
         task: canonicalInput.task,
         modelId: canonicalInput.model,
       });
-      const session = createWorkspaceSessionFromManagedSession({
+      session = createWorkspaceSessionFromManagedSession({
         command: canonicalInput,
         detail,
         location,
@@ -137,10 +141,12 @@ export class RuntimeManager {
         acceptedAt,
       });
 
+      await this.disposeController(createSessionKey(session.workspaceId, session.id));
+      sessionPersistenceAttempted = true;
       await this.registry.upsertSession(session, acceptedAt);
       this.attentionEngine.recordSession(session);
-      const controller = this.createController(session, managedSession);
-      this.setController(controller);
+      const controller = await this.replaceController(session, managedSession);
+      controllerRegistered = true;
       controller.beginInitialPrompt(canonicalInput.task);
 
       return {
@@ -151,10 +157,18 @@ export class RuntimeManager {
         session: controller.currentSession,
       };
     } catch (error: unknown) {
+      const reason = errorMessage(error);
+      let rejectedReason = reason;
+      try {
+        await this.cleanupFailedSpawn(managedSession, session, sessionPersistenceAttempted, controllerRegistered, reason);
+      } catch (cleanupError: unknown) {
+        rejectedReason = `${reason}; cleanup failed: ${errorMessage(cleanupError)}`;
+      }
+
       return {
         result: {
           ok: false,
-          reason: errorMessage(error),
+          reason: rejectedReason,
         },
       };
     }
@@ -214,11 +228,15 @@ export class RuntimeManager {
     }
 
     const acceptedAt = this.nowIso();
-    await this.registry.upsertSession({
-      ...lookup.session,
-      pinnedSummary: input.summary,
-      updatedAt: acceptedAt,
-    });
+    try {
+      await this.registry.upsertSession({
+        ...lookup.session,
+        pinnedSummary: input.summary,
+        updatedAt: acceptedAt,
+      });
+    } catch (error: unknown) {
+      return rejectedPersistenceCommand(error);
+    }
 
     return {
       ok: true,
@@ -252,15 +270,19 @@ export class RuntimeManager {
       return rejectedCommand(errorMessage(error));
     }
 
-    await this.registry.upsertSession({
-      ...lookup.session,
-      recentFiles: mergeRecentFiles(lookup.session.recentFiles, [{
-        path: resolvedPath.path,
-        operation: "unknown",
-        timestamp: acceptedAt,
-      }], 10),
-      updatedAt: acceptedAt,
-    });
+    try {
+      await this.registry.upsertSession({
+        ...lookup.session,
+        recentFiles: mergeRecentFiles(lookup.session.recentFiles, [{
+          path: resolvedPath.path,
+          operation: "unknown",
+          timestamp: acceptedAt,
+        }], 10),
+        updatedAt: acceptedAt,
+      });
+    } catch (error: unknown) {
+      return rejectedPersistenceCommand(error);
+    }
 
     return {
       ok: true,
@@ -283,14 +305,18 @@ export class RuntimeManager {
     }
 
     const startedAt = this.nowIso();
-    await this.registry.upsertSession({
-      ...lookup.session,
-      status: "running",
-      currentTool: "shell fallback",
-      currentActivity: `Shell fallback running: ${command}`,
-      liveSummary: `Shell fallback running: ${command}`,
-      updatedAt: startedAt,
-    });
+    try {
+      await this.registry.upsertSession({
+        ...lookup.session,
+        status: "running",
+        currentTool: "shell fallback",
+        currentActivity: `Shell fallback running: ${command}`,
+        liveSummary: `Shell fallback running: ${command}`,
+        updatedAt: startedAt,
+      });
+    } catch (error: unknown) {
+      return rejectedPersistenceCommand(error);
+    }
 
     try {
       const result = await this.shellExecutor(command, lookup.session.cwd, {
@@ -302,15 +328,19 @@ export class RuntimeManager {
       const status: WorkspaceSession["status"] = result.exitCode === 0 && !result.timedOut ? "idle" : "blocked";
       const refreshedSession = this.findSession(sessionId)?.session ?? lookup.session;
 
-      await this.registry.upsertSession({
-        ...refreshedSession,
-        status,
-        currentTool: undefined,
-        currentActivity: summary,
-        liveSummary: summary,
-        latestMeaningfulUpdate: previewShellOutput(result.output) || summary,
-        updatedAt: completedAt,
-      });
+      try {
+        await this.registry.upsertSession({
+          ...refreshedSession,
+          status,
+          currentTool: undefined,
+          currentActivity: summary,
+          liveSummary: summary,
+          latestMeaningfulUpdate: previewShellOutput(result.output) || summary,
+          updatedAt: completedAt,
+        });
+      } catch (error: unknown) {
+        return rejectedPersistenceCommand(error);
+      }
 
       return {
         ok: true,
@@ -320,15 +350,19 @@ export class RuntimeManager {
       const failedAt = this.nowIso();
       const message = errorMessage(error);
       const refreshedSession = this.findSession(sessionId)?.session ?? lookup.session;
-      await this.registry.upsertSession({
-        ...refreshedSession,
-        status: "failed",
-        currentTool: undefined,
-        currentActivity: `Shell fallback failed: ${message}`,
-        liveSummary: `Shell fallback failed: ${command}`,
-        latestMeaningfulUpdate: message,
-        updatedAt: failedAt,
-      });
+      try {
+        await this.registry.upsertSession({
+          ...refreshedSession,
+          status: "failed",
+          currentTool: undefined,
+          currentActivity: `Shell fallback failed: ${message}`,
+          liveSummary: `Shell fallback failed: ${command}`,
+          latestMeaningfulUpdate: message,
+          updatedAt: failedAt,
+        });
+      } catch (persistenceError: unknown) {
+        return rejectedPersistenceCommand(persistenceError);
+      }
 
       return rejectedCommand(message);
     }
@@ -395,15 +429,19 @@ export class RuntimeManager {
       };
     }
 
+    let managedSession: ManagedPiSession | undefined;
+    let liveSession: WorkspaceSession | undefined;
+    let controllerRegistered = false;
+
     try {
-      const managedSession = await this.adapter.reconnectSession({
+      managedSession = await this.adapter.reconnectSession({
         workspaceId: session.workspaceId,
         sessionId: session.id,
         cwd: session.cwd,
         sessionFile: session.sessionFile,
         modelId: session.runtime.model,
       });
-      const liveSession: WorkspaceSession = {
+      liveSession = {
         ...session,
         connectionState: "live",
         reconnectNote: undefined,
@@ -417,8 +455,8 @@ export class RuntimeManager {
       };
 
       await this.registry.upsertSession(liveSession);
-      const controller = this.createController(liveSession, managedSession);
-      this.setController(controller);
+      const controller = await this.replaceController(liveSession, managedSession);
+      controllerRegistered = true;
       await controller.reconcilePendingInterventionFromHistory();
 
       return {
@@ -427,9 +465,14 @@ export class RuntimeManager {
         connectionState: "live",
       };
     } catch (error: unknown) {
-      this.controllers.get(key)?.dispose();
+      const reason = errorMessage(error);
+      if (controllerRegistered) {
+        await this.disposeController(key);
+      } else if (managedSession !== undefined) {
+        await disposeManagedSession(managedSession);
+      }
       this.controllers.delete(key);
-      await this.markSessionHistorical(session, createReconnectNote(errorMessage(error)));
+      await this.markSessionHistorical(liveSession ?? session, createReconnectNote(reason));
       return {
         workspaceId: session.workspaceId,
         sessionId: session.id,
@@ -450,10 +493,22 @@ export class RuntimeManager {
     });
   }
 
-  private setController(controller: SessionController): void {
-    const key = createSessionKey(controller.workspaceId, controller.sessionId);
-    this.controllers.get(key)?.dispose();
+  private async replaceController(session: WorkspaceSession, managedSession: ManagedPiSession): Promise<SessionController> {
+    const key = createSessionKey(session.workspaceId, session.id);
+    await this.disposeController(key);
+    const controller = this.createController(session, managedSession);
     this.controllers.set(key, controller);
+    return controller;
+  }
+
+  private async disposeController(key: string): Promise<void> {
+    const existingController = this.controllers.get(key);
+    if (existingController === undefined) {
+      return;
+    }
+
+    this.controllers.delete(key);
+    await existingController.dispose();
   }
 
   private appendRuntimeAttention(session: WorkspaceSession, activity: NormalizedSessionActivity): void {
@@ -471,6 +526,39 @@ export class RuntimeManager {
     });
   }
 
+  private async markSpawnedSessionHistorical(session: WorkspaceSession, reason: string): Promise<void> {
+    const summary = `Session startup failed: ${reason}`;
+    await this.registry.upsertSession({
+      ...session,
+      status: "failed",
+      connectionState: "historical",
+      reconnectNote: `Session startup failed after pi session was created. Metadata remains visible locally, but no controller is attached. Reason: ${reason}`,
+      currentTool: undefined,
+      currentActivity: summary,
+      liveSummary: summary,
+      latestMeaningfulUpdate: summary,
+      updatedAt: this.nowIso(),
+    });
+  }
+
+  private async cleanupFailedSpawn(
+    managedSession: ManagedPiSession | undefined,
+    session: WorkspaceSession | undefined,
+    sessionPersistenceAttempted: boolean,
+    controllerRegistered: boolean,
+    reason: string,
+  ): Promise<void> {
+    if (controllerRegistered && session !== undefined) {
+      await this.disposeController(createSessionKey(session.workspaceId, session.id));
+    } else if (managedSession !== undefined) {
+      await disposeManagedSession(managedSession);
+    }
+
+    if (sessionPersistenceAttempted && session !== undefined) {
+      await this.markSpawnedSessionHistorical(session, reason);
+    }
+  }
+
   private async recordUnmanagedInterventionFailure(
     session: WorkspaceSession,
     kind: SessionInterventionKind,
@@ -478,17 +566,21 @@ export class RuntimeManager {
   ): Promise<CommandResult> {
     const requestedAt = this.nowIso();
     const reason = "Session is historical and cannot be controlled.";
-    await this.registry.upsertSession({
-      ...session,
-      lastIntervention: {
-        kind,
-        status: "failed-locally",
-        text,
-        requestedAt,
-        errorMessage: reason,
-      } satisfies SessionIntervention,
-      updatedAt: requestedAt,
-    });
+    try {
+      await this.registry.upsertSession({
+        ...session,
+        lastIntervention: {
+          kind,
+          status: "failed-locally",
+          text,
+          requestedAt,
+          errorMessage: reason,
+        } satisfies SessionIntervention,
+        updatedAt: requestedAt,
+      });
+    } catch (error: unknown) {
+      return rejectedPersistenceCommand(error);
+    }
 
     return rejectedCommand(reason);
   }
@@ -693,6 +785,14 @@ function rejectedCommand(reason: string): CommandResult {
     ok: false,
     reason,
   };
+}
+
+function rejectedPersistenceCommand(error: unknown): CommandResult {
+  return rejectedCommand(`Failed to persist session state: ${errorMessage(error)}`);
+}
+
+async function disposeManagedSession(managedSession: ManagedPiSession): Promise<void> {
+  await Promise.resolve(managedSession.dispose?.()).catch((): void => undefined);
 }
 
 function createReconnectNote(reason: string): string {

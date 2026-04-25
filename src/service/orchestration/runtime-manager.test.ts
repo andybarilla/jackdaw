@@ -14,6 +14,7 @@ import type {
   ReconnectPiSessionOptions,
   SpawnPiSessionOptions,
 } from "./session-adapter.js";
+import { AttentionEngine } from "./attention-engine.js";
 import { ReconnectManager } from "./reconnect-manager.js";
 import { RuntimeManager, type ShellCommandExecutionResult, type ShellExecutor } from "./runtime-manager.js";
 
@@ -73,9 +74,16 @@ class FakeSessionAdapter implements PiSessionAdapter {
   }
 }
 
+class ThrowingAttentionEngine extends AttentionEngine {
+  override recordSession(_session: WorkspaceSession): void {
+    throw new Error("attention state unavailable");
+  }
+}
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(temporaryDirectories.splice(0).map((directoryPath) => rm(directoryPath, { recursive: true, force: true })));
 });
 
@@ -187,6 +195,74 @@ describe("RuntimeManager", () => {
     expect(runtimeManager.listActiveSessionKeys()).toEqual(["ws-1::pi-shared", "ws-2::pi-shared"]);
     expect(registry.getWorkspaceDetail("ws-1")?.sessions).toHaveLength(1);
     expect(registry.getWorkspaceDetail("ws-2")?.sessions).toHaveLength(1);
+  });
+
+  it("marks spawned records historical and disposes pi sessions when initial persistence fails", async () => {
+    const { registry, appDataDir } = await createRegistry();
+    const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
+    const managedSession = new FakeManagedSession("ses-persist-fail");
+    const adapter = new FakeSessionAdapter([managedSession]);
+    vi.spyOn(registry, "upsertSession").mockRejectedValueOnce(new Error("workspace write failed"));
+    const runtimeManager = new RuntimeManager({ registry, adapter });
+
+    const result = await runtimeManager.spawnSession({
+      workspaceId: "ws-1",
+      cwd: workspace.worktree.path,
+      repoRoot: workspace.repoRoot.path,
+      worktree: workspace.worktree.path,
+      task: "Implement task with failing persistence",
+    });
+    const session = registry.getWorkspaceDetail("ws-1")?.sessions[0];
+
+    expect(result).toEqual({
+      result: {
+        ok: false,
+        reason: "workspace write failed",
+      },
+    });
+    expect(managedSession.dispose).toHaveBeenCalledOnce();
+    expect(runtimeManager.listActiveSessionKeys()).toEqual([]);
+    expect(session).toMatchObject({
+      id: "ses-persist-fail",
+      status: "failed",
+      connectionState: "historical",
+      reconnectNote: expect.stringContaining("workspace write failed"),
+    });
+  });
+
+  it("marks spawned records historical and disposes managed sessions when post-create setup fails", async () => {
+    const { registry, appDataDir } = await createRegistry();
+    const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
+    const managedSession = new FakeManagedSession("ses-setup-fail");
+    const adapter = new FakeSessionAdapter([managedSession]);
+    const runtimeManager = new RuntimeManager({
+      registry,
+      adapter,
+      attentionEngine: new ThrowingAttentionEngine(),
+    });
+
+    const result = await runtimeManager.spawnSession({
+      workspaceId: "ws-1",
+      cwd: workspace.worktree.path,
+      repoRoot: workspace.repoRoot.path,
+      worktree: workspace.worktree.path,
+      task: "Implement task with failing setup",
+    });
+    const session = registry.getWorkspaceDetail("ws-1")?.sessions[0];
+
+    expect(result.result).toEqual({
+      ok: false,
+      reason: "attention state unavailable",
+    });
+    expect(result.session).toBeUndefined();
+    expect(managedSession.dispose).toHaveBeenCalledOnce();
+    expect(runtimeManager.listActiveSessionKeys()).toEqual([]);
+    expect(session).toMatchObject({
+      id: "ses-setup-fail",
+      status: "failed",
+      connectionState: "historical",
+      reconnectNote: expect.stringContaining("Session startup failed"),
+    });
   });
 
   it("keeps same-band updates stable while urgent statuses outrank running", async () => {
@@ -349,6 +425,43 @@ describe("RuntimeManager", () => {
     expect(runtimeManager.listActiveSessionKeys()).toEqual([]);
   });
 
+  it("disposes reconnected pi sessions when persisting the live state fails", async () => {
+    const { registry, appDataDir } = await createRegistry();
+    const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
+    const persistedSession = createPersistedSession({
+      id: "ses-reconnect-persist-fail",
+      workspaceId: "ws-1",
+      repoRoot: workspace.repoRoot.path,
+      worktree: workspace.worktree.path,
+      cwd: workspace.worktree.path,
+      sessionFile: "persisted-session.json",
+      connectionState: "historical",
+      status: "running",
+    });
+    await registry.upsertSession(persistedSession);
+    const managedSession = new FakeManagedSession("ses-reconnect-persist-fail", "restored-session.json");
+    const adapter = new FakeSessionAdapter();
+    adapter.reconnectResult = managedSession;
+    vi.spyOn(registry, "upsertSession").mockRejectedValueOnce(new Error("live state write failed"));
+    const runtimeManager = new RuntimeManager({ registry, adapter });
+
+    const result = await runtimeManager.reconnectSession(persistedSession);
+    const session = registry.getWorkspaceDetail("ws-1")?.sessions[0];
+
+    expect(result).toEqual({
+      workspaceId: "ws-1",
+      sessionId: "ses-reconnect-persist-fail",
+      connectionState: "historical",
+    });
+    expect(managedSession.dispose).toHaveBeenCalledOnce();
+    expect(runtimeManager.listActiveSessionKeys()).toEqual([]);
+    expect(session).toMatchObject({
+      id: "ses-reconnect-persist-fail",
+      connectionState: "historical",
+      reconnectNote: expect.stringContaining("live state write failed"),
+    });
+  });
+
   it("runs shell fallback as a bounded one-off command in session context", async () => {
     const { registry, appDataDir } = await createRegistry();
     const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
@@ -384,6 +497,118 @@ describe("RuntimeManager", () => {
       status: "idle",
       liveSummary: "Shell fallback completed: pwd",
       currentActivity: "Shell fallback completed: pwd",
+    });
+  });
+
+  it("returns rejected shell fallback commands when the starting state cannot be persisted", async () => {
+    const { registry, appDataDir } = await createRegistry();
+    const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
+    const managedSession = new FakeManagedSession("ses-shell-persist-fail");
+    const adapter = new FakeSessionAdapter([managedSession]);
+    const shellExecutor: ShellExecutor = vi.fn(async (command: string, cwd: string): Promise<ShellCommandExecutionResult> => ({
+      command,
+      cwd,
+      exitCode: 0,
+      output: "",
+      timedOut: false,
+    }));
+    const runtimeManager = new RuntimeManager({ registry, adapter, shellExecutor });
+    const spawned = await runtimeManager.spawnSession({
+      workspaceId: "ws-1",
+      cwd: workspace.worktree.path,
+      repoRoot: workspace.repoRoot.path,
+      worktree: workspace.worktree.path,
+      task: "Need shell fallback",
+    });
+    vi.spyOn(registry, "upsertSession").mockRejectedValueOnce(new Error("shell state write failed"));
+
+    const result = await runtimeManager.runShellFallback(spawned.session!.id, "pwd");
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "Failed to persist session state: shell state write failed",
+    });
+    expect(shellExecutor).not.toHaveBeenCalled();
+  });
+
+  it("returns rejected unmanaged intervention commands when failure persistence fails", async () => {
+    const { registry, appDataDir } = await createRegistry();
+    const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
+    await registry.upsertSession(createPersistedSession({
+      id: "ses-unmanaged",
+      workspaceId: "ws-1",
+      repoRoot: workspace.repoRoot.path,
+      worktree: workspace.worktree.path,
+      cwd: workspace.worktree.path,
+      connectionState: "historical",
+    }));
+    vi.spyOn(registry, "upsertSession").mockRejectedValueOnce(new Error("intervention write failed"));
+    const runtimeManager = new RuntimeManager({ registry, adapter: new FakeSessionAdapter() });
+
+    const result = await runtimeManager.steerSession({
+      sessionId: "ses-unmanaged",
+      text: "Please focus on tests.",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "Failed to persist session state: intervention write failed",
+    });
+  });
+
+  it("returns rejected pin summary commands when unmanaged persistence fails", async () => {
+    const { registry, appDataDir } = await createRegistry();
+    const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
+    await registry.upsertSession(createPersistedSession({
+      id: "ses-pin-persist-fail",
+      workspaceId: "ws-1",
+      repoRoot: workspace.repoRoot.path,
+      worktree: workspace.worktree.path,
+      cwd: workspace.worktree.path,
+      connectionState: "historical",
+    }));
+    vi.spyOn(registry, "upsertSession").mockRejectedValueOnce(new Error("pin write failed"));
+    const runtimeManager = new RuntimeManager({ registry, adapter: new FakeSessionAdapter() });
+
+    const result = await runtimeManager.pinSessionSummary({
+      sessionId: "ses-pin-persist-fail",
+      summary: "Keep this visible.",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "Failed to persist session state: pin write failed",
+    });
+  });
+
+  it("returns rejected open-path commands when recent-file persistence fails", async () => {
+    const { registry, appDataDir } = await createRegistry();
+    const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
+    await registry.upsertSession(createPersistedSession({
+      id: "ses-open-persist-fail",
+      workspaceId: "ws-1",
+      repoRoot: workspace.repoRoot.path,
+      worktree: workspace.worktree.path,
+      cwd: workspace.worktree.path,
+    }));
+    vi.spyOn(registry, "upsertSession").mockRejectedValueOnce(new Error("recent file write failed"));
+    const runtimeManager = new RuntimeManager({
+      registry,
+      adapter: new FakeSessionAdapter(),
+      pathOpener: {
+        async openPath(_targetPath: string): Promise<void> {},
+      },
+    });
+
+    const result = await runtimeManager.openSessionPath("ses-open-persist-fail", {
+      workspaceId: "ws-1",
+      path: ".",
+      revealInFileManager: true,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "Failed to persist session state: recent file write failed",
     });
   });
 });

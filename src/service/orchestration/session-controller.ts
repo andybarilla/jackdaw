@@ -42,6 +42,7 @@ export class SessionController {
   private readonly activities: NormalizedSessionActivity[] = [];
   private promptPromise: Promise<void> | undefined;
   private mutationQueue: Promise<void> = Promise.resolve();
+  private disposalPromise: Promise<void> | undefined;
   private managedSessionGeneration = 0;
   private disposed = false;
 
@@ -123,10 +124,13 @@ export class SessionController {
 
   async pinSummary(summary: string | undefined): Promise<CommandResult> {
     const acceptedAt = this.nowIso();
-    await this.updateSession({
+    const persistenceFailure = await this.updateSessionForCommand({
       pinnedSummary: summary,
       updatedAt: acceptedAt,
     });
+    if (persistenceFailure !== undefined) {
+      return persistenceFailure;
+    }
 
     return {
       ok: true,
@@ -201,12 +205,20 @@ export class SessionController {
     await this.reconcilePendingInterventionFromHistory();
   }
 
-  dispose(): void {
+  dispose(): Promise<void> {
+    this.disposalPromise ??= this.disposeNow();
+    return this.disposalPromise;
+  }
+
+  private async disposeNow(): Promise<void> {
     this.disposed = true;
     this.managedSessionGeneration += 1;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
-    void Promise.resolve(this.managedSession.dispose?.()).catch((): void => undefined);
+
+    const managedDisposePromise = Promise.resolve(this.managedSession.dispose?.()).catch((): void => undefined);
+    await this.mutationQueue.catch((): void => undefined);
+    await managedDisposePromise;
   }
 
   private attachManagedSession(managedSession: ManagedPiSession): void {
@@ -272,28 +284,29 @@ export class SessionController {
   ): Promise<CommandResult> {
     if (this.session.connectionState !== "live") {
       const requestedAt = this.nowIso();
-      await this.updateSession({
-        lastIntervention: createIntervention(kind, text, "failed-locally", requestedAt, "Session is historical and cannot be controlled."),
+      const reason = "Session is historical and cannot be controlled.";
+      const persistenceFailure = await this.updateSessionForCommand({
+        lastIntervention: createIntervention(kind, text, "failed-locally", requestedAt, reason),
         updatedAt: requestedAt,
       });
-      return {
-        ok: false,
-        reason: "Session is historical and cannot be controlled.",
-      };
+      return persistenceFailure ?? rejectedCommand(reason);
     }
 
     const requestedAt = this.nowIso();
-    await this.updateSession({
+    const acceptedPersistenceFailure = await this.updateSessionForCommand({
       lastIntervention: createIntervention(kind, text, "accepted-locally", requestedAt),
       currentActivity: interventionAcceptedSummary(kind),
       updatedAt: requestedAt,
     });
+    if (acceptedPersistenceFailure !== undefined) {
+      return acceptedPersistenceFailure;
+    }
 
     try {
       await submit();
       const pendingIntervention = createIntervention(kind, text, "pending-observation", requestedAt);
       const observedAt = this.findObservedActivityTimestamp(requestedAt);
-      await this.updateSession({
+      const pendingPersistenceFailure = await this.updateSessionForCommand({
         lastIntervention: observedAt === undefined
           ? pendingIntervention
           : markInterventionObserved(pendingIntervention, observedAt),
@@ -301,6 +314,9 @@ export class SessionController {
         currentActivity: interventionPendingSummary(kind),
         updatedAt: observedAt ?? requestedAt,
       });
+      if (pendingPersistenceFailure !== undefined) {
+        return pendingPersistenceFailure;
+      }
 
       return {
         ok: true,
@@ -308,7 +324,7 @@ export class SessionController {
       };
     } catch (error: unknown) {
       const message = errorMessage(error);
-      await this.updateSession({
+      const failurePersistenceFailure = await this.updateSessionForCommand({
         lastIntervention: createIntervention(kind, text, "failed-locally", requestedAt, message),
         status: "failed",
         liveSummary: `${interventionLabel(kind)} failed locally: ${message}`,
@@ -317,10 +333,7 @@ export class SessionController {
         updatedAt: requestedAt,
       });
 
-      return {
-        ok: false,
-        reason: message,
-      };
+      return failurePersistenceFailure ?? rejectedCommand(message);
     }
   }
 
@@ -385,6 +398,19 @@ export class SessionController {
 
       await this.applyPatchNow(patch);
     });
+  }
+
+  private async updateSessionForCommand(patch: Partial<WorkspaceSession>): Promise<CommandResult | undefined> {
+    if (this.disposed) {
+      return rejectedCommand("Session controller is disposed.");
+    }
+
+    try {
+      await this.updateSession(patch);
+      return undefined;
+    } catch (error: unknown) {
+      return rejectedCommand(`Failed to persist session state: ${errorMessage(error)}`);
+    }
   }
 
   private enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
@@ -487,6 +513,13 @@ function interventionLabel(kind: SessionInterventionKind): string {
 function isAbortLikeError(message: string): boolean {
   const lower = message.toLowerCase();
   return lower.includes("abort") || lower.includes("cancel");
+}
+
+function rejectedCommand(reason: string): CommandResult {
+  return {
+    ok: false,
+    reason,
+  };
 }
 
 function errorMessage(error: unknown): string {
