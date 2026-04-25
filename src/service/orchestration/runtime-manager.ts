@@ -32,6 +32,13 @@ import type { NormalizedSessionActivity } from "./event-normalizer.js";
 import type { ManagedPiSession, PiSessionAdapter } from "./session-adapter.js";
 import { SessionController, type SessionControllerRepository } from "./session-controller.js";
 
+export interface RuntimeSessionMutation {
+  session: WorkspaceSession;
+  occurredAt: string;
+}
+
+export type RuntimeSessionMutationListener = (mutation: RuntimeSessionMutation) => void;
+
 export interface RuntimeManagerOptions {
   registry: WorkspaceRegistry;
   adapter: PiSessionAdapter;
@@ -39,6 +46,7 @@ export interface RuntimeManagerOptions {
   shellExecutor?: ShellExecutor;
   pathOpener?: WorkspacePathOpener;
   now?: () => Date;
+  onSessionMutation?: RuntimeSessionMutationListener;
 }
 
 export interface SpawnSessionResult {
@@ -97,6 +105,7 @@ export class RuntimeManager {
   private readonly pathOpener: WorkspacePathOpener;
   private readonly now: () => Date;
   private readonly recentAttentionByWorkspace = new Map<string, AttentionEvent[]>();
+  private readonly onSessionMutation: RuntimeSessionMutationListener | undefined;
 
   constructor(options: RuntimeManagerOptions) {
     this.registry = options.registry;
@@ -105,6 +114,7 @@ export class RuntimeManager {
     this.shellExecutor = options.shellExecutor ?? createBoundedShellExecutor();
     this.pathOpener = options.pathOpener ?? createDefaultPathOpener();
     this.now = options.now ?? (() => new Date());
+    this.onSessionMutation = options.onSessionMutation;
   }
 
   async spawnSession(input: SpawnSessionCommand): Promise<SpawnSessionResult> {
@@ -166,8 +176,9 @@ export class RuntimeManager {
     } catch (error: unknown) {
       const reason = errorMessage(error);
       let rejectedReason = reason;
+      let failedSession: WorkspaceSession | undefined;
       try {
-        await this.cleanupFailedSpawn(managedSession, session, sessionPersistenceAttempted, controllerRegistered, reason);
+        failedSession = await this.cleanupFailedSpawn(managedSession, session, sessionPersistenceAttempted, controllerRegistered, reason);
       } catch (cleanupError: unknown) {
         rejectedReason = `${reason}; cleanup failed: ${errorMessage(cleanupError)}`;
       }
@@ -177,6 +188,7 @@ export class RuntimeManager {
           ok: false,
           reason: rejectedReason,
         },
+        session: failedSession,
       };
     }
   }
@@ -475,7 +487,13 @@ export class RuntimeManager {
       await this.registry.upsertSession(liveSession);
       const controller = await this.replaceController(liveSession, managedSession);
       controllerRegistered = true;
-      await controller.reconcilePendingInterventionFromHistory();
+      try {
+        await controller.reconcilePendingInterventionFromHistory();
+      } catch (error: unknown) {
+        console.error(
+          `Reconnect reconciliation failed for session ${session.workspaceId}/${session.id}: ${errorMessage(error)}`,
+        );
+      }
 
       return {
         workspaceId: session.workspaceId,
@@ -508,6 +526,9 @@ export class RuntimeManager {
       onRuntimeActivity: (updatedSession: WorkspaceSession, activity: NormalizedSessionActivity): void => {
         this.appendRuntimeAttention(updatedSession, activity);
       },
+      onSessionMutation: (updatedSession: WorkspaceSession, occurredAt: string): void => {
+        this.publishSessionMutation(updatedSession, occurredAt);
+      },
     });
   }
 
@@ -535,6 +556,13 @@ export class RuntimeManager {
     this.recentAttentionByWorkspace.set(session.workspaceId, [event, ...currentEvents].slice(0, 50));
   }
 
+  private publishSessionMutation(session: WorkspaceSession, occurredAt: string): void {
+    this.onSessionMutation?.({
+      session: structuredClone(session),
+      occurredAt,
+    });
+  }
+
   private async updateSessionFresh(
     sessionId: string,
     update: (session: WorkspaceSession) => WorkspaceSession | Promise<WorkspaceSession>,
@@ -549,17 +577,20 @@ export class RuntimeManager {
   }
 
   private async markSessionHistorical(session: WorkspaceSession, reconnectNote: string): Promise<void> {
-    await this.registry.upsertSession({
+    const updatedAt = this.nowIso();
+    const historicalSession: WorkspaceSession = {
       ...session,
       connectionState: "historical",
       reconnectNote,
-      updatedAt: this.nowIso(),
-    });
+      updatedAt,
+    };
+    await this.registry.upsertSession(historicalSession);
   }
 
-  private async markSpawnedSessionHistorical(session: WorkspaceSession, reason: string): Promise<void> {
+  private async markSpawnedSessionHistorical(session: WorkspaceSession, reason: string): Promise<WorkspaceSession> {
     const summary = `Session startup failed: ${reason}`;
-    await this.registry.upsertSession({
+    const updatedAt = this.nowIso();
+    const failedSession: WorkspaceSession = {
       ...session,
       status: "failed",
       connectionState: "historical",
@@ -568,8 +599,11 @@ export class RuntimeManager {
       currentActivity: summary,
       liveSummary: summary,
       latestMeaningfulUpdate: summary,
-      updatedAt: this.nowIso(),
-    });
+      updatedAt,
+    };
+    await this.registry.upsertSession(failedSession);
+    this.publishSessionMutation(failedSession, updatedAt);
+    return failedSession;
   }
 
   private async cleanupFailedSpawn(
@@ -578,7 +612,7 @@ export class RuntimeManager {
     sessionPersistenceAttempted: boolean,
     controllerRegistered: boolean,
     reason: string,
-  ): Promise<void> {
+  ): Promise<WorkspaceSession | undefined> {
     if (controllerRegistered && session !== undefined) {
       await this.disposeController(createSessionKey(session.workspaceId, session.id));
     } else if (managedSession !== undefined) {
@@ -586,8 +620,10 @@ export class RuntimeManager {
     }
 
     if (sessionPersistenceAttempted && session !== undefined) {
-      await this.markSpawnedSessionHistorical(session, reason);
+      return await this.markSpawnedSessionHistorical(session, reason);
     }
+
+    return undefined;
   }
 
   private async recordUnmanagedInterventionFailure(

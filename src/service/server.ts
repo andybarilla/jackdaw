@@ -7,9 +7,9 @@ import { registerSettingsRoutes } from "./api/routes/settings.js";
 import { createWorkspaceEventBus } from "./api/sse/event-bus.js";
 import { registerWorkspaceStreamRoutes } from "./api/sse/workspace-stream.js";
 import { ReconnectManager } from "./orchestration/reconnect-manager.js";
-import { RuntimeManager, type ShellExecutor, type WorkspacePathOpener } from "./orchestration/runtime-manager.js";
+import { RuntimeManager, type RuntimeSessionMutationListener, type ShellExecutor, type WorkspacePathOpener } from "./orchestration/runtime-manager.js";
 import { DefaultPiSessionAdapter, type PiSessionAdapter } from "./orchestration/session-adapter.js";
-import { WorkspaceService } from "./workspace/workspace-service.js";
+import { createSessionMutationEvents, WorkspaceService } from "./workspace/workspace-service.js";
 
 const DEV_ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
   "http://127.0.0.1:5173",
@@ -39,7 +39,10 @@ export interface ServiceServerOptions {
   skipReconnect?: boolean;
 }
 
-async function createWorkspaceServicePromise(options: ServiceServerOptions): Promise<WorkspaceService> {
+async function createWorkspaceServicePromise(
+  options: ServiceServerOptions,
+  onSessionMutation: RuntimeSessionMutationListener,
+): Promise<WorkspaceService> {
   const workspaceService = options.workspaceService ?? await WorkspaceService.load({ appDataDir: options.appDataDir });
   const runtimeManager = options.runtimeManager ?? new RuntimeManager({
     registry: workspaceService.getRuntimeRegistry(),
@@ -49,6 +52,7 @@ async function createWorkspaceServicePromise(options: ServiceServerOptions): Pro
     }),
     shellExecutor: options.shellExecutor,
     pathOpener: options.pathOpener,
+    onSessionMutation,
   });
   workspaceService.setRuntimeManager(runtimeManager);
   return workspaceService;
@@ -77,8 +81,13 @@ export function createServer(options: ServiceServerOptions): FastifyInstance {
     }
   });
 
-  const workspaceServicePromise = createWorkspaceServicePromise(options);
   const eventBus = createWorkspaceEventBus();
+  const publishRuntimeSessionMutation: RuntimeSessionMutationListener = ({ session, occurredAt }) => {
+    for (const { workspaceId, event } of createSessionMutationEvents(session, occurredAt)) {
+      eventBus.publish(workspaceId, event);
+    }
+  };
+  const workspaceServicePromise = createWorkspaceServicePromise(options, publishRuntimeSessionMutation);
   const version = options.version ?? "0.1.0";
 
   app.addHook("onReady", async () => {

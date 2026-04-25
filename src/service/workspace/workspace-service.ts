@@ -259,7 +259,7 @@ export class WorkspaceService {
 
       return {
         payload: createCommandResponse(spawnResult.result),
-        events: [],
+        events: spawnResult.session === undefined ? [] : createSessionMutationEvents(spawnResult.session, spawnResult.session.updatedAt),
       };
     }
 
@@ -547,7 +547,7 @@ function createCommandResponse(result: CommandResult): MutationResponseDto {
   return { result };
 }
 
-function createSessionMutationEvents(session: WorkspaceSession, occurredAt: string): WorkspaceMutationEvent[] {
+export function createSessionMutationEvents(session: WorkspaceSession, occurredAt: string): WorkspaceMutationEvent[] {
   return [
     { workspaceId: session.workspaceId, event: createWorkspaceUpdatedEvent(session.workspaceId, occurredAt) },
     { workspaceId: session.workspaceId, event: createStatusChangedEvent(session.workspaceId, session.id, session.status, occurredAt) },

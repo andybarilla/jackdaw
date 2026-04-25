@@ -81,6 +81,52 @@ describe("WorkspaceService session command failures", () => {
     });
   });
 
+  it("returns persisted failed-spawn events from runtime-managed cleanup", async () => {
+    const service = await createSeededWorkspaceService();
+    const failedSession: WorkspaceSession = {
+      ...requireSession(service, TEST_AWAITING_INPUT_SESSION_ID),
+      id: "ses-failed-spawn",
+      name: "Failed spawn",
+      status: "failed",
+      connectionState: "historical",
+      liveSummary: "Session startup failed: prompt rejected",
+      currentActivity: "Session startup failed: prompt rejected",
+      latestMeaningfulUpdate: "Session startup failed: prompt rejected",
+      updatedAt: "2026-04-25T10:03:00.000Z",
+    };
+    const runtimeManager = {
+      spawnSession: vi.fn(async () => ({
+        result: {
+          ok: false,
+          reason: "prompt rejected",
+        },
+        session: failedSession,
+      })),
+    } as unknown as RuntimeManager;
+    service.setRuntimeManager(runtimeManager);
+
+    const mutation = await service.createWorkspaceSession(TEST_WORKSPACE_ID, {
+      workspaceId: TEST_WORKSPACE_ID,
+      cwd: "/workspace/jackdaw/.worktrees/task-3",
+      repoRoot: "/workspace/jackdaw",
+      worktree: "/workspace/jackdaw/.worktrees/task-3",
+      task: "Start and fail visibly.",
+    });
+
+    expect(mutation?.payload.result.ok).toBe(false);
+    expect(mutation?.events.map((candidate: WorkspaceMutationEvent) => candidate.event.type)).toEqual([
+      "workspace.updated",
+      "session.status-changed",
+      "session.summary-updated",
+      "session.intervention-changed",
+      "session.recent-files-updated",
+    ]);
+    expect(mutation?.events.find((candidate: WorkspaceMutationEvent) => candidate.event.type === "session.status-changed")?.event.payload).toMatchObject({
+      sessionId: "ses-failed-spawn",
+      status: "failed",
+    });
+  });
+
   it("emits status and summary events from the fresh shell fallback rejection state", async () => {
     const service = await createSeededWorkspaceService();
     const registry = service.getRuntimeRegistry();

@@ -13,6 +13,13 @@ import {
   TEST_WORKSPACE_ID,
 } from "../../test-helpers.js";
 import type { WorkspaceDetailDto, WorkspaceStreamEventDto } from "../../../shared/transport/dto.js";
+import type {
+  ManagedPiSession,
+  PiSessionAdapter,
+  PiSessionEventListener,
+  ReconnectPiSessionOptions,
+  SpawnPiSessionOptions,
+} from "../../orchestration/session-adapter.js";
 
 interface SseEventMessage {
   id?: string;
@@ -23,10 +30,40 @@ interface SseEventMessage {
 let app: FastifyInstance | undefined;
 let appDataDir: string | undefined;
 
-async function createListeningServer(): Promise<{ app: FastifyInstance; baseUrl: string }> {
+class PromptFailingPiSessionAdapter implements PiSessionAdapter {
+  async spawnSession(options: SpawnPiSessionOptions): Promise<ManagedPiSession> {
+    return new PromptFailingManagedPiSession("ses-background-prompt-fail", `${options.cwd}/.pi/session.json`, options.modelId);
+  }
+
+  async reconnectSession(options: ReconnectPiSessionOptions): Promise<ManagedPiSession> {
+    return new PromptFailingManagedPiSession(options.sessionId, options.sessionFile, options.modelId);
+  }
+}
+
+class PromptFailingManagedPiSession implements ManagedPiSession {
+  constructor(
+    readonly sessionId: string,
+    readonly sessionFile: string,
+    readonly modelId: string | undefined,
+  ) {}
+
+  subscribe(_listener: PiSessionEventListener): () => void {
+    return (): void => undefined;
+  }
+
+  async prompt(_text: string): Promise<void> {
+    throw new Error("provider disconnected");
+  }
+
+  async steer(_text: string): Promise<void> {}
+  async followUp(_text: string): Promise<void> {}
+  async abort(): Promise<void> {}
+}
+
+async function createListeningServer(piSessionAdapter?: PiSessionAdapter): Promise<{ app: FastifyInstance; baseUrl: string }> {
   const seededState = await createSeededServiceState();
   appDataDir = seededState.appDataDir;
-  app = createServer({ appDataDir });
+  app = createServer({ appDataDir, piSessionAdapter });
   await app.listen({ host: "127.0.0.1", port: 0 });
   const address = app.server.address() as AddressInfo;
   return {
@@ -114,6 +151,10 @@ function connectToWorkspaceEvents(
     request.on("error", reject);
     request.end();
   });
+}
+
+function isFailedStatusChangedEvent(message: SseEventMessage): boolean {
+  return message.data?.type === "session.status-changed" && message.data.payload.status === "failed";
 }
 
 function parseSseMessage(sseMessage: string): SseEventMessage {
@@ -306,6 +347,47 @@ describe("workspace SSE stream", () => {
     }
   });
 
+  it("emits background session failure events from runtime-managed prompt rejection", async () => {
+    const { baseUrl } = await createListeningServer(new PromptFailingPiSessionAdapter());
+    const streamConnection = await connectToWorkspaceEvents(baseUrl, TEST_WORKSPACE_ID);
+    await streamConnection.nextEvent();
+
+    try {
+      const mutationResponse = await fetch(`${baseUrl}/workspaces/${TEST_WORKSPACE_ID}/sessions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          workspaceId: TEST_WORKSPACE_ID,
+          cwd: "/workspace/jackdaw/.worktrees/task-3",
+          repoRoot: "/workspace/jackdaw",
+          worktree: "/workspace/jackdaw/.worktrees/task-3",
+          task: "Fail visibly in the background.",
+        }),
+      });
+
+      expect(mutationResponse.status).toBe(202);
+
+      const observedEvents: SseEventMessage[] = [];
+      for (let index = 0; index < 8; index += 1) {
+        const event = await streamConnection.nextEvent();
+        observedEvents.push(event);
+        if (isFailedStatusChangedEvent(event)) {
+          break;
+        }
+      }
+
+      const failureEvent = observedEvents.find(isFailedStatusChangedEvent);
+      expect(failureEvent?.data?.payload).toMatchObject({
+        workspaceId: TEST_WORKSPACE_ID,
+        status: "failed",
+      });
+    } finally {
+      streamConnection.close();
+    }
+  });
+
   it("emits session events when a session changes", async () => {
     const { baseUrl } = await createListeningServer();
     const streamConnection = await connectToWorkspaceEvents(baseUrl, TEST_WORKSPACE_ID);
@@ -330,7 +412,7 @@ describe("workspace SSE stream", () => {
 
     expect(nextEvent.id).toBeDefined();
     expect(nextEvent.data?.version).toBe(1);
-    expect(["session.intervention-changed", "session.summary-updated"]).toContain(nextEvent.event);
+    expect(["workspace.updated", "session.intervention-changed", "session.summary-updated"]).toContain(nextEvent.event);
     expect(nextEvent.data?.payload.workspaceId).toBe(TEST_WORKSPACE_ID);
 
     streamConnection.close();

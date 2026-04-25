@@ -27,6 +27,7 @@ class FakeManagedSession implements ManagedPiSession {
   readonly followUp = vi.fn<(_: string) => Promise<void>>().mockResolvedValue(undefined);
   readonly abort = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
   readonly dispose = vi.fn<() => void>();
+  getHistoryEntries: (() => readonly []) | undefined;
   private listener: PiSessionEventListener | undefined;
 
   constructor(sessionId: string, sessionFile: string | undefined = `${sessionId}.json`, modelId: string | undefined = "sonnet") {
@@ -226,11 +227,14 @@ describe("RuntimeManager", () => {
     });
     const session = registry.getWorkspaceDetail("ws-1")?.sessions[0];
 
-    expect(result).toEqual({
-      result: {
-        ok: false,
-        reason: "workspace write failed",
-      },
+    expect(result.result).toEqual({
+      ok: false,
+      reason: "workspace write failed",
+    });
+    expect(result.session).toMatchObject({
+      id: "ses-persist-fail",
+      status: "failed",
+      connectionState: "historical",
     });
     expect(managedSession.dispose).toHaveBeenCalledOnce();
     expect(runtimeManager.listActiveSessionKeys()).toEqual([]);
@@ -307,7 +311,11 @@ describe("RuntimeManager", () => {
       ok: false,
       reason: "attention state unavailable",
     });
-    expect(result.session).toBeUndefined();
+    expect(result.session).toMatchObject({
+      id: "ses-setup-fail",
+      status: "failed",
+      connectionState: "historical",
+    });
     expect(managedSession.dispose).toHaveBeenCalledOnce();
     expect(runtimeManager.listActiveSessionKeys()).toEqual([]);
     expect(session).toMatchObject({
@@ -476,6 +484,73 @@ describe("RuntimeManager", () => {
       reconnectNote: expect.stringContaining("Could not reconnect after restart"),
     });
     expect(runtimeManager.listActiveSessionKeys()).toEqual([]);
+  });
+
+  it("keeps a reconnected controller live when history reconciliation fails", async () => {
+    const { registry, appDataDir } = await createRegistry();
+    const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
+    const persistedSession = createPersistedSession({
+      id: "ses-reconcile-fail",
+      workspaceId: "ws-1",
+      repoRoot: workspace.repoRoot.path,
+      worktree: workspace.worktree.path,
+      cwd: workspace.worktree.path,
+      sessionFile: "persisted-session.json",
+      connectionState: "historical",
+      status: "running",
+    });
+    await registry.upsertSession(persistedSession);
+    const managedSession = new FakeManagedSession("ses-reconcile-fail", "restored-session.json");
+    managedSession.getHistoryEntries = (): readonly [] => {
+      throw new Error("history temporarily unavailable");
+    };
+    const adapter = new FakeSessionAdapter();
+    adapter.reconnectResult = managedSession;
+    const runtimeManager = new RuntimeManager({ registry, adapter });
+
+    const result = await runtimeManager.reconnectSession(persistedSession);
+    const session = registry.getWorkspaceDetail("ws-1")?.sessions[0];
+
+    expect(result).toEqual({
+      workspaceId: "ws-1",
+      sessionId: "ses-reconcile-fail",
+      connectionState: "live",
+    });
+    expect(managedSession.dispose).not.toHaveBeenCalled();
+    expect(runtimeManager.listActiveSessionKeys()).toEqual(["ws-1::ses-reconcile-fail"]);
+    expect(session).toMatchObject({
+      id: "ses-reconcile-fail",
+      connectionState: "live",
+      reconnectNote: undefined,
+      sessionFile: "restored-session.json",
+    });
+  });
+
+  it("publishes runtime-managed failure mutations", async () => {
+    const { registry, appDataDir } = await createRegistry();
+    const workspace = await addWorkspace(registry, appDataDir, "ws-1", "repo-one");
+    const managedSession = new FakeManagedSession("ses-spawn-publish", "spawned-session.json");
+    managedSession.prompt.mockRejectedValueOnce(new Error("prompt transport closed"));
+    const adapter = new FakeSessionAdapter([managedSession]);
+    const onSessionMutation = vi.fn();
+    const runtimeManager = new RuntimeManager({ registry, adapter, onSessionMutation });
+
+    const result = await runtimeManager.spawnSession({
+      workspaceId: "ws-1",
+      cwd: workspace.worktree.path,
+      repoRoot: workspace.repoRoot.path,
+      worktree: workspace.worktree.path,
+      task: "Fail after spawn",
+    });
+    await waitForCondition(() => onSessionMutation.mock.calls.length > 0, "expected runtime mutation publication");
+
+    const publishedSession = onSessionMutation.mock.calls.at(-1)?.[0].session as WorkspaceSession | undefined;
+    expect(result.result.ok).toBe(true);
+    expect(publishedSession).toMatchObject({
+      status: "failed",
+      connectionState: "live",
+      liveSummary: "Prompt failed: prompt transport closed",
+    });
   });
 
   it("disposes reconnected pi sessions when persisting the live state fails", async () => {

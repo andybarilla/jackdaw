@@ -29,6 +29,7 @@ export interface SessionControllerOptions {
   now?: () => Date;
   recentFileLimit?: number;
   onRuntimeActivity?: (session: WorkspaceSession, activity: NormalizedSessionActivity) => void;
+  onSessionMutation?: (session: WorkspaceSession, occurredAt: string) => void;
 }
 
 export class SessionController {
@@ -39,6 +40,7 @@ export class SessionController {
   private readonly now: () => Date;
   private readonly recentFileLimit: number;
   private readonly onRuntimeActivity: ((session: WorkspaceSession, activity: NormalizedSessionActivity) => void) | undefined;
+  private readonly onSessionMutation: ((session: WorkspaceSession, occurredAt: string) => void) | undefined;
   private readonly activities: NormalizedSessionActivity[] = [];
   private promptPromise: Promise<void> | undefined;
   private mutationQueue: Promise<void> = Promise.resolve();
@@ -53,6 +55,7 @@ export class SessionController {
     this.now = options.now ?? (() => new Date());
     this.recentFileLimit = options.recentFileLimit ?? 10;
     this.onRuntimeActivity = options.onRuntimeActivity;
+    this.onSessionMutation = options.onSessionMutation;
     this.attachManagedSession(options.managedSession);
   }
 
@@ -91,7 +94,7 @@ export class SessionController {
           currentActivity: summary,
           currentTool: undefined,
           updatedAt: occurredAt,
-        });
+        }, true);
       });
     });
   }
@@ -157,7 +160,7 @@ export class SessionController {
           await this.applyPatchNow({
             recentFiles,
             updatedAt: this.nowIso(),
-          });
+          }, true);
         }
         return;
       }
@@ -168,7 +171,7 @@ export class SessionController {
           await this.applyPatchNow({
             recentFiles,
             updatedAt: this.nowIso(),
-          });
+          }, true);
         }
         return;
       }
@@ -177,7 +180,7 @@ export class SessionController {
         lastIntervention: markInterventionObserved(lastIntervention, observedAt),
         recentFiles,
         updatedAt: observedAt,
-      });
+      }, true);
     });
   }
 
@@ -265,7 +268,7 @@ export class SessionController {
       lastIntervention: observedIntervention,
       recentFiles,
       updatedAt: occurredAt,
-    });
+    }, true);
 
     if (normalized.activity !== undefined) {
       this.activities.push(normalized.activity);
@@ -378,6 +381,7 @@ export class SessionController {
 
   private async applyPatchNow(
     patch: NormalizedSessionPatch & Partial<WorkspaceSession>,
+    shouldPublish: boolean,
   ): Promise<void> {
     const nextSession: WorkspaceSession = {
       ...this.session,
@@ -385,6 +389,9 @@ export class SessionController {
     };
     await this.repository.upsertSession(nextSession);
     this.session = structuredClone(nextSession);
+    if (shouldPublish) {
+      this.onSessionMutation?.(this.currentSession, nextSession.updatedAt);
+    }
   }
 
   private async updateSession(patch: Partial<WorkspaceSession>): Promise<void> {
@@ -393,7 +400,7 @@ export class SessionController {
         return;
       }
 
-      await this.applyPatchNow(patch);
+      await this.applyPatchNow(patch, true);
     });
   }
 
@@ -409,7 +416,7 @@ export class SessionController {
         }
 
         await this.refreshSessionNow();
-        await this.applyPatchNow(patch);
+        await this.applyPatchNow(patch, false);
       });
       return undefined;
     } catch (error: unknown) {
