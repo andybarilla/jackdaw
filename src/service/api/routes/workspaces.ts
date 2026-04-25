@@ -80,14 +80,21 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, options: Wor
         body: createWorkspaceBodySchema,
       },
     },
-    async (request, reply): Promise<WorkspaceDetailDto> => {
-      const workspaceService = await options.workspaceService;
-      const createdWorkspace = await workspaceService.createWorkspace(request.body);
-      for (const { workspaceId, event } of createdWorkspace.events) {
-        options.eventBus.publish(workspaceId, event);
-      }
+    async (request, reply): Promise<WorkspaceDetailDto | { error: string }> => {
+      try {
+        const workspaceService = await options.workspaceService;
+        const createdWorkspace = await workspaceService.createWorkspace(request.body);
+        for (const { workspaceId, event } of createdWorkspace.events) {
+          options.eventBus.publish(workspaceId, event);
+        }
 
-      return reply.code(201).send(createdWorkspace.payload);
+        return reply.code(201).send(createdWorkspace.payload);
+      } catch (error: unknown) {
+        if (error instanceof WorkspaceMutationValidationError) {
+          return reply.code(400).send({ error: error.message });
+        }
+        throw error;
+      }
     },
   );
 
@@ -148,17 +155,24 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, options: Wor
       },
     },
     async (request, reply) => {
-      const workspaceService = await options.workspaceService;
-      const updatedWorkspace = await workspaceService.addWorkspaceRepo(request.params.workspaceId, request.body);
-      if (updatedWorkspace === undefined) {
-        return reply.code(404).send({ error: "Workspace not found" });
-      }
+      try {
+        const workspaceService = await options.workspaceService;
+        const updatedWorkspace = await workspaceService.addWorkspaceRepo(request.params.workspaceId, request.body);
+        if (updatedWorkspace === undefined) {
+          return reply.code(404).send({ error: "Workspace not found" });
+        }
 
-      for (const { workspaceId, event } of updatedWorkspace.events) {
-        options.eventBus.publish(workspaceId, event);
-      }
+        for (const { workspaceId, event } of updatedWorkspace.events) {
+          options.eventBus.publish(workspaceId, event);
+        }
 
-      return updatedWorkspace.payload;
+        return updatedWorkspace.payload;
+      } catch (error: unknown) {
+        if (error instanceof WorkspaceMutationValidationError) {
+          return reply.code(400).send({ error: error.message });
+        }
+        throw error;
+      }
     },
   );
 }

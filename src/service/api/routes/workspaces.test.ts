@@ -1,3 +1,5 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createServer } from "../../server.js";
@@ -101,6 +103,57 @@ describe("workspace routes", () => {
     const summaries = listResponse.json<WorkspaceSummaryDto[]>();
 
     expect(summaries.some((summary) => summary.id === createdWorkspace.workspace.id)).toBe(true);
+  });
+
+  it("does not reuse a corrupt discovered workspace directory id", async () => {
+    const serviceState = await createEmptyServiceState();
+    appDataDir = serviceState.appDataDir;
+    const staleWorkspaceJsonPath = path.join(appDataDir, "workspaces", "ws-1", "workspace.json");
+    await mkdir(path.dirname(staleWorkspaceJsonPath), { recursive: true });
+    await writeFile(staleWorkspaceJsonPath, "{not-json", "utf8");
+
+    app = createServer({ appDataDir });
+    await app.ready();
+    const server = app;
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/workspaces",
+      payload: {
+        name: "Workspace after corrupt state",
+      },
+    });
+
+    expect(createResponse.statusCode).toBe(201);
+    expect(createResponse.json<WorkspaceDetailDto>().workspace.id).toBe("ws-2");
+    await expect(readFile(staleWorkspaceJsonPath, "utf8")).resolves.toBe("{not-json");
+  });
+
+  it("rejects duplicate repo root paths when creating or updating workspaces", async () => {
+    const server = await createTestServer();
+
+    const createResponse = await server.inject({
+      method: "POST",
+      url: "/workspaces",
+      payload: {
+        name: "Duplicate repo workspace",
+        repoRoots: ["/workspace/dupe", "/workspace/dupe/"],
+      },
+    });
+
+    expect(createResponse.statusCode).toBe(400);
+    expect(createResponse.json<{ error: string }>().error).toContain("repo root path must be unique");
+
+    const addRepoResponse = await server.inject({
+      method: "POST",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/repos`,
+      payload: {
+        path: "/workspace/jackdaw/",
+      },
+    });
+
+    expect(addRepoResponse.statusCode).toBe(400);
+    expect(addRepoResponse.json<{ error: string }>().error).toContain("repo root path must be unique");
   });
 
   it("rejects invalid workspace payloads at runtime", async () => {

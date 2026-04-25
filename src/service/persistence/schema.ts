@@ -379,9 +379,15 @@ function assertWorkspaceLinks(
   sessions: readonly WorkspaceSession[],
   artifacts: readonly WorkspaceArtifact[],
 ): void {
+  assertUniqueRepoRootPaths(workspace.repoRoots);
+
   const repoRootIds = new Set<string>(workspace.repoRoots.map((repoRoot) => repoRoot.id));
-  const repoRootByPath = new Map<string, WorkspaceRepoRoot>(workspace.repoRoots.map((repoRoot) => [repoRoot.path, repoRoot]));
-  const worktreeByPath = new Map<string, WorkspaceWorktree>(workspace.worktrees.map((worktree) => [worktree.path, worktree]));
+  const repoRootByPath = new Map<string, WorkspaceRepoRoot>(
+    workspace.repoRoots.map((repoRoot) => [normalizePathForComparison(repoRoot.path), repoRoot]),
+  );
+  const worktreeByPath = new Map<string, WorkspaceWorktree>(
+    workspace.worktrees.map((worktree) => [normalizePathForComparison(worktree.path), worktree]),
+  );
   const sessionIds = new Set<string>(sessions.map((session) => session.id));
   const artifactIds = new Set<string>(artifacts.map((artifact) => artifact.id));
 
@@ -414,18 +420,19 @@ function assertWorkspaceLinks(
     if (!workspace.sessionIds.includes(session.id)) {
       throw new TypeError(`Persisted workspace state session ${session.id} is not linked from workspace.sessionIds`);
     }
-    if (!repoRootByPath.has(session.repoRoot)) {
+    const sessionRepoRoot = repoRootByPath.get(normalizePathForComparison(session.repoRoot));
+    if (sessionRepoRoot === undefined) {
       throw new TypeError(`Persisted workspace state session ${session.id} references unregistered repo root ${session.repoRoot}`);
     }
 
     if (session.worktree !== undefined) {
-      const worktree = worktreeByPath.get(session.worktree);
+      const worktree = worktreeByPath.get(normalizePathForComparison(session.worktree));
       if (worktree === undefined) {
         throw new TypeError(`Persisted workspace state session ${session.id} references unregistered worktree ${session.worktree}`);
       }
 
       const worktreeRepoRoot = workspace.repoRoots.find((repoRoot) => repoRoot.id === worktree.repoRootId);
-      if (worktreeRepoRoot?.path !== session.repoRoot) {
+      if (worktreeRepoRoot === undefined || normalizePathForComparison(worktreeRepoRoot.path) !== normalizePathForComparison(sessionRepoRoot.path)) {
         throw new TypeError(
           `Persisted workspace state session ${session.id} worktree ${session.worktree} does not belong to repo root ${session.repoRoot}`,
         );
@@ -458,8 +465,24 @@ function assertWorkspaceLinks(
   }
 }
 
+function assertUniqueRepoRootPaths(repoRoots: readonly WorkspaceRepoRoot[]): void {
+  const seenPaths = new Set<string>();
+
+  for (const repoRoot of repoRoots) {
+    const normalizedPath = normalizePathForComparison(repoRoot.path);
+    if (seenPaths.has(normalizedPath)) {
+      throw new TypeError(`Persisted workspace state repo root path must be unique: ${repoRoot.path}`);
+    }
+    seenPaths.add(normalizedPath);
+  }
+}
+
+function normalizePathForComparison(filePath: string): string {
+  return path.resolve(filePath);
+}
+
 function isPathInsideWorkspace(parentPath: string, childPath: string): boolean {
-  const relativePath = path.relative(parentPath, childPath);
+  const relativePath = path.relative(normalizePathForComparison(parentPath), normalizePathForComparison(childPath));
   return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
 }
 

@@ -63,7 +63,7 @@ export class WorkspaceService {
 
   private constructor(private readonly registry: WorkspaceRegistry) {
     const workspaces = this.registry.listWorkspaces();
-    this.workspaceCounter = getHighestPrefixedCounter(workspaces.map((workspace) => workspace.id), "ws-");
+    this.workspaceCounter = getHighestPrefixedCounter(this.registry.listReservedWorkspaceIds(), "ws-");
     this.repoCounter = getHighestPrefixedCounter(
       workspaces.flatMap((workspace) => workspace.repoRoots.map((repoRoot) => repoRoot.id)),
       "repo-",
@@ -121,6 +121,7 @@ export class WorkspaceService {
   }
 
   async createWorkspace(input: CreateWorkspaceDto): Promise<WorkspaceMutationResult<WorkspaceDetailDto>> {
+    assertUniqueNewRepoRootPaths([], input.repoRoots ?? []);
     this.workspaceCounter += 1;
     const createdAt = new Date().toISOString();
     const workspaceId = `ws-${this.workspaceCounter}`;
@@ -185,6 +186,12 @@ export class WorkspaceService {
     workspaceId: string,
     input: AddWorkspaceRepoDto,
   ): Promise<WorkspaceMutationResult<WorkspaceDetailDto> | undefined> {
+    const currentDetail = this.registry.getWorkspaceDetail(workspaceId);
+    if (currentDetail === undefined) {
+      return undefined;
+    }
+
+    assertUniqueNewRepoRootPaths(currentDetail.workspace.repoRoots, [input.path]);
     const repoRoot = this.createRepoRoot(input.path, input.name, input.defaultBranch);
     const detail = await this.registry.addRepoRoot(workspaceId, repoRoot);
     if (detail === undefined) {
@@ -216,7 +223,7 @@ export class WorkspaceService {
       return undefined;
     }
 
-    validateCreateSessionInput(detail, input);
+    const resolvedSessionLocation = validateCreateSessionInput(detail, input);
 
     this.sessionCounter += 1;
     const acceptedAt = new Date().toISOString();
@@ -225,8 +232,8 @@ export class WorkspaceService {
       id: sessionId,
       workspaceId,
       name: input.name ?? input.task,
-      repoRoot: input.repoRoot ?? input.cwd,
-      worktree: input.worktree,
+      repoRoot: resolvedSessionLocation.repoRoot.path,
+      worktree: resolvedSessionLocation.worktree?.path,
       cwd: input.cwd,
       branch: input.branch,
       runtime: {
@@ -568,6 +575,18 @@ function createAcceptedResponse(acceptedAt: string): MutationResponseDto {
   };
 }
 
+function assertUniqueNewRepoRootPaths(existingRepoRoots: readonly WorkspaceRepoRoot[], newRepoPaths: readonly string[]): void {
+  const seenPaths = new Set<string>(existingRepoRoots.map((repoRoot) => normalizePathForComparison(repoRoot.path)));
+
+  for (const repoPath of newRepoPaths) {
+    const normalizedRepoPath = normalizePathForComparison(repoPath);
+    if (seenPaths.has(normalizedRepoPath)) {
+      throw new WorkspaceMutationValidationError(`repo root path must be unique: ${repoPath}`);
+    }
+    seenPaths.add(normalizedRepoPath);
+  }
+}
+
 function validateWorkspacePreferences(
   workspace: Workspace,
   preferences: UpdateWorkspaceDto["preferences"] | undefined,
@@ -585,33 +604,33 @@ function validateWorkspacePreferences(
   }
 }
 
-function validateCreateSessionInput(detail: WorkspaceDetailRecord, input: CreateSessionDto): void {
-  const repoRootPath = input.repoRoot ?? input.cwd;
-  const repoRoot = detail.workspace.repoRoots.find((candidate) => candidate.path === repoRootPath);
-  if (repoRoot === undefined) {
+interface ResolvedSessionLocation {
+  repoRoot: WorkspaceRepoRoot;
+  worktree?: Workspace["worktrees"][number];
+}
+
+function validateCreateSessionInput(detail: WorkspaceDetailRecord, input: CreateSessionDto): ResolvedSessionLocation {
+  const requestedWorktreePath = input.worktree;
+  const worktree = requestedWorktreePath === undefined
+    ? undefined
+    : detail.workspace.worktrees.find((candidate) => pathsMatch(candidate.path, requestedWorktreePath));
+
+  if (input.worktree !== undefined && worktree === undefined) {
     throw new WorkspaceMutationValidationError(
-      `repoRoot must reference a registered repo root in workspace ${detail.workspace.id}: ${repoRootPath}`,
+      `worktree must reference a registered worktree in workspace ${detail.workspace.id}: ${input.worktree}`,
     );
   }
 
-  const cwdBasePath = input.worktree ?? repoRoot.path;
+  const repoRoot = resolveRepoRoot(detail, input, worktree);
+  const cwdBasePath = worktree?.path ?? repoRoot.path;
   if (!isPathInsideWorkspace(cwdBasePath, input.cwd)) {
     throw new WorkspaceMutationValidationError(`cwd must stay within ${cwdBasePath}: ${input.cwd}`);
   }
 
-  if (input.worktree !== undefined) {
-    const worktree = detail.workspace.worktrees.find((candidate) => candidate.path === input.worktree);
-    if (worktree === undefined) {
-      throw new WorkspaceMutationValidationError(
-        `worktree must reference a registered worktree in workspace ${detail.workspace.id}: ${input.worktree}`,
-      );
-    }
-
-    if (worktree.repoRootId !== repoRoot.id) {
-      throw new WorkspaceMutationValidationError(
-        `worktree ${input.worktree} must belong to repo root ${repoRoot.path}`,
-      );
-    }
+  if (worktree !== undefined && worktree.repoRootId !== repoRoot.id) {
+    throw new WorkspaceMutationValidationError(
+      `worktree ${input.worktree} must belong to repo root ${repoRoot.path}`,
+    );
   }
 
   const workspaceArtifactIds = new Set(detail.workspace.artifactIds);
@@ -622,10 +641,55 @@ function validateCreateSessionInput(detail: WorkspaceDetailRecord, input: Create
       );
     }
   }
+
+  return { repoRoot, worktree };
+}
+
+function resolveRepoRoot(
+  detail: WorkspaceDetailRecord,
+  input: CreateSessionDto,
+  worktree: Workspace["worktrees"][number] | undefined,
+): WorkspaceRepoRoot {
+  const requestedRepoRootPath = input.repoRoot;
+  if (requestedRepoRootPath !== undefined) {
+    const explicitRepoRoot = detail.workspace.repoRoots.find((candidate) => pathsMatch(candidate.path, requestedRepoRootPath));
+    if (explicitRepoRoot === undefined) {
+      throw new WorkspaceMutationValidationError(
+        `repoRoot must reference a registered repo root in workspace ${detail.workspace.id}: ${input.repoRoot}`,
+      );
+    }
+    return explicitRepoRoot;
+  }
+
+  if (worktree !== undefined) {
+    const worktreeRepoRoot = detail.workspace.repoRoots.find((candidate) => candidate.id === worktree.repoRootId);
+    if (worktreeRepoRoot !== undefined) {
+      return worktreeRepoRoot;
+    }
+  }
+
+  const containingRepoRoots = detail.workspace.repoRoots.filter((candidate) => isPathInsideWorkspace(candidate.path, input.cwd));
+  containingRepoRoots.sort((left, right) => normalizePathForComparison(right.path).length - normalizePathForComparison(left.path).length);
+  const inferredRepoRoot = containingRepoRoots[0];
+  if (inferredRepoRoot === undefined) {
+    throw new WorkspaceMutationValidationError(
+      `repoRoot must reference a registered repo root in workspace ${detail.workspace.id}: ${input.cwd}`,
+    );
+  }
+
+  return inferredRepoRoot;
+}
+
+function pathsMatch(leftPath: string, rightPath: string): boolean {
+  return normalizePathForComparison(leftPath) === normalizePathForComparison(rightPath);
+}
+
+function normalizePathForComparison(filePath: string): string {
+  return path.resolve(filePath);
 }
 
 function isPathInsideWorkspace(parentPath: string, childPath: string): boolean {
-  const relativePath = path.relative(parentPath, childPath);
+  const relativePath = path.relative(normalizePathForComparison(parentPath), normalizePathForComparison(childPath));
   return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
 }
 

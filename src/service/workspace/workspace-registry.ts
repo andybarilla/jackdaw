@@ -58,10 +58,12 @@ export class WorkspaceRegistry {
     private readonly workspaceStoreFactory: (workspaceId: string) => WorkspaceStore,
     appState: PersistedAppState,
     workspaceDetails: Iterable<WorkspaceDetailRecord>,
+    private readonly reservedWorkspaceIds: Set<string>,
   ) {
     this.appState = appState;
     for (const workspaceDetail of workspaceDetails) {
       this.workspaces.set(workspaceDetail.workspace.id, workspaceDetail);
+      this.reservedWorkspaceIds.add(workspaceDetail.workspace.id);
     }
   }
 
@@ -110,7 +112,11 @@ export class WorkspaceRegistry {
       }
     }
 
-    return new WorkspaceRegistry(appStore, workspaceStoreFactory, recoveredAppState, workspaceDetails);
+    return new WorkspaceRegistry(appStore, workspaceStoreFactory, recoveredAppState, workspaceDetails, new Set(orderedWorkspaceIds));
+  }
+
+  listReservedWorkspaceIds(): string[] {
+    return [...this.reservedWorkspaceIds].sort();
   }
 
   listWorkspaces(): Workspace[] {
@@ -126,11 +132,15 @@ export class WorkspaceRegistry {
   }
 
   async createWorkspace(input: CreateWorkspaceRecordInput): Promise<WorkspaceDetailRecord> {
+    if (this.reservedWorkspaceIds.has(input.id) && !this.workspaces.has(input.id)) {
+      throw new Error(`Workspace id is reserved by an unrecovered workspace directory: ${input.id}`);
+    }
+
     let workspace = createWorkspace({
       id: input.id,
       name: input.name,
       description: input.description,
-      repoRoots: input.repoRoots ?? [],
+      repoRoots: [],
       worktrees: [],
       sessionIds: [],
       artifactIds: [],
@@ -138,6 +148,10 @@ export class WorkspaceRegistry {
       createdAt: input.createdAt,
       updatedAt: input.updatedAt,
     });
+
+    for (const repoRoot of input.repoRoots ?? []) {
+      workspace = this.repoRegistry.addRepoRoot(workspace, repoRoot);
+    }
 
     for (const worktree of input.worktrees ?? []) {
       workspace = this.repoRegistry.addWorktree(workspace, worktree);
@@ -315,6 +329,7 @@ export class WorkspaceRegistry {
     await this.appStore.save(nextAppState);
 
     this.workspaces.set(workspaceDetail.workspace.id, cloneWorkspaceDetailRecord(workspaceDetail));
+    this.reservedWorkspaceIds.add(workspaceDetail.workspace.id);
     this.appState = nextAppState;
   }
 }

@@ -1,7 +1,15 @@
+import path from "node:path";
 import type { WorkspaceRepoRoot, WorkspaceWorktree, Workspace } from "../../shared/domain/workspace.js";
 
 export class RepoRegistry {
   addRepoRoot(workspace: Workspace, repoRoot: WorkspaceRepoRoot): Workspace {
+    const duplicateRepoRoot = workspace.repoRoots.find((candidate) =>
+      candidate.id !== repoRoot.id && normalizePathForComparison(candidate.path) === normalizePathForComparison(repoRoot.path),
+    );
+    if (duplicateRepoRoot !== undefined) {
+      throw new Error(`Cannot register duplicate repo root path: ${repoRoot.path}`);
+    }
+
     return {
       ...workspace,
       repoRoots: upsertById(workspace.repoRoots, repoRoot),
@@ -26,6 +34,10 @@ export class RepoRegistry {
       worktrees: workspace.worktrees.filter((worktree) => worktree.repoRootId !== repoRootId),
     };
   }
+}
+
+function normalizePathForComparison(filePath: string): string {
+  return path.resolve(filePath);
 }
 
 function upsertById<T extends { id: string }>(items: readonly T[], nextItem: T): T[] {

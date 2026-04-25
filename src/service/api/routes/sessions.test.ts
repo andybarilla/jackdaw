@@ -71,6 +71,33 @@ describe("session routes", () => {
     expect(createdSession?.status).toBe("running");
   });
 
+  it("infers repoRoot from a registered worktree and normalizes equivalent paths", async () => {
+    const server = await createTestServer();
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
+      payload: {
+        workspaceId: TEST_WORKSPACE_ID,
+        cwd: "/workspace/jackdaw/.worktrees/task-3/",
+        task: "Infer the repo root",
+        worktree: "/workspace/jackdaw/.worktrees/task-3/",
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+
+    const sessionsResponse = await server.inject({
+      method: "GET",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
+    });
+    const sessionsBody = sessionsResponse.json<SessionsListDto>();
+    const createdSession = sessionsBody.sessions.find((session) => session.name === "Infer the repo root");
+
+    expect(createdSession?.repoRoot).toBe("/workspace/jackdaw");
+    expect(createdSession?.worktree).toBe("/workspace/jackdaw/.worktrees/task-3");
+  });
+
   it("rejects session creation when repo, worktree, or artifact links are invalid", async () => {
     const server = await createTestServer();
 

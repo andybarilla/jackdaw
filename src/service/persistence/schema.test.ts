@@ -232,6 +232,39 @@ describe("service persistence schema", () => {
     ).toThrow(/missing-artifact/i);
   });
 
+  it("rejects workspace state with duplicate normalized repo root paths", () => {
+    expect(() =>
+      parsePersistedWorkspaceState({
+        ...persistedWorkspaceState,
+        workspace: {
+          ...persistedWorkspaceState.workspace,
+          repoRoots: [
+            ...persistedWorkspaceState.workspace.repoRoots,
+            {
+              id: "repo-2",
+              path: "/repos/jackdaw/",
+              name: "jackdaw-copy",
+            },
+          ],
+        },
+      }),
+    ).toThrow(/unique|\/repos\/jackdaw/i);
+  });
+
+  it("accepts equivalent normalized paths for persisted session references", () => {
+    expect(parsePersistedWorkspaceState({
+      ...persistedWorkspaceState,
+      sessions: [
+        {
+          ...persistedWorkspaceState.sessions[0],
+          repoRoot: "/repos/jackdaw/",
+          worktree: "/repos/jackdaw/.worktrees/task-3/",
+          cwd: "/repos/jackdaw/.worktrees/task-3/",
+        },
+      ],
+    }).sessions[0]?.repoRoot).toBe("/repos/jackdaw/");
+  });
+
   it("rejects workspace state when a session repo root is not registered", () => {
     expect(() =>
       parsePersistedWorkspaceState({
