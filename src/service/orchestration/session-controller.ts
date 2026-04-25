@@ -403,7 +403,14 @@ export class SessionController {
     }
 
     try {
-      await this.updateSession(patch);
+      await this.enqueueMutation(async (): Promise<void> => {
+        if (this.disposed) {
+          return;
+        }
+
+        await this.refreshSessionNow();
+        await this.applyPatchNow(patch);
+      });
       return undefined;
     } catch (error: unknown) {
       return rejectedCommand(`Failed to persist session state: ${errorMessage(error)}`);

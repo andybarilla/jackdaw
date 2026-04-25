@@ -1,3 +1,4 @@
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createServer } from "./server.js";
@@ -5,9 +6,44 @@ import {
   createEmptyServiceState,
   createSeededServiceState,
   removeSeededServiceState,
+  TEST_RUNNING_SESSION_ID,
   TEST_WORKSPACE_ID,
 } from "./test-helpers.js";
 import type { SessionsListDto, WorkspaceDetailDto, WorkspaceSummaryDto } from "../shared/transport/dto.js";
+import type { ManagedPiSession, PiSessionAdapter, PiSessionEventListener, ReconnectPiSessionOptions, SpawnPiSessionOptions } from "./orchestration/session-adapter.js";
+import { AppStore } from "./persistence/app-store.js";
+import { WorkspaceStore } from "./persistence/workspace-store.js";
+import { WorkspaceRegistry } from "./workspace/workspace-registry.js";
+
+class ReconnectableFakePiSessionAdapter implements PiSessionAdapter {
+  reconnectCount: number = 0;
+
+  async spawnSession(options: SpawnPiSessionOptions): Promise<ManagedPiSession> {
+    return new ReconnectableFakeManagedPiSession("pi-spawned", `${options.cwd}/.pi/session.json`, options.modelId);
+  }
+
+  async reconnectSession(options: ReconnectPiSessionOptions): Promise<ManagedPiSession> {
+    this.reconnectCount += 1;
+    return new ReconnectableFakeManagedPiSession(options.sessionId, options.sessionFile, options.modelId);
+  }
+}
+
+class ReconnectableFakeManagedPiSession implements ManagedPiSession {
+  constructor(
+    readonly sessionId: string,
+    readonly sessionFile: string,
+    readonly modelId: string | undefined,
+  ) {}
+
+  subscribe(_listener: PiSessionEventListener): () => void {
+    return (): void => undefined;
+  }
+
+  async prompt(): Promise<void> {}
+  async steer(): Promise<void> {}
+  async followUp(): Promise<void> {}
+  async abort(): Promise<void> {}
+}
 
 let app: FastifyInstance | undefined;
 let appDataDir: string | undefined;
@@ -104,6 +140,36 @@ describe("service server", () => {
       name: "Persisted workspace",
       description: "Stored under the resolved app-data directory.",
     });
+  });
+
+  it("reattaches persisted pi sessions during service startup", async () => {
+    const serviceState = await createSeededServiceState();
+    appDataDir = serviceState.appDataDir;
+    const registry = await WorkspaceRegistry.load({
+      appStore: new AppStore(path.join(appDataDir, "app-state.json")),
+      workspaceStoreFactory: (workspaceId: string) => new WorkspaceStore(path.join(appDataDir as string, "workspaces", workspaceId, "workspace.json")),
+      workspacesDirectoryPath: path.join(appDataDir, "workspaces"),
+    });
+    await registry.updateSession(TEST_WORKSPACE_ID, TEST_RUNNING_SESSION_ID, (session) => ({
+      ...session,
+      connectionState: "historical",
+      sessionFile: "/tmp/pi-session.json",
+      reconnectNote: "restart pending",
+    }));
+    const adapter = new ReconnectableFakePiSessionAdapter();
+
+    app = createServer({ appDataDir, piSessionAdapter: adapter });
+    await app.ready();
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
+    });
+    const session = response.json<SessionsListDto>().sessions.find((candidate) => candidate.id === TEST_RUNNING_SESSION_ID);
+
+    expect(adapter.reconnectCount).toBe(1);
+    expect(session?.connectionState).toBe("live");
+    expect(session?.reconnectNote).toBeUndefined();
   });
 
   it("returns the same attention-ordered sessions from the sessions route", async () => {

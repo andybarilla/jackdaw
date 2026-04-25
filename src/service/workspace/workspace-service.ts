@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import path from "node:path";
 import {
   attentionBandForStatus,
@@ -33,6 +32,8 @@ import { summarizeWorkspace } from "../../shared/transport/dto.js";
 import { AppStore } from "../persistence/app-store.js";
 import { assertSafeWorkspaceId } from "../persistence/paths.js";
 import { WorkspaceStore } from "../persistence/workspace-store.js";
+import type { CommandResult } from "../../shared/domain/commands.js";
+import type { RuntimeManager } from "../orchestration/runtime-manager.js";
 import { WorkspaceRegistry, type WorkspaceDetailRecord } from "./workspace-registry.js";
 import {
   canonicalizeWorkspacePath,
@@ -65,6 +66,7 @@ export class WorkspaceMutationValidationError extends Error {
 
 export class WorkspaceService {
   private readonly recentAttentionByWorkspace = new Map<string, AttentionEvent[]>();
+  private runtimeManager: RuntimeManager | undefined;
   private workspaceCounter: number;
   private repoCounter: number;
   private attentionCounter: number = 0;
@@ -116,6 +118,14 @@ export class WorkspaceService {
     }
 
     return this.toWorkspaceDetailDto(detail);
+  }
+
+  getRuntimeRegistry(): WorkspaceRegistry {
+    return this.registry;
+  }
+
+  setRuntimeManager(runtimeManager: RuntimeManager): void {
+    this.runtimeManager = runtimeManager;
   }
 
   async getWorkspaceSessions(workspaceId: string): Promise<SessionsListDto | undefined> {
@@ -240,57 +250,41 @@ export class WorkspaceService {
       return undefined;
     }
 
-    const canonicalInput = await canonicalizeCreateSessionInput(input);
-    const resolvedSessionLocation = validateCreateSessionInput(detail, canonicalInput);
+    const runtimeManager = this.requireRuntimeManager();
+    const spawnResult = await runtimeManager.spawnSession(input);
+    if (!spawnResult.result.ok) {
+      if (isCreateSessionValidationReason(spawnResult.result.reason)) {
+        throw new WorkspaceMutationValidationError(spawnResult.result.reason);
+      }
 
-    const acceptedAt = new Date().toISOString();
-    const sessionId = createSessionId();
-    const session: WorkspaceSession = {
-      id: sessionId,
-      workspaceId,
-      name: canonicalInput.name ?? canonicalInput.task,
-      repoRoot: resolvedSessionLocation.repoRoot.path,
-      worktree: resolvedSessionLocation.worktree?.path,
-      cwd: canonicalInput.cwd,
-      branch: canonicalInput.branch,
-      runtime: {
-        agent: canonicalInput.agent ?? "implementer",
-        model: canonicalInput.model ?? "sonnet",
-        runtime: "pi",
-      },
-      status: "running",
-      liveSummary: `Created session for: ${canonicalInput.task}`,
-      latestMeaningfulUpdate: `Accepted session request for ${canonicalInput.task}.`,
-      currentActivity: "Queued in local workspace service.",
-      recentFiles: [],
-      linkedResources: {
-        artifactIds: structuredClone(canonicalInput.linkedArtifactIds ?? []),
-        workItemIds: structuredClone(canonicalInput.linkedWorkItemIds ?? []),
-        reviewIds: [],
-      },
-      connectionState: "live",
-      startedAt: acceptedAt,
-      updatedAt: acceptedAt,
-    };
+      return {
+        payload: createCommandResponse(spawnResult.result),
+        events: [],
+      };
+    }
 
-    await this.registry.upsertSession(session);
-    this.appendAttentionEvent(session, acceptedAt, "Session created", `Accepted session request for ${canonicalInput.task}.`, "operator");
+    const session = spawnResult.session ?? this.findNewestWorkspaceSession(workspaceId);
+    if (session === undefined) {
+      throw new Error("Runtime accepted session creation without persisted session metadata.");
+    }
+
+    this.appendAttentionEvent(session, spawnResult.result.acceptedAt, "Session created", `Accepted session request for ${input.task}.`, "operator");
 
     const events: WorkspaceMutationEvent[] = [
-      { workspaceId, event: createWorkspaceUpdatedEvent(workspaceId, acceptedAt) },
-      { workspaceId, event: createStatusChangedEvent(workspaceId, sessionId, session.status, acceptedAt) },
-      { workspaceId, event: createSummaryUpdatedEvent(session, acceptedAt) },
+      { workspaceId, event: createWorkspaceUpdatedEvent(workspaceId, spawnResult.result.acceptedAt) },
+      { workspaceId, event: createStatusChangedEvent(workspaceId, session.id, session.status, spawnResult.result.acceptedAt) },
+      { workspaceId, event: createSummaryUpdatedEvent(session, spawnResult.result.acceptedAt) },
     ];
 
     for (const artifactId of session.linkedResources.artifactIds) {
       events.push({
         workspaceId,
-        event: createArtifactLinkedEvent(workspaceId, artifactId, acceptedAt, sessionId),
+        event: createArtifactLinkedEvent(workspaceId, artifactId, spawnResult.result.acceptedAt, session.id),
       });
     }
 
     return {
-      payload: createAcceptedResponse(acceptedAt),
+      payload: createCommandResponse(spawnResult.result),
       events,
     };
   }
@@ -304,31 +298,15 @@ export class WorkspaceService {
       return undefined;
     }
 
-    const acceptedAt = new Date().toISOString();
-    const session: WorkspaceSession = {
-      ...existingSession,
-      lastIntervention: {
-        kind: "steer",
-        status: "accepted-locally",
-        text: input.text,
-        requestedAt: acceptedAt,
-      },
-      status: "running",
-      liveSummary: input.text,
-      updatedAt: acceptedAt,
-    };
+    const result = await this.requireRuntimeManager().steerSession(input);
+    if (!result.ok) {
+      return this.createCommandMutation(existingSession, result, input.text, "Steer request rejected");
+    }
 
-    await this.registry.upsertSession(session);
-    this.appendAttentionEvent(session, acceptedAt, "Steer request accepted", input.text, "operator");
+    const session = this.findSession(sessionId) ?? existingSession;
+    this.appendAttentionEvent(session, result.acceptedAt, "Steer request accepted", input.text, "operator");
 
-    return {
-      payload: createAcceptedResponse(acceptedAt),
-      events: [
-        { workspaceId: session.workspaceId, event: createInterventionChangedEvent(session, acceptedAt) },
-        { workspaceId: session.workspaceId, event: createStatusChangedEvent(session.workspaceId, session.id, session.status, acceptedAt) },
-        { workspaceId: session.workspaceId, event: createSummaryUpdatedEvent(session, acceptedAt) },
-      ],
-    };
+    return this.createCommandMutation(session, result, input.text, "Steer request accepted");
   }
 
   async followUpSession(
@@ -340,29 +318,15 @@ export class WorkspaceService {
       return undefined;
     }
 
-    const acceptedAt = new Date().toISOString();
-    const session: WorkspaceSession = {
-      ...existingSession,
-      lastIntervention: {
-        kind: "follow-up",
-        status: "pending-observation",
-        text: input.text,
-        requestedAt: acceptedAt,
-      },
-      latestMeaningfulUpdate: input.text,
-      updatedAt: acceptedAt,
-    };
+    const result = await this.requireRuntimeManager().followUpSession(input);
+    if (!result.ok) {
+      return this.createCommandMutation(existingSession, result, input.text, "Follow-up rejected");
+    }
 
-    await this.registry.upsertSession(session);
-    this.appendAttentionEvent(session, acceptedAt, "Follow-up requested", input.text, "operator");
+    const session = this.findSession(sessionId) ?? existingSession;
+    this.appendAttentionEvent(session, result.acceptedAt, "Follow-up requested", input.text, "operator");
 
-    return {
-      payload: createAcceptedResponse(acceptedAt),
-      events: [
-        { workspaceId: session.workspaceId, event: createInterventionChangedEvent(session, acceptedAt) },
-        { workspaceId: session.workspaceId, event: createSummaryUpdatedEvent(session, acceptedAt) },
-      ],
-    };
+    return this.createCommandMutation(session, result, input.text, "Follow-up requested");
   }
 
   async abortSession(sessionId: string): Promise<WorkspaceMutationResult<MutationResponseDto> | undefined> {
@@ -371,30 +335,15 @@ export class WorkspaceService {
       return undefined;
     }
 
-    const acceptedAt = new Date().toISOString();
-    const session: WorkspaceSession = {
-      ...existingSession,
-      lastIntervention: {
-        kind: "abort",
-        status: "accepted-locally",
-        text: "Abort requested by operator.",
-        requestedAt: acceptedAt,
-      },
-      status: "failed",
-      latestMeaningfulUpdate: "Abort requested by operator.",
-      updatedAt: acceptedAt,
-    };
+    const result = await this.requireRuntimeManager().abortSession({ sessionId });
+    if (!result.ok) {
+      return this.createCommandMutation(existingSession, result, result.reason, "Abort rejected");
+    }
 
-    await this.registry.upsertSession(session);
-    this.appendAttentionEvent(session, acceptedAt, "Abort requested", "Abort requested by operator.", "operator");
+    const session = this.findSession(sessionId) ?? existingSession;
+    this.appendAttentionEvent(session, result.acceptedAt, "Abort requested", "Abort requested by operator.", "operator");
 
-    return {
-      payload: createAcceptedResponse(acceptedAt),
-      events: [
-        { workspaceId: session.workspaceId, event: createInterventionChangedEvent(session, acceptedAt) },
-        { workspaceId: session.workspaceId, event: createStatusChangedEvent(session.workspaceId, session.id, session.status, acceptedAt) },
-      ],
-    };
+    return this.createCommandMutation(session, result, "Abort requested by operator.", "Abort requested");
   }
 
   async pinSessionSummary(
@@ -406,30 +355,22 @@ export class WorkspaceService {
       return undefined;
     }
 
-    const acceptedAt = new Date().toISOString();
-    const session: WorkspaceSession = {
-      ...existingSession,
-      pinnedSummary: input.summary,
-      updatedAt: acceptedAt,
-    };
+    const result = await this.requireRuntimeManager().pinSessionSummary(input);
+    if (!result.ok) {
+      return this.createCommandMutation(existingSession, result, result.reason, "Pinned summary rejected");
+    }
 
-    await this.registry.upsertSession(session);
+    const session = this.findSession(sessionId) ?? existingSession;
     this.appendAttentionEvent(
       session,
-      acceptedAt,
+      result.acceptedAt,
       "Pinned summary updated",
       input.summary ?? "Cleared the pinned summary.",
       "operator",
       false,
     );
 
-    return {
-      payload: createAcceptedResponse(acceptedAt),
-      events: [{
-        workspaceId: session.workspaceId,
-        event: createSummaryUpdatedEvent(session, acceptedAt),
-      }],
-    };
+    return this.createCommandMutation(session, result, input.summary ?? "Cleared the pinned summary.", "Pinned summary updated");
   }
 
   async openSessionPath(
@@ -441,27 +382,15 @@ export class WorkspaceService {
       return undefined;
     }
 
-    const acceptedAt = new Date().toISOString();
-    const session: WorkspaceSession = {
-      ...existingSession,
-      recentFiles: [{
-        path: input.path,
-        operation: "edited" as const,
-        timestamp: acceptedAt,
-      }, ...existingSession.recentFiles].slice(0, 10),
-      updatedAt: acceptedAt,
-    };
+    const result = await this.requireRuntimeManager().openSessionPath(sessionId, input);
+    if (!result.ok) {
+      return this.createCommandMutation(existingSession, result, result.reason, "Recent file open rejected");
+    }
 
-    await this.registry.upsertSession(session);
-    this.appendAttentionEvent(session, acceptedAt, "Recent file opened", input.path, "system", false);
+    const session = this.findSession(sessionId) ?? existingSession;
+    this.appendAttentionEvent(session, result.acceptedAt, "Recent file opened", input.path, "system", false);
 
-    return {
-      payload: createAcceptedResponse(acceptedAt),
-      events: [{
-        workspaceId: session.workspaceId,
-        event: createRecentFilesUpdatedEvent(session, acceptedAt),
-      }],
-    };
+    return this.createCommandMutation(session, result, input.path, "Recent file opened");
   }
 
   async runSessionShell(
@@ -473,23 +402,45 @@ export class WorkspaceService {
       return undefined;
     }
 
-    const acceptedAt = new Date().toISOString();
-    const session: WorkspaceSession = {
-      ...existingSession,
-      currentActivity: `Shell fallback requested: ${command}`,
-      liveSummary: `Shell fallback queued: ${command}`,
-      updatedAt: acceptedAt,
-    };
+    const result = await this.requireRuntimeManager().runShellFallback(sessionId, command);
+    if (!result.ok) {
+      return this.createCommandMutation(existingSession, result, result.reason, "Shell fallback rejected");
+    }
 
-    await this.registry.upsertSession(session);
-    this.appendAttentionEvent(session, acceptedAt, "Shell fallback requested", command, "operator");
+    const session = this.findSession(sessionId) ?? existingSession;
+    this.appendAttentionEvent(session, result.acceptedAt, "Shell fallback requested", command, "operator");
+
+    return this.createCommandMutation(session, result, command, "Shell fallback requested");
+  }
+
+  requireRuntimeManager(): RuntimeManager {
+    if (this.runtimeManager === undefined) {
+      throw new Error("WorkspaceService requires RuntimeManager for session commands.");
+    }
+
+    return this.runtimeManager;
+  }
+
+  private findNewestWorkspaceSession(workspaceId: string): WorkspaceSession | undefined {
+    const detail = this.registry.getWorkspaceDetail(workspaceId);
+    return [...(detail?.sessions ?? [])]
+      .sort((left: WorkspaceSession, right: WorkspaceSession) => right.updatedAt.localeCompare(left.updatedAt))[0];
+  }
+
+  private createCommandMutation(
+    session: WorkspaceSession,
+    result: CommandResult,
+    detail: string,
+    title: string,
+  ): WorkspaceMutationResult<MutationResponseDto> {
+    const occurredAt = result.ok ? result.acceptedAt : new Date().toISOString();
+    if (!result.ok) {
+      this.appendAttentionEvent(session, occurredAt, title, detail, "operator");
+    }
 
     return {
-      payload: createAcceptedResponse(acceptedAt),
-      events: [{
-        workspaceId: session.workspaceId,
-        event: createSummaryUpdatedEvent(session, acceptedAt),
-      }],
+      payload: createCommandResponse(result),
+      events: createSessionMutationEvents(session, occurredAt),
     };
   }
 
@@ -498,7 +449,10 @@ export class WorkspaceService {
       workspace: structuredClone(detail.workspace),
       sessions: this.sortSessions(detail.workspace, detail.sessions),
       artifacts: structuredClone(detail.artifacts),
-      recentAttention: structuredClone(this.recentAttentionByWorkspace.get(detail.workspace.id) ?? []),
+      recentAttention: [
+        ...structuredClone(this.runtimeManager?.listRecentAttention(detail.workspace.id) ?? []),
+        ...structuredClone(this.recentAttentionByWorkspace.get(detail.workspace.id) ?? []),
+      ].slice(0, 25),
     };
   }
 
@@ -583,17 +537,27 @@ export class WorkspaceService {
   }
 }
 
-function createSessionId(): string {
-  return `ses-${randomUUID()}`;
+function createCommandResponse(result: CommandResult): MutationResponseDto {
+  return { result };
 }
 
-function createAcceptedResponse(acceptedAt: string): MutationResponseDto {
-  return {
-    result: {
-      ok: true,
-      acceptedAt,
-    },
-  };
+function createSessionMutationEvents(session: WorkspaceSession, occurredAt: string): WorkspaceMutationEvent[] {
+  return [
+    { workspaceId: session.workspaceId, event: createWorkspaceUpdatedEvent(session.workspaceId, occurredAt) },
+    { workspaceId: session.workspaceId, event: createStatusChangedEvent(session.workspaceId, session.id, session.status, occurredAt) },
+    { workspaceId: session.workspaceId, event: createSummaryUpdatedEvent(session, occurredAt) },
+    { workspaceId: session.workspaceId, event: createInterventionChangedEvent(session, occurredAt) },
+    { workspaceId: session.workspaceId, event: createRecentFilesUpdatedEvent(session, occurredAt) },
+  ];
+}
+
+function isCreateSessionValidationReason(reason: string): boolean {
+  return reason.includes("absolute path")
+    || reason.includes("repoRoot")
+    || reason.includes("worktree")
+    || reason.includes("linkedArtifactIds")
+    || reason.includes("cwd must stay")
+    || reason.includes("Workspace not found");
 }
 
 async function canonicalizeCreateSessionInput(input: CreateSessionDto): Promise<CreateSessionDto> {

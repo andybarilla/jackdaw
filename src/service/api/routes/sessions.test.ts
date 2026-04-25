@@ -12,6 +12,59 @@ import type {
   SessionsListDto,
   WorkspaceDetailDto,
 } from "../../../shared/transport/dto.js";
+import type { PiSessionEventListener, ManagedPiSession, PiSessionAdapter, ReconnectPiSessionOptions, SpawnPiSessionOptions } from "../../orchestration/session-adapter.js";
+
+class FakePiSessionAdapter implements PiSessionAdapter {
+  private nextId: number = 0;
+
+  async spawnSession(options: SpawnPiSessionOptions): Promise<ManagedPiSession> {
+    this.nextId += 1;
+    return new FakeManagedPiSession(`pi-session-${this.nextId}`, `${options.cwd}/.pi/session-${this.nextId}.json`, options.modelId);
+  }
+
+  async reconnectSession(options: ReconnectPiSessionOptions): Promise<ManagedPiSession> {
+    return new FakeManagedPiSession(options.sessionId, options.sessionFile, options.modelId);
+  }
+}
+
+class FakeManagedPiSession implements ManagedPiSession {
+  private readonly listeners = new Set<PiSessionEventListener>();
+
+  constructor(
+    readonly sessionId: string,
+    readonly sessionFile: string,
+    readonly modelId: string | undefined,
+  ) {}
+
+  subscribe(listener: PiSessionEventListener): () => void {
+    this.listeners.add(listener);
+    return (): void => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  async prompt(text: string): Promise<void> {
+    await this.emit({ type: "message", message: `Prompt received: ${text}` });
+  }
+
+  async steer(text: string): Promise<void> {
+    await this.emit({ type: "message", message: `Steer received: ${text}` });
+  }
+
+  async followUp(text: string): Promise<void> {
+    await this.emit({ type: "message", message: `Follow-up received: ${text}` });
+  }
+
+  async abort(): Promise<void> {
+    await this.emit({ type: "message", message: "Abort received" });
+  }
+
+  private async emit(event: unknown): Promise<void> {
+    for (const listener of this.listeners) {
+      await listener(event);
+    }
+  }
+}
 
 let app: FastifyInstance | undefined;
 let appDataDir: string | undefined;
@@ -19,7 +72,21 @@ let appDataDir: string | undefined;
 async function createTestServer(): Promise<FastifyInstance> {
   const seededState = await createSeededServiceState();
   appDataDir = seededState.appDataDir;
-  app = createServer({ appDataDir });
+  app = createServer({
+    appDataDir,
+    piSessionAdapter: new FakePiSessionAdapter(),
+    pathOpener: {
+      async openPath(): Promise<void> {},
+      async openExternalTerminal(): Promise<void> {},
+    },
+    shellExecutor: async (command: string, cwd: string) => ({
+      command,
+      cwd,
+      exitCode: 0,
+      output: "ok",
+      timedOut: false,
+    }),
+  });
   await app.ready();
   return app;
 }
@@ -68,7 +135,7 @@ describe("session routes", () => {
     const createdSession = sessionsBody.sessions.find((session) => session.name === "API route build");
 
     expect(createdSession).toBeDefined();
-    expect(createdSession?.id).toMatch(/^ses-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(createdSession?.id).toMatch(/^pi-session-/);
     expect(createdSession?.status).toBe("running");
   });
 
@@ -197,7 +264,24 @@ describe("session routes", () => {
 
   it("records steer, follow-up, abort, pin-summary, open-path, and shell actions and appends attention history", async () => {
     const server = await createTestServer();
-    const sessionId = TEST_AWAITING_INPUT_SESSION_ID;
+    const createResponse = await server.inject({
+      method: "POST",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
+      payload: {
+        workspaceId: TEST_WORKSPACE_ID,
+        cwd: "/workspace/jackdaw",
+        task: "Create a live pi-backed session for controls",
+        repoRoot: "/workspace/jackdaw",
+      },
+    });
+    const createdSession = (await server.inject({
+      method: "GET",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/sessions`,
+    })).json<SessionsListDto>().sessions.find((session) => session.name === "Create a live pi-backed session for controls");
+    const sessionId = createdSession?.id as string;
+
+    expect(createResponse.statusCode).toBe(202);
+    expect(sessionId).toMatch(/^pi-session-/);
 
     const steerResponse = await server.inject({
       method: "POST",
@@ -270,10 +354,10 @@ describe("session routes", () => {
     const sessionsBody = sessionsResponse.json<SessionsListDto>();
     const updatedSession = sessionsBody.sessions.find((session) => session.id === sessionId);
 
-    expect(updatedSession?.status).toBe("failed");
+    expect(updatedSession?.status).toBe("idle");
     expect(updatedSession?.pinnedSummary).toBe("Pinned operator summary from the route test.");
     expect(updatedSession?.lastIntervention?.kind).toBe("abort");
-    expect(updatedSession?.recentFiles.some((file) => file.path === "src/service/server.ts")).toBe(true);
+    expect(updatedSession?.recentFiles.some((file) => file.path === "/workspace/jackdaw/src/service/server.ts")).toBe(true);
 
     const workspaceResponse = await server.inject({
       method: "GET",

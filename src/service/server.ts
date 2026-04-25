@@ -6,6 +6,9 @@ import { registerArtifactRoutes } from "./api/routes/artifacts.js";
 import { registerSettingsRoutes } from "./api/routes/settings.js";
 import { createWorkspaceEventBus } from "./api/sse/event-bus.js";
 import { registerWorkspaceStreamRoutes } from "./api/sse/workspace-stream.js";
+import { ReconnectManager } from "./orchestration/reconnect-manager.js";
+import { RuntimeManager, type ShellExecutor, type WorkspacePathOpener } from "./orchestration/runtime-manager.js";
+import { DefaultPiSessionAdapter, type PiSessionAdapter } from "./orchestration/session-adapter.js";
 import { WorkspaceService } from "./workspace/workspace-service.js";
 
 const DEV_ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
@@ -29,6 +32,26 @@ export interface ServiceServerOptions {
   appDataDir: string;
   version?: string;
   workspaceService?: WorkspaceService;
+  piSessionAdapter?: PiSessionAdapter;
+  runtimeManager?: RuntimeManager;
+  shellExecutor?: ShellExecutor;
+  pathOpener?: WorkspacePathOpener;
+  skipReconnect?: boolean;
+}
+
+async function createWorkspaceServicePromise(options: ServiceServerOptions): Promise<WorkspaceService> {
+  const workspaceService = options.workspaceService ?? await WorkspaceService.load({ appDataDir: options.appDataDir });
+  const runtimeManager = options.runtimeManager ?? new RuntimeManager({
+    registry: workspaceService.getRuntimeRegistry(),
+    adapter: options.piSessionAdapter ?? new DefaultPiSessionAdapter({
+      sessionDirectory: `${options.appDataDir}/pi-sessions`,
+      agentDir: process.env.PI_AGENT_DIR,
+    }),
+    shellExecutor: options.shellExecutor,
+    pathOpener: options.pathOpener,
+  });
+  workspaceService.setRuntimeManager(runtimeManager);
+  return workspaceService;
 }
 
 export function createServer(options: ServiceServerOptions): FastifyInstance {
@@ -54,14 +77,17 @@ export function createServer(options: ServiceServerOptions): FastifyInstance {
     }
   });
 
-  const workspaceServicePromise = options.workspaceService === undefined
-    ? WorkspaceService.load({ appDataDir: options.appDataDir })
-    : Promise.resolve(options.workspaceService);
+  const workspaceServicePromise = createWorkspaceServicePromise(options);
   const eventBus = createWorkspaceEventBus();
   const version = options.version ?? "0.1.0";
 
   app.addHook("onReady", async () => {
-    await workspaceServicePromise;
+    const workspaceService = await workspaceServicePromise;
+    if (options.skipReconnect === true) {
+      return;
+    }
+
+    await new ReconnectManager(workspaceService.requireRuntimeManager()).reconnectAll();
   });
 
   void app.register(registerHealthRoutes, {
