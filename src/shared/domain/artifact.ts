@@ -16,6 +16,7 @@ export interface WorkspaceArtifact {
   kind: ArtifactKind;
   title: string;
   filePath?: string;
+  repoRootId?: string;
   sourceSessionId?: string;
   linkedSessionIds: string[];
   linkedWorkItemIds: string[];

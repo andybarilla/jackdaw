@@ -47,13 +47,30 @@ function isSkippableFileError(error: unknown): boolean {
   return code === "ENOENT" || code === "EACCES" || code === "EPERM";
 }
 
-function findExistingArtifact(existingArtifacts: WorkspaceArtifact[], workspaceId: string, relativePath: string, kind: ArtifactKind): WorkspaceArtifact | undefined {
+function findExistingArtifact(
+  existingArtifacts: WorkspaceArtifact[],
+  workspaceId: string,
+  repoRootId: string,
+  relativePath: string,
+  kind: ArtifactKind,
+  isSingleRepoRoot: boolean,
+): WorkspaceArtifact | undefined {
   const normalizedRelativePath = normalizeForId(relativePath);
 
-  return existingArtifacts.find((artifact) => artifact.workspaceId === workspaceId
-    && artifact.filePath !== undefined
-    && normalizeForId(artifact.filePath) === normalizedRelativePath
-    && artifact.kind === kind);
+  return existingArtifacts.find((artifact) => {
+    if (artifact.workspaceId !== workspaceId
+      || artifact.filePath === undefined
+      || normalizeForId(artifact.filePath) !== normalizedRelativePath
+      || artifact.kind !== kind) {
+      return false;
+    }
+
+    if (artifact.repoRootId !== undefined) {
+      return artifact.repoRootId === repoRootId;
+    }
+
+    return isSingleRepoRoot;
+  });
 }
 
 function getArtifactKind(relativePath: string): ArtifactKind | undefined {
@@ -93,8 +110,7 @@ async function walkFiles(directory: string): Promise<string[]> {
   try {
     entries = await fs.readdir(directory, { withFileTypes: true });
   } catch (error: unknown) {
-    const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
-    if (code === "ENOENT") {
+    if (isSkippableFileError(error)) {
       return [];
     }
     throw error;
@@ -166,7 +182,14 @@ export async function indexWorkspaceArtifacts(input: ArtifactIndexInput): Promis
         throw error;
       }
 
-      const existingArtifact = findExistingArtifact(existingArtifacts, input.workspace.id, relativePath, kind);
+      const existingArtifact = findExistingArtifact(
+        existingArtifacts,
+        input.workspace.id,
+        repoRoot.id,
+        relativePath,
+        kind,
+        input.workspace.repoRoots.length === 1,
+      );
       const discoveredLinkedSessionIds = sessions
         .filter((session) => matchesSessionFile(session, repoRoot, absolutePath, relativePath))
         .map((session) => session.id);
@@ -182,8 +205,8 @@ export async function indexWorkspaceArtifacts(input: ArtifactIndexInput): Promis
         kind,
         title: existingArtifact?.title ?? titleFromContent(content, absolutePath),
         filePath: normalizeForId(relativePath),
-        absolutePath,
         repoRootId: repoRoot.id,
+        absolutePath,
         sourceSessionId: existingArtifact?.sourceSessionId,
         linkedSessionIds,
         linkedWorkItemIds: existingArtifact?.linkedWorkItemIds ?? [],

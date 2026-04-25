@@ -3,7 +3,7 @@ import type { WorkspaceDetailDto } from "../../shared/transport/dto.js";
 import { indexWorkspaceArtifacts, type IndexedWorkspaceArtifact } from "./artifact-index.js";
 
 function withoutLocalArtifactFields(artifact: IndexedWorkspaceArtifact): WorkspaceArtifact {
-  const { absolutePath: _absolutePath, repoRootId: _repoRootId, ...workspaceArtifact } = artifact;
+  const { absolutePath: _absolutePath, ...workspaceArtifact } = artifact;
   return workspaceArtifact;
 }
 
@@ -14,7 +14,7 @@ export async function mergeIndexedArtifacts(detail: WorkspaceDetailDto): Promise
   return {
     ...detail,
     artifacts: [
-      ...detail.artifacts.filter((artifact) => !indexedArtifactIds.has(artifact.id)),
+      ...detail.artifacts.filter((artifact) => artifact.filePath === undefined && !indexedArtifactIds.has(artifact.id)),
       ...indexedArtifacts.map(withoutLocalArtifactFields),
     ],
   };

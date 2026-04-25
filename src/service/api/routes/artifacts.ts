@@ -9,7 +9,7 @@ export interface ArtifactRoutesOptions {
 }
 
 function withoutLocalFields(artifact: IndexedWorkspaceArtifact): WorkspaceArtifact {
-  const { absolutePath: _absolutePath, repoRootId: _repoRootId, ...workspaceArtifact } = artifact;
+  const { absolutePath: _absolutePath, ...workspaceArtifact } = artifact;
   return workspaceArtifact;
 }
 

@@ -22,10 +22,14 @@ afterEach(async () => {
 });
 
 function createWorkspace(repoPath: string): Workspace {
+  return createWorkspaceWithRepoRoots([{ id: "repo-test", path: repoPath, name: "repo" }]);
+}
+
+function createWorkspaceWithRepoRoots(repoRoots: Workspace["repoRoots"]): Workspace {
   return {
     id: "ws-test",
     name: "Test Workspace",
-    repoRoots: [{ id: "repo-test", path: repoPath, name: "repo" }],
+    repoRoots,
     worktrees: [],
     sessionIds: ["session-plan"],
     artifactIds: [],
@@ -118,6 +122,88 @@ describe("indexWorkspaceArtifacts", () => {
       linkedWorkItemIds: ["task-seeded"],
       createdAt: "2026-04-24T09:00:00.000Z",
     }));
+  });
+
+  it("keeps seeded artifact identities separate across repo roots with duplicate docs paths", async () => {
+    const firstRepoPath = await createTempRepo();
+    const secondRepoPath = await createTempRepo();
+    const duplicateRelativePath = "docs/superpowers/plans/2026-04-24-shared-plan.md";
+    await mkdir(path.dirname(path.join(firstRepoPath, duplicateRelativePath)), { recursive: true });
+    await mkdir(path.dirname(path.join(secondRepoPath, duplicateRelativePath)), { recursive: true });
+    await writeFile(path.join(firstRepoPath, duplicateRelativePath), "# First repo plan\n", { encoding: "utf8" });
+    await writeFile(path.join(secondRepoPath, duplicateRelativePath), "# Second repo plan\n", { encoding: "utf8" });
+
+    const artifacts = await indexWorkspaceArtifacts({
+      workspace: createWorkspaceWithRepoRoots([
+        { id: "repo-first", path: firstRepoPath, name: "first" },
+        { id: "repo-second", path: secondRepoPath, name: "second" },
+      ]),
+      sessions: [],
+      existingArtifacts: [
+        {
+          id: "artifact-seeded-second",
+          workspaceId: "ws-test",
+          kind: "plan",
+          title: "Seeded second",
+          filePath: duplicateRelativePath,
+          repoRootId: "repo-second",
+          linkedSessionIds: [],
+          linkedWorkItemIds: [],
+          createdAt: "2026-04-24T09:00:00.000Z",
+          updatedAt: "2026-04-24T09:00:00.000Z",
+        },
+        {
+          id: "artifact-seeded-first",
+          workspaceId: "ws-test",
+          kind: "plan",
+          title: "Seeded first",
+          filePath: duplicateRelativePath,
+          repoRootId: "repo-first",
+          linkedSessionIds: [],
+          linkedWorkItemIds: [],
+          createdAt: "2026-04-24T09:00:00.000Z",
+          updatedAt: "2026-04-24T09:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(artifacts).toHaveLength(2);
+    expect(artifacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "artifact-seeded-first", repoRootId: "repo-first", title: "Seeded first" }),
+      expect.objectContaining({ id: "artifact-seeded-second", repoRootId: "repo-second", title: "Seeded second" }),
+    ]));
+  });
+
+  it("skips unreadable subdirectories during traversal", async () => {
+    const repoPath = await createTempRepo();
+    const readablePlanPath = path.join(repoPath, "docs/superpowers/plans/readable.md");
+    const unreadableDirectory = path.join(repoPath, "docs/superpowers/plans/unreadable");
+    await mkdir(path.dirname(readablePlanPath), { recursive: true });
+    await mkdir(unreadableDirectory, { recursive: true });
+    await writeFile(readablePlanPath, "# Readable plan\n", { encoding: "utf8" });
+
+    vi.resetModules();
+    vi.doMock("node:fs/promises", async (importOriginal): Promise<typeof import("node:fs/promises")> => {
+      const actual = await importOriginal<typeof import("node:fs/promises")>();
+      return {
+        ...actual,
+        readdir: (async (...args: Parameters<typeof actual.readdir>): ReturnType<typeof actual.readdir> => {
+          const [directory] = args;
+          if (directory === unreadableDirectory) {
+            const error = new Error("permission denied") as NodeJS.ErrnoException;
+            error.code = "EACCES";
+            throw error;
+          }
+
+          return actual.readdir(...args);
+        }) as typeof actual.readdir,
+      };
+    });
+
+    const { indexWorkspaceArtifacts: indexWorkspaceArtifactsWithUnreadableDirectory } = await import("./artifact-index.js");
+
+    await expect(indexWorkspaceArtifactsWithUnreadableDirectory({ workspace: createWorkspace(repoPath), sessions: [] }))
+      .resolves.toEqual([expect.objectContaining({ title: "Readable plan" })]);
   });
 
   it("skips a file that disappears after discovery", async () => {
