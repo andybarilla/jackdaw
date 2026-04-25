@@ -128,7 +128,6 @@ export class RuntimeManager {
         cwd: canonicalInput.cwd,
         task: canonicalInput.task,
         modelId: canonicalInput.model,
-        agentName: canonicalInput.agent,
       });
       const session = createWorkspaceSessionFromManagedSession({
         command: canonicalInput,
@@ -403,7 +402,6 @@ export class RuntimeManager {
         cwd: session.cwd,
         sessionFile: session.sessionFile,
         modelId: session.runtime.model,
-        agentName: session.runtime.agent,
       });
       const liveSession: WorkspaceSession = {
         ...session,
@@ -789,10 +787,10 @@ function createBoundedShellExecutor(defaultOptions: ShellExecutorOptions = {}): 
 function createDefaultPathOpener(): WorkspacePathOpener {
   return {
     async openPath(targetPath: string): Promise<void> {
-      spawnDetached(getOpenCommand(targetPath));
+      await spawnDetached(getOpenCommand(targetPath));
     },
     async openExternalTerminal(cwd: string): Promise<void> {
-      spawnDetached(getTerminalCommand(cwd));
+      await spawnDetached(getTerminalCommand(cwd));
     },
   };
 }
@@ -803,14 +801,44 @@ interface SpawnCommand {
   cwd?: string;
 }
 
-function spawnDetached(command: SpawnCommand): void {
-  const child = spawn(command.command, command.args, {
-    cwd: command.cwd,
-    detached: true,
-    stdio: "ignore",
-    shell: false,
+function spawnDetached(command: SpawnCommand): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const settleRejected = (error: Error): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(error);
+    };
+    const settleSpawned = (child: ReturnType<typeof spawn>): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      try {
+        child.unref();
+        resolve();
+      } catch (error: unknown) {
+        reject(error);
+      }
+    };
+
+    try {
+      const child = spawn(command.command, command.args, {
+        cwd: command.cwd,
+        detached: true,
+        stdio: "ignore",
+        shell: false,
+      });
+      child.once("error", settleRejected);
+      child.once("spawn", (): void => settleSpawned(child));
+    } catch (error: unknown) {
+      reject(error);
+    }
   });
-  child.unref();
 }
 
 function getOpenCommand(targetPath: string): SpawnCommand {

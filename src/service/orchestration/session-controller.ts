@@ -41,6 +41,9 @@ export class SessionController {
   private readonly onRuntimeActivity: ((session: WorkspaceSession, activity: NormalizedSessionActivity) => void) | undefined;
   private readonly activities: NormalizedSessionActivity[] = [];
   private promptPromise: Promise<void> | undefined;
+  private mutationQueue: Promise<void> = Promise.resolve();
+  private managedSessionGeneration = 0;
+  private disposed = false;
 
   constructor(options: SessionControllerOptions) {
     this.session = structuredClone(options.session);
@@ -69,18 +72,26 @@ export class SessionController {
   }
 
   beginInitialPrompt(task: string): void {
-    this.promptPromise = this.managedSession.prompt(task).catch(async (error: unknown): Promise<void> => {
+    const generation = this.managedSessionGeneration;
+    const managedSession = this.managedSession;
+    this.promptPromise = managedSession.prompt(task).catch(async (error: unknown): Promise<void> => {
       const message = errorMessage(error);
       const occurredAt = this.nowIso();
       const summary = isAbortLikeError(message) ? "Prompt aborted" : `Prompt failed: ${message}`;
-      await this.updateSession({
-        status: isAbortLikeError(message) ? "idle" : "failed",
-        liveSummary: summary,
-        latestMeaningfulUpdate: summary,
-        currentActivity: summary,
-        currentTool: undefined,
-        updatedAt: occurredAt,
-      });
+      await this.enqueueMutation(async (): Promise<void> => {
+        if (!this.shouldAcceptGeneration(generation)) {
+          return;
+        }
+
+        await this.applyPatchNow({
+          status: isAbortLikeError(message) ? "idle" : "failed",
+          liveSummary: summary,
+          latestMeaningfulUpdate: summary,
+          currentActivity: summary,
+          currentTool: undefined,
+          updatedAt: occurredAt,
+        });
+      }).catch((): void => undefined);
     });
   }
 
@@ -89,40 +100,7 @@ export class SessionController {
   }
 
   async handleSessionEvent(event: unknown): Promise<void> {
-    const occurredAt = this.nowIso();
-    const normalized = normalizeAgentSessionEvent({
-      workspaceId: this.session.workspaceId,
-      sessionId: this.session.id,
-      occurredAt,
-    }, event);
-
-    if (normalized.activity !== undefined) {
-      this.activities.push(normalized.activity);
-      this.activities.splice(0, Math.max(0, this.activities.length - 50));
-    }
-
-    if (normalized.patch === undefined && normalized.recentFiles === undefined && normalized.activity === undefined) {
-      return;
-    }
-
-    const patch = preserveStableStatus(normalized.patch ?? {}, this.session.status);
-    const recentFiles = normalized.recentFiles === undefined
-      ? this.session.recentFiles
-      : mergeRecentFiles(this.session.recentFiles, normalized.recentFiles, this.recentFileLimit);
-    const observedIntervention = normalized.activity === undefined
-      ? this.session.lastIntervention
-      : this.observePendingIntervention(this.session.lastIntervention, normalized.activity);
-
-    await this.applyPatch({
-      ...patch,
-      lastIntervention: observedIntervention,
-      recentFiles,
-      updatedAt: occurredAt,
-    });
-
-    if (normalized.activity !== undefined) {
-      this.onRuntimeActivity?.(this.currentSession, normalized.activity);
-    }
+    await this.handleSessionEventForGeneration(event, this.managedSessionGeneration);
   }
 
   async steer(text: string): Promise<CommandResult> {
@@ -157,39 +135,45 @@ export class SessionController {
   }
 
   async reconcilePendingInterventionFromHistory(): Promise<void> {
-    const historyEntries = this.managedSession.getHistoryEntries?.() ?? [];
-    const session = await this.refreshSession();
-    const lastIntervention = session.lastIntervention;
-    const historyRecentFiles = extractRecentFilesFromHistory(historyEntries, this.recentFileLimit);
-    const recentFiles = historyRecentFiles.length === 0
-      ? session.recentFiles
-      : mergeRecentFiles(session.recentFiles, historyRecentFiles, this.recentFileLimit);
-
-    if (lastIntervention?.status !== "pending-observation") {
-      if (historyRecentFiles.length > 0) {
-        await this.applyPatch({
-          recentFiles,
-          updatedAt: this.nowIso(),
-        });
+    await this.enqueueMutation(async (): Promise<void> => {
+      if (this.disposed) {
+        return;
       }
-      return;
-    }
 
-    const observedAt = findObservedHistoryTimestamp(lastIntervention.requestedAt, historyEntries);
-    if (observedAt === undefined) {
-      if (historyRecentFiles.length > 0) {
-        await this.applyPatch({
-          recentFiles,
-          updatedAt: this.nowIso(),
-        });
+      const historyEntries = this.managedSession.getHistoryEntries?.() ?? [];
+      const session = await this.refreshSessionNow();
+      const lastIntervention = session.lastIntervention;
+      const historyRecentFiles = extractRecentFilesFromHistory(historyEntries, this.recentFileLimit);
+      const recentFiles = historyRecentFiles.length === 0
+        ? session.recentFiles
+        : mergeRecentFiles(session.recentFiles, historyRecentFiles, this.recentFileLimit);
+
+      if (lastIntervention?.status !== "pending-observation") {
+        if (historyRecentFiles.length > 0) {
+          await this.applyPatchNow({
+            recentFiles,
+            updatedAt: this.nowIso(),
+          });
+        }
+        return;
       }
-      return;
-    }
 
-    await this.applyPatch({
-      lastIntervention: markInterventionObserved(lastIntervention, observedAt),
-      recentFiles,
-      updatedAt: observedAt,
+      const observedAt = findObservedHistoryTimestamp(lastIntervention.requestedAt, historyEntries);
+      if (observedAt === undefined) {
+        if (historyRecentFiles.length > 0) {
+          await this.applyPatchNow({
+            recentFiles,
+            updatedAt: this.nowIso(),
+          });
+        }
+        return;
+      }
+
+      await this.applyPatchNow({
+        lastIntervention: markInterventionObserved(lastIntervention, observedAt),
+        recentFiles,
+        updatedAt: observedAt,
+      });
     });
   }
 
@@ -218,17 +202,67 @@ export class SessionController {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.managedSessionGeneration += 1;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
-    void this.managedSession.dispose?.();
+    void Promise.resolve(this.managedSession.dispose?.()).catch((): void => undefined);
   }
 
   private attachManagedSession(managedSession: ManagedPiSession): void {
     this.unsubscribe?.();
     this.managedSession = managedSession;
-    this.unsubscribe = managedSession.subscribe(async (event: unknown): Promise<void> => {
-      await this.handleSessionEvent(event);
+    const generation = ++this.managedSessionGeneration;
+    this.unsubscribe = managedSession.subscribe((event: unknown): Promise<void> => {
+      return this.handleSessionEventForGeneration(event, generation).catch((): void => undefined);
     });
+  }
+
+  private async handleSessionEventForGeneration(event: unknown, generation: number): Promise<void> {
+    const occurredAt = this.nowIso();
+    await this.enqueueMutation(async (): Promise<void> => {
+      if (!this.shouldAcceptGeneration(generation)) {
+        return;
+      }
+
+      await this.processSessionEvent(event, occurredAt);
+    });
+  }
+
+  private async processSessionEvent(event: unknown, occurredAt: string): Promise<void> {
+    const normalized = normalizeAgentSessionEvent({
+      workspaceId: this.session.workspaceId,
+      sessionId: this.session.id,
+      occurredAt,
+    }, event);
+
+    if (normalized.activity !== undefined) {
+      this.activities.push(normalized.activity);
+      this.activities.splice(0, Math.max(0, this.activities.length - 50));
+    }
+
+    if (normalized.patch === undefined && normalized.recentFiles === undefined && normalized.activity === undefined) {
+      return;
+    }
+
+    const patch = preserveStableStatus(normalized.patch ?? {}, this.session.status);
+    const recentFiles = normalized.recentFiles === undefined
+      ? this.session.recentFiles
+      : mergeRecentFiles(this.session.recentFiles, normalized.recentFiles, this.recentFileLimit);
+    const observedIntervention = normalized.activity === undefined
+      ? this.session.lastIntervention
+      : this.observePendingIntervention(this.session.lastIntervention, normalized.activity);
+
+    await this.applyPatchNow({
+      ...patch,
+      lastIntervention: observedIntervention,
+      recentFiles,
+      updatedAt: occurredAt,
+    });
+
+    if (normalized.activity !== undefined) {
+      this.onRuntimeActivity?.(this.currentSession, normalized.activity);
+    }
   }
 
   private async submitIntervention(
@@ -323,7 +357,7 @@ export class SessionController {
     return observedActivity?.occurredAt;
   }
 
-  private async refreshSession(): Promise<WorkspaceSession> {
+  private async refreshSessionNow(): Promise<WorkspaceSession> {
     const persistedSession = await this.repository.getWorkspaceSession(this.session.workspaceId, this.session.id);
     if (persistedSession !== undefined) {
       this.session = structuredClone(persistedSession);
@@ -332,7 +366,7 @@ export class SessionController {
     return this.currentSession;
   }
 
-  private async applyPatch(
+  private async applyPatchNow(
     patch: NormalizedSessionPatch & Partial<WorkspaceSession>,
   ): Promise<void> {
     const nextSession: WorkspaceSession = {
@@ -344,7 +378,23 @@ export class SessionController {
   }
 
   private async updateSession(patch: Partial<WorkspaceSession>): Promise<void> {
-    await this.applyPatch(patch);
+    await this.enqueueMutation(async (): Promise<void> => {
+      if (this.disposed) {
+        return;
+      }
+
+      await this.applyPatchNow(patch);
+    });
+  }
+
+  private enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const mutation = this.mutationQueue.then(operation, operation);
+    this.mutationQueue = mutation.then((): void => undefined, (): void => undefined);
+    return mutation;
+  }
+
+  private shouldAcceptGeneration(generation: number): boolean {
+    return !this.disposed && generation === this.managedSessionGeneration;
   }
 
   private nowIso(): string {

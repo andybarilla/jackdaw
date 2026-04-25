@@ -1,8 +1,12 @@
+import path from "node:path";
 import {
+  AuthStorage,
   createAgentSession,
+  ModelRegistry,
   SessionManager,
   type AgentSession,
   type AgentSessionEvent,
+  type CreateAgentSessionOptions,
 } from "@mariozechner/pi-coding-agent";
 import type { PiSessionHistoryEntry } from "./event-normalizer.js";
 
@@ -13,7 +17,6 @@ export interface SpawnPiSessionOptions {
   cwd: string;
   task: string;
   modelId?: string;
-  agentName?: string;
 }
 
 export interface ReconnectPiSessionOptions {
@@ -22,7 +25,6 @@ export interface ReconnectPiSessionOptions {
   cwd: string;
   sessionFile: string;
   modelId?: string;
-  agentName?: string;
 }
 
 export interface ManagedPiSession {
@@ -53,24 +55,43 @@ export class DefaultPiSessionAdapter implements PiSessionAdapter {
 
   async spawnSession(options: SpawnPiSessionOptions): Promise<ManagedPiSession> {
     const sessionManager = SessionManager.create(options.cwd, this.options.sessionDirectory);
-    const { session } = await createAgentSession({
-      cwd: options.cwd,
-      agentDir: this.options.agentDir,
-      sessionManager,
-    });
+    const { session } = await createAgentSession(
+      this.createAgentSessionOptions(options.cwd, sessionManager, options.modelId),
+    );
 
     return new AgentManagedPiSession(session);
   }
 
   async reconnectSession(options: ReconnectPiSessionOptions): Promise<ManagedPiSession> {
     const sessionManager = SessionManager.open(options.sessionFile, this.options.sessionDirectory, options.cwd);
-    const { session } = await createAgentSession({
-      cwd: options.cwd,
-      agentDir: this.options.agentDir,
-      sessionManager,
-    });
+    const { session } = await createAgentSession(
+      this.createAgentSessionOptions(options.cwd, sessionManager, options.modelId),
+    );
 
     return new AgentManagedPiSession(session);
+  }
+
+  private createAgentSessionOptions(
+    cwd: string,
+    sessionManager: SessionManager,
+    modelId: string | undefined,
+  ): CreateAgentSessionOptions {
+    const agentSessionOptions: CreateAgentSessionOptions = {
+      cwd,
+      agentDir: this.options.agentDir,
+      sessionManager,
+    };
+    const requestedModelId = modelId?.trim();
+    if (requestedModelId === undefined || requestedModelId.length === 0) {
+      return agentSessionOptions;
+    }
+
+    const modelRegistry = createModelRegistry(this.options.agentDir);
+    return {
+      ...agentSessionOptions,
+      modelRegistry,
+      model: resolveRequestedModel(modelRegistry, requestedModelId),
+    };
   }
 }
 
@@ -91,7 +112,7 @@ class AgentManagedPiSession implements ManagedPiSession {
 
   subscribe(listener: PiSessionEventListener): () => void {
     return this.session.subscribe((event: AgentSessionEvent): void => {
-      void listener(event);
+      void Promise.resolve(listener(event)).catch((): void => undefined);
     });
   }
 
@@ -118,4 +139,38 @@ class AgentManagedPiSession implements ManagedPiSession {
   getHistoryEntries(): readonly PiSessionHistoryEntry[] {
     return this.session.sessionManager.getBranch() as unknown as readonly PiSessionHistoryEntry[];
   }
+}
+
+function createModelRegistry(agentDir: string | undefined): ModelRegistry {
+  const authPath = agentDir === undefined ? undefined : path.join(agentDir, "auth.json");
+  const modelsPath = agentDir === undefined ? undefined : path.join(agentDir, "models.json");
+  const authStorage = AuthStorage.create(authPath);
+  return ModelRegistry.create(authStorage, modelsPath);
+}
+
+function resolveRequestedModel(
+  modelRegistry: ModelRegistry,
+  requestedModelId: string,
+): CreateAgentSessionOptions["model"] {
+  const providerSeparatorIndex = requestedModelId.indexOf("/");
+  if (providerSeparatorIndex > 0 && providerSeparatorIndex < requestedModelId.length - 1) {
+    const provider = requestedModelId.slice(0, providerSeparatorIndex);
+    const modelId = requestedModelId.slice(providerSeparatorIndex + 1);
+    const model = modelRegistry.find(provider, modelId);
+    if (model === undefined) {
+      throw new Error(`Requested pi model was not found: ${requestedModelId}`);
+    }
+
+    return model;
+  }
+
+  const matchingModels = modelRegistry.getAll().filter((model) => model.id === requestedModelId);
+  if (matchingModels.length === 1) {
+    return matchingModels[0];
+  }
+  if (matchingModels.length > 1) {
+    throw new Error(`Requested pi model is ambiguous; use provider/model: ${requestedModelId}`);
+  }
+
+  throw new Error(`Requested pi model was not found: ${requestedModelId}`);
 }

@@ -23,6 +23,48 @@ class MemorySessionRepository implements SessionControllerRepository {
   }
 }
 
+class DeferredFirstUpsertRepository extends MemorySessionRepository {
+  upsertCount = 0;
+  private readonly firstUpsertStartedPromise: Promise<void>;
+  private readonly firstUpsertReleasePromise: Promise<void>;
+  private firstUpsertStartedResolve: (() => void) | undefined;
+  private firstUpsertReleaseResolve: (() => void) | undefined;
+
+  constructor(session: WorkspaceSession) {
+    super(session);
+    this.firstUpsertStartedPromise = new Promise<void>((resolve) => {
+      this.firstUpsertStartedResolve = resolve;
+    });
+    this.firstUpsertReleasePromise = new Promise<void>((resolve) => {
+      this.firstUpsertReleaseResolve = resolve;
+    });
+  }
+
+  override async upsertSession(session: WorkspaceSession): Promise<void> {
+    this.upsertCount += 1;
+    if (this.upsertCount === 1) {
+      this.firstUpsertStartedResolve?.();
+      await this.firstUpsertReleasePromise;
+    }
+
+    await super.upsertSession(session);
+  }
+
+  async waitForFirstUpsertStarted(): Promise<void> {
+    await this.firstUpsertStartedPromise;
+  }
+
+  releaseFirstUpsert(): void {
+    this.firstUpsertReleaseResolve?.();
+  }
+}
+
+class RejectingSessionRepository extends MemorySessionRepository {
+  override async upsertSession(_session: WorkspaceSession): Promise<void> {
+    throw new Error("persistence unavailable");
+  }
+}
+
 class FakeManagedSession implements ManagedPiSession {
   readonly sessionId: string;
   readonly sessionFile: string | undefined;
@@ -51,6 +93,10 @@ class FakeManagedSession implements ManagedPiSession {
 
   emit(event: unknown): void {
     this.listener?.(event);
+  }
+
+  async emitAndWait(event: unknown): Promise<void> {
+    await this.listener?.(event);
   }
 }
 
@@ -90,10 +136,11 @@ function createSession(overrides: Partial<WorkspaceSession> = {}): WorkspaceSess
 function createController(options: {
   session?: WorkspaceSession;
   managedSession?: FakeManagedSession;
+  repository?: MemorySessionRepository;
   timestamps?: string[];
 } = {}): { controller: SessionController; repository: MemorySessionRepository; managedSession: FakeManagedSession } {
   const session = options.session ?? createSession();
-  const repository = new MemorySessionRepository(session);
+  const repository = options.repository ?? new MemorySessionRepository(session);
   const managedSession = options.managedSession ?? new FakeManagedSession(session.id, session.sessionFile);
   const timestamps = options.timestamps ?? [
     "2026-04-25T10:00:00.000Z",
@@ -116,7 +163,116 @@ function createController(options: {
   };
 }
 
+interface DeferredPromise<T> {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(reason: unknown): void;
+}
+
+function createDeferredPromise<T>(): DeferredPromise<T> {
+  let resolveDeferred: ((value: T) => void) | undefined;
+  let rejectDeferred: ((reason: unknown) => void) | undefined;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveDeferred = resolve;
+    rejectDeferred = reject;
+  });
+
+  return {
+    promise,
+    resolve(value: T): void {
+      resolveDeferred?.(value);
+    },
+    reject(reason: unknown): void {
+      rejectDeferred?.(reason);
+    },
+  };
+}
+
+async function waitForCondition(condition: () => boolean, failureMessage: string): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (Date.now() < deadline) {
+    if (condition()) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+  }
+
+  throw new Error(failureMessage);
+}
+
 describe("SessionController", () => {
+  it("serializes subscription event mutations before persisting newer session state", async () => {
+    const session = createSession();
+    const repository = new DeferredFirstUpsertRepository(session);
+    const managedSession = new FakeManagedSession(session.id, session.sessionFile);
+    const { controller } = createController({
+      session,
+      managedSession,
+      repository,
+      timestamps: [
+        "2026-04-25T10:00:00.000Z",
+        "2026-04-25T10:00:00.001Z",
+      ],
+    });
+
+    managedSession.emit({
+      type: "tool_execution_start",
+      toolCallId: "call-1",
+      toolName: "read",
+      args: { path: "src/index.ts" },
+    });
+    await repository.waitForFirstUpsertStarted();
+
+    managedSession.emit({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "Please confirm which migration path to use?" }],
+      },
+    });
+    await Promise.resolve();
+
+    repository.releaseFirstUpsert();
+    await waitForCondition(() => repository.upsertCount >= 2, "queued session event was not persisted");
+
+    expect(repository.session.status).toBe("awaiting-input");
+    expect(repository.session.currentActivity).toBe("Awaiting input: Please confirm which migration path to use?");
+    expect(controller.currentSession.status).toBe("awaiting-input");
+  });
+
+  it("ignores initial prompt failures after disposal", async () => {
+    const managedSession = new FakeManagedSession();
+    const prompt = createDeferredPromise<void>();
+    managedSession.prompt.mockImplementation(async (): Promise<void> => {
+      await prompt.promise;
+    });
+    const { controller, repository } = createController({ managedSession });
+
+    controller.beginInitialPrompt("Run the task.");
+    controller.dispose();
+    prompt.reject(new Error("provider disconnected"));
+    await controller.waitForInitialPrompt();
+
+    expect(repository.session.status).toBe("running");
+    expect(repository.session.liveSummary).toBe("Running task");
+    expect(managedSession.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("catches subscription listener persistence failures at the subscription boundary", async () => {
+    const session = createSession();
+    const repository = new RejectingSessionRepository(session);
+    const managedSession = new FakeManagedSession(session.id, session.sessionFile);
+    createController({ session, managedSession, repository });
+
+    await expect(managedSession.emitAndWait({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "streaming" },
+    })).resolves.toBeUndefined();
+  });
+
   it("keeps pending interventions pending until later meaningful non-local activity", async () => {
     const { controller, repository } = createController();
 
