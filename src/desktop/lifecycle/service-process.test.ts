@@ -35,6 +35,7 @@ describe("startServiceProcess", () => {
       appDataDir: "/tmp/jackdaw-data",
       serviceEntrypoint: "/Applications/Jackdaw.app/Contents/Resources/app.asar/dist/service/main.js",
       workingDirectory: "/Applications/Jackdaw.app/Contents/Resources",
+      serviceToken: "test-service-token-01234567890123456789",
     });
 
     expect(spawnMock).toHaveBeenCalledWith(
@@ -47,6 +48,7 @@ describe("startServiceProcess", () => {
           JACKDAW_HOST: "127.0.0.1",
           JACKDAW_PORT: "43123",
           JACKDAW_APP_DATA_DIR: "/tmp/jackdaw-data",
+          JACKDAW_SERVICE_TOKEN: "test-service-token-01234567890123456789",
         }),
       }),
     );

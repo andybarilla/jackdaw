@@ -9,7 +9,7 @@
     "dev:pi": "pi",
     "dev:web": "vite",
     "dev:node:watch": "tsc -w -p tsconfig.node.json",
-    "dev:service": "tsc -p tsconfig.node.json && cross-env NODE_ENV=development JACKDAW_APP_DATA_DIR=.jackdaw-app-data node dist/service/main.js",
+    "dev:service": "tsc -p tsconfig.node.json && node -e \"process.env.NODE_ENV='development';process.env.JACKDAW_APP_DATA_DIR='.jackdaw-app-data';process.env.JACKDAW_SERVICE_TOKEN=require('node:crypto').randomBytes(32).toString('base64url');import('./dist/service/main.js')\"",
     "dev:desktop": "wait-on file:dist/desktop/main.js file:dist/service/main.js http-get://127.0.0.1:5173 && cross-env NODE_ENV=development JACKDAW_WEB_URL=http://127.0.0.1:5173 electron .",
     "dev:gui": "concurrently -k -n WEB,NODE,ELECTRON \"npm:dev:web\" \"npm:dev:node:watch\" \"npm:dev:desktop\"",
     "build:web": "vite build",

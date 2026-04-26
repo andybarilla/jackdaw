@@ -21,10 +21,12 @@ export const DEFAULT_LOCAL_SERVICE_BASE_URL = "http://127.0.0.1:7345";
 
 export interface ServiceApiConfig {
   baseUrl: string;
+  serviceToken?: string;
 }
 
 export interface ApiClient {
   serviceBaseUrl: string;
+  serviceToken?: string;
   getHealth(): Promise<HealthResponse>;
   listWorkspaces(): Promise<WorkspaceSummaryDto[]>;
   getWorkspaceDetail(workspaceId: string): Promise<WorkspaceDetailDto>;
@@ -52,15 +54,17 @@ export function normalizeServiceBaseUrl(serviceBaseUrl: string): string {
   return normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
 }
 
-export function createServiceApiConfig(serviceBaseUrl: string = DEFAULT_LOCAL_SERVICE_BASE_URL): ServiceApiConfig {
+export function createServiceApiConfig(serviceBaseUrl: string = DEFAULT_LOCAL_SERVICE_BASE_URL, serviceToken?: string): ServiceApiConfig {
   return {
     baseUrl: normalizeServiceBaseUrl(serviceBaseUrl),
+    serviceToken: serviceToken === undefined || serviceToken.length === 0 ? undefined : serviceToken,
   };
 }
 
 export function resolveBootstrap(): RendererBootstrap {
   const bootstrap = window.jackdaw?.bootstrap ?? {
     serviceBaseUrl: DEFAULT_LOCAL_SERVICE_BASE_URL,
+    serviceToken: "",
     appDataDir: "",
     platform: navigator.platform.toLowerCase().includes("mac") ? "darwin" : "linux",
   };
@@ -96,9 +100,21 @@ function createServiceUrl(config: ServiceApiConfig, apiPath: string): string {
   return url.toString();
 }
 
+function createAuthorizedRequestInit(config: ServiceApiConfig, init: RequestInit = {}): RequestInit {
+  const headers = new Headers(init.headers);
+  if (config.serviceToken !== undefined) {
+    headers.set("Authorization", `Bearer ${config.serviceToken}`);
+  }
+
+  return {
+    ...init,
+    headers,
+  };
+}
+
 async function fetchJson<TData>(config: ServiceApiConfig, path: string, fallbackMessage: string, init?: RequestInit): Promise<TData> {
   const url = createServiceUrl(config, path);
-  const response = init === undefined ? await fetch(url) : await fetch(url, init);
+  const response = await fetch(url, createAuthorizedRequestInit(config, init));
   if (!response.ok) {
     throw new Error(await getResponseErrorMessage(response, fallbackMessage));
   }
@@ -107,7 +123,7 @@ async function fetchJson<TData>(config: ServiceApiConfig, path: string, fallback
 }
 
 function resolveApiConfig(configOrBaseUrl: string | ServiceApiConfig): ServiceApiConfig {
-  return typeof configOrBaseUrl === "string" ? createServiceApiConfig(configOrBaseUrl) : createServiceApiConfig(configOrBaseUrl.baseUrl);
+  return typeof configOrBaseUrl === "string" ? createServiceApiConfig(configOrBaseUrl) : createServiceApiConfig(configOrBaseUrl.baseUrl, configOrBaseUrl.serviceToken);
 }
 
 export function createApiClient(configOrBaseUrl: string | ServiceApiConfig): ApiClient {
@@ -115,6 +131,7 @@ export function createApiClient(configOrBaseUrl: string | ServiceApiConfig): Api
 
   return {
     serviceBaseUrl: config.baseUrl,
+    serviceToken: config.serviceToken,
     getHealth: async (): Promise<HealthResponse> => {
       return fetchJson<HealthResponse>(config, "/health", "Health check failed");
     },

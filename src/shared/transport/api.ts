@@ -29,6 +29,7 @@ export interface HealthResponse {
 
 export interface RendererBootstrap {
   serviceBaseUrl: string;
+  serviceToken: string;
   appDataDir: string;
   platform: NodeJS.Platform;
 }

@@ -293,11 +293,11 @@ describe("App", () => {
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
         "http://127.0.0.1:7345/workspaces/ws-demo",
-        {
+        expect.objectContaining({
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: expect.any(Headers),
           body: JSON.stringify({ preferences: { selectedSessionId: "session-running" } }),
-        },
+        }),
       );
     });
     expect(await within(await screen.findByLabelText("Live summary panel")).findByText("Implementing deterministic service fixtures.")).toBeVisible();

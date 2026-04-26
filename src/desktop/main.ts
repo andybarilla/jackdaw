@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import net from "node:net";
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
@@ -53,6 +54,7 @@ async function bootstrap(): Promise<void> {
 
   const appDataDir = resolveAppDataDir();
   const port = await findAvailablePort();
+  const serviceToken = randomBytes(32).toString("base64url");
   const appRoot = resolveAppAssetPath();
   const serviceWorkingDirectory = appRoot.endsWith(".asar") ? path.dirname(appRoot) : appRoot;
   const serviceEntrypoint = resolveAppAssetPath("dist", "service", "main.js");
@@ -74,13 +76,15 @@ async function bootstrap(): Promise<void> {
     appDataDir,
     serviceEntrypoint,
     workingDirectory: serviceWorkingDirectory,
+    serviceToken,
   });
   console.log("[jackdaw-desktop] started local service process", { baseUrl: serviceProcess.baseUrl });
 
   process.env.JACKDAW_SERVICE_BASE_URL = serviceProcess.baseUrl;
+  process.env.JACKDAW_SERVICE_TOKEN = serviceToken;
   process.env.JACKDAW_APP_DATA_DIR = appDataDir;
 
-  await waitForService(serviceProcess.baseUrl);
+  await waitForService(serviceProcess.baseUrl, serviceToken);
   console.log("[jackdaw-desktop] service health check passed");
 
   await createMainWindow({
@@ -110,12 +114,14 @@ async function findAvailablePort(): Promise<number> {
   });
 }
 
-async function waitForService(baseUrl: string): Promise<void> {
+async function waitForService(baseUrl: string, serviceToken: string): Promise<void> {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < 15000) {
     try {
-      const response = await fetch(`${baseUrl}/health`);
+      const response = await fetch(`${baseUrl}/health`, {
+        headers: { Authorization: `Bearer ${serviceToken}` },
+      });
       if (response.ok) {
         return;
       }

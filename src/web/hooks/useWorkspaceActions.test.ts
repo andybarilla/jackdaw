@@ -113,10 +113,12 @@ describe("useWorkspaceActions", () => {
       await result.current.openPath({ workspaceId: "ws-demo", path: "docs/task-8.md" }, "session-1");
     });
 
-    expect(fetchSpy).toHaveBeenCalledWith("http://127.0.0.1:4312/sessions/session-1/open-path", {
+    expect(fetchSpy).toHaveBeenCalledWith("http://127.0.0.1:4312/sessions/session-1/open-path", expect.objectContaining({
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: expect.any(Headers),
       body: JSON.stringify({ workspaceId: "ws-demo", path: "docs/task-8.md" }),
-    });
+    }));
+    const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect((requestInit?.headers as Headers).get("Content-Type")).toBe("application/json");
   });
 });

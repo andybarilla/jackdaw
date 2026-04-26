@@ -23,6 +23,7 @@ describe("api-client", () => {
     window.jackdaw = {
       bootstrap: {
         serviceBaseUrl: "https://jackdaw.example.test/runtime/",
+        serviceToken: "renderer-service-token",
         appDataDir: "/tmp/jackdaw",
         platform: "linux",
       },
@@ -30,6 +31,7 @@ describe("api-client", () => {
 
     expect(resolveBootstrap()).toEqual({
       serviceBaseUrl: "https://jackdaw.example.test/runtime",
+      serviceToken: "renderer-service-token",
       appDataDir: "/tmp/jackdaw",
       platform: "linux",
     });
@@ -48,7 +50,7 @@ describe("api-client", () => {
     await expect(client.getHealth()).resolves.toMatchObject({ ok: true, service: "jackdaw-service" });
 
     expect(client.serviceBaseUrl).toBe("https://control.example.test/jackdaw");
-    expect(fetchSpy).toHaveBeenCalledWith("https://control.example.test/jackdaw/health");
+    expect(fetchSpy).toHaveBeenCalledWith("https://control.example.test/jackdaw/health", expect.objectContaining({ headers: expect.any(Headers) }));
   });
 
   it("encodes workspace and artifact identifiers as path segments", async () => {
@@ -63,7 +65,10 @@ describe("api-client", () => {
 
     await client.getArtifactDetail("workspace/a b", "artifact/a b");
 
-    expect(fetchSpy).toHaveBeenCalledWith("http://127.0.0.1:7345/api/workspaces/workspace%2Fa%20b/artifacts/artifact%2Fa%20b");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:7345/api/workspaces/workspace%2Fa%20b/artifacts/artifact%2Fa%20b",
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
   });
 
   it("registers workspace worktrees through the explicit workspace API", async () => {
@@ -85,16 +90,16 @@ describe("api-client", () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://127.0.0.1:7345/api/workspaces/workspace%2Fa%20b/worktrees",
-      {
+      expect.objectContaining({
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: expect.any(Headers),
         body: JSON.stringify({
           repoRootId: "repo-1",
           path: "/workspace/repo/.worktrees/task-10",
           branch: "task-10",
           label: "Task 10",
         }),
-      },
+      }),
     );
   });
 
@@ -114,12 +119,29 @@ describe("api-client", () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://127.0.0.1:7345/api/workspaces/workspace%2Fa%20b",
-      {
+      expect.objectContaining({
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: expect.any(Headers),
         body: JSON.stringify({ preferences: { selectedSessionId: "session-2" } }),
-      },
+      }),
     );
+  });
+
+  it("attaches the renderer service token to API requests", async () => {
+    const fetchSpy = vi.fn<typeof fetch>(async () => {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    global.fetch = fetchSpy;
+    const client = createApiClient({ baseUrl: "http://127.0.0.1:7345", serviceToken: "renderer-service-token" });
+
+    await client.listWorkspaces();
+
+    const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(requestInit?.headers).toBeInstanceOf(Headers);
+    expect((requestInit?.headers as Headers).get("Authorization")).toBe("Bearer renderer-service-token");
   });
 
   it("surfaces service error payloads before generic response failures", async () => {

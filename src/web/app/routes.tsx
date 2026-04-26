@@ -24,7 +24,7 @@ export function AppRoutes(): React.JSX.Element {
   const workspaceStream = useWorkspaceStream(selectedWorkspaceId, apiClient);
   const [selectedSessionIdByWorkspaceId, setSelectedSessionIdByWorkspaceId] = React.useState<Record<string, string | undefined>>({});
   const selectedSessionId = selectedWorkspaceId === undefined ? undefined : selectedSessionIdByWorkspaceId[selectedWorkspaceId];
-  const actions = useWorkspaceActions(bootstrap.serviceBaseUrl);
+  const actions = useWorkspaceActions(bootstrap.serviceBaseUrl, bootstrap.serviceToken);
 
   React.useEffect(() => {
     let cancelled = false;

@@ -48,10 +48,10 @@ class ReconnectableFakeManagedPiSession implements ManagedPiSession {
 let app: FastifyInstance | undefined;
 let appDataDir: string | undefined;
 
-async function createTestServer(seed: boolean = true): Promise<FastifyInstance> {
+async function createTestServer(seed: boolean = true, serviceToken?: string): Promise<FastifyInstance> {
   const serviceState = seed ? await createSeededServiceState() : await createEmptyServiceState();
   appDataDir = serviceState.appDataDir;
-  app = createServer({ appDataDir });
+  app = createServer({ appDataDir, serviceToken });
   await app.ready();
   return app;
 }
@@ -325,5 +325,62 @@ describe("service server", () => {
 
     expect(response.statusCode).toBe(204);
     expect(response.headers["access-control-allow-origin"]).toBe("http://127.0.0.1:5173");
+  });
+
+  it("rejects state reads before route handling when the service token is missing or invalid", async () => {
+    const server = await createTestServer(true, "test-service-token-01234567890123456789");
+
+    const missingTokenResponse = await server.inject({
+      method: "GET",
+      url: "/workspaces",
+      headers: { origin: "null" },
+    });
+    const noOriginResponse = await server.inject({
+      method: "GET",
+      url: "/workspaces",
+    });
+    const invalidTokenResponse = await server.inject({
+      method: "GET",
+      url: "/workspaces",
+      headers: {
+        origin: "null",
+        authorization: "Bearer wrong-service-token-01234567890123456789",
+      },
+    });
+
+    expect(missingTokenResponse.statusCode).toBe(401);
+    expect(noOriginResponse.statusCode).toBe(401);
+    expect(invalidTokenResponse.statusCode).toBe(401);
+    expect(missingTokenResponse.json<{ error: string }>().error).toBe("Unauthorized");
+  });
+
+  it("accepts a valid bearer token for packaged null-origin API reads", async () => {
+    const serviceToken = "test-service-token-01234567890123456789";
+    const server = await createTestServer(true, serviceToken);
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/workspaces",
+      headers: {
+        origin: "null",
+        authorization: `Bearer ${serviceToken}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe("null");
+  });
+
+  it("rejects SSE streams before route handling when the service token is missing", async () => {
+    const serviceToken = "test-service-token-01234567890123456789";
+    const server = await createTestServer(true, serviceToken);
+
+    const missingTokenResponse = await server.inject({
+      method: "GET",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/events`,
+      headers: { origin: "null" },
+    });
+
+    expect(missingTokenResponse.statusCode).toBe(401);
   });
 });

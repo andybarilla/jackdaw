@@ -73,7 +73,7 @@ function buildRequestBody<TBody>(body: TBody | undefined): string | undefined {
   return JSON.stringify(body);
 }
 
-export function useWorkspaceActions(serviceBaseUrl: string): WorkspaceActionHandlers & { state: WorkspaceActionsState } {
+export function useWorkspaceActions(serviceBaseUrl: string, serviceToken?: string): WorkspaceActionHandlers & { state: WorkspaceActionsState } {
   const [state, setState] = React.useState<WorkspaceActionsState>({});
 
   const runMutation = React.useCallback(async <TBody,>(
@@ -82,9 +82,17 @@ export function useWorkspaceActions(serviceBaseUrl: string): WorkspaceActionHand
     body?: TBody,
   ): Promise<WorkspaceActionResult> => {
     try {
+      const headers = new Headers();
+      if (body !== undefined) {
+        headers.set("Content-Type", "application/json");
+      }
+      if (serviceToken !== undefined && serviceToken.length > 0) {
+        headers.set("Authorization", `Bearer ${serviceToken}`);
+      }
+
       const response = await fetch(`${serviceBaseUrl}${path}`, {
         method: "POST",
-        headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+        headers,
         body: buildRequestBody(body),
       });
 
@@ -130,7 +138,7 @@ export function useWorkspaceActions(serviceBaseUrl: string): WorkspaceActionHand
       setState({ lastResult: unavailableResult });
       return unavailableResult;
     }
-  }, [serviceBaseUrl]);
+  }, [serviceBaseUrl, serviceToken]);
 
   const handlers = React.useMemo<WorkspaceActionHandlers & { state: WorkspaceActionsState }>(() => ({
     state,

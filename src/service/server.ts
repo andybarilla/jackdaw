@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerHealthRoutes } from "./api/routes/health.js";
 import { registerWorkspaceRoutes } from "./api/routes/workspaces.js";
@@ -29,9 +30,59 @@ function getAllowedCorsOrigin(origin: string | undefined): string | undefined {
   return origin === PACKAGED_RENDERER_ORIGIN ? PACKAGED_RENDERER_ORIGIN : undefined;
 }
 
+function resolveServiceToken(optionToken: string | undefined): string | undefined {
+  const serviceToken = optionToken ?? process.env.JACKDAW_SERVICE_TOKEN;
+  if (serviceToken !== undefined && serviceToken.trim().length >= 32) {
+    return serviceToken;
+  }
+
+  if (process.env.NODE_ENV === "test" || process.env.VITEST === "true") {
+    return undefined;
+  }
+
+  throw new Error("JACKDAW_SERVICE_TOKEN must be set to a per-service secret of at least 32 characters.");
+}
+
+function getHeaderValue(header: string | string[] | undefined): string | undefined {
+  return Array.isArray(header) ? header[0] : header;
+}
+
+function extractBearerToken(authorizationHeader: string | undefined): string | undefined {
+  if (authorizationHeader === undefined) {
+    return undefined;
+  }
+
+  const match = /^Bearer\s+(.+)$/iu.exec(authorizationHeader);
+  return match?.[1];
+}
+
+function constantTimeEquals(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function isAuthorizedRequest(
+  authorizationHeader: string | string[] | undefined,
+  tokenHeader: string | string[] | undefined,
+  serviceToken: string | undefined,
+): boolean {
+  if (serviceToken === undefined) {
+    return true;
+  }
+
+  const presentedToken = extractBearerToken(getHeaderValue(authorizationHeader)) ?? getHeaderValue(tokenHeader);
+  return presentedToken !== undefined && constantTimeEquals(presentedToken, serviceToken);
+}
+
 export interface ServiceServerOptions {
   appDataDir: string;
   version?: string;
+  serviceToken?: string;
   workspaceService?: WorkspaceService;
   piSessionAdapter?: PiSessionAdapter;
   runtimeManager?: RuntimeManager;
@@ -61,6 +112,7 @@ async function createWorkspaceServicePromise(
 
 export function createServer(options: ServiceServerOptions): FastifyInstance {
   const app = Fastify({ logger: true });
+  const serviceToken = resolveServiceToken(options.serviceToken);
 
   app.addHook("onRequest", async (request, reply) => {
     const requestOrigin = Array.isArray(request.headers.origin)
@@ -68,17 +120,20 @@ export function createServer(options: ServiceServerOptions): FastifyInstance {
       : request.headers.origin;
     const allowedOrigin = getAllowedCorsOrigin(requestOrigin);
 
-    if (allowedOrigin === undefined) {
-      return;
+    if (allowedOrigin !== undefined) {
+      reply.header("Access-Control-Allow-Origin", allowedOrigin);
+      reply.header("Vary", "Origin");
+      reply.header("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
+      reply.header("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID, Authorization, X-Jackdaw-Service-Token");
     }
-
-    reply.header("Access-Control-Allow-Origin", allowedOrigin);
-    reply.header("Vary", "Origin");
-    reply.header("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
-    reply.header("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID");
 
     if (request.method === "OPTIONS") {
       await reply.code(204).send();
+      return;
+    }
+
+    if (!isAuthorizedRequest(request.headers.authorization, request.headers["x-jackdaw-service-token"], serviceToken)) {
+      await reply.code(401).send({ error: "Unauthorized" });
     }
   });
 

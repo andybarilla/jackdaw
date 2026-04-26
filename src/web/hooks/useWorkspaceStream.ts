@@ -214,7 +214,7 @@ export function useWorkspaceStream(
         setConnectionState("disconnected");
       });
 
-    eventSource = eventSourceFactory(`${apiClient.serviceBaseUrl}/workspaces/${workspaceId}/events`);
+    eventSource = eventSourceFactory(`${apiClient.serviceBaseUrl}/workspaces/${workspaceId}/events`, apiClient.serviceToken);
 
     const handleOpen = (): void => {
       if (!cancelled) {

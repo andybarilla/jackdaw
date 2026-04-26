@@ -18,7 +18,7 @@ export function AppProviders({ children }: AppProvidersProps): React.JSX.Element
     const bootstrap = resolveBootstrap();
     return {
       bootstrap,
-      apiClient: createApiClient(bootstrap.serviceBaseUrl),
+      apiClient: createApiClient({ baseUrl: bootstrap.serviceBaseUrl, serviceToken: bootstrap.serviceToken }),
     };
   }, []);
 

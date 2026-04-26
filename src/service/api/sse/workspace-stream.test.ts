@@ -60,10 +60,10 @@ class PromptFailingManagedPiSession implements ManagedPiSession {
   async abort(): Promise<void> {}
 }
 
-async function createListeningServer(piSessionAdapter?: PiSessionAdapter): Promise<{ app: FastifyInstance; baseUrl: string }> {
+async function createListeningServer(piSessionAdapter?: PiSessionAdapter, serviceToken?: string): Promise<{ app: FastifyInstance; baseUrl: string }> {
   const seededState = await createSeededServiceState();
   appDataDir = seededState.appDataDir;
-  app = createServer({ appDataDir, piSessionAdapter });
+  app = createServer({ appDataDir, piSessionAdapter, serviceToken });
   await app.listen({ host: "127.0.0.1", port: 0 });
   const address = app.server.address() as AddressInfo;
   return {
@@ -77,6 +77,7 @@ function connectToWorkspaceEvents(
   workspaceId: string,
   lastEventId?: string,
   origin?: string,
+  serviceToken?: string,
 ): Promise<{
   response: IncomingMessage;
   nextEvent: () => Promise<SseEventMessage>;
@@ -92,6 +93,7 @@ function connectToWorkspaceEvents(
       Accept: "text/event-stream",
       ...(lastEventId === undefined ? {} : { "Last-Event-ID": lastEventId }),
       ...(origin === undefined ? {} : { Origin: origin }),
+      ...(serviceToken === undefined ? {} : { Authorization: `Bearer ${serviceToken}` }),
     },
   };
 
@@ -206,6 +208,22 @@ describe("workspace SSE stream", () => {
     expect(snapshotEvent.id).toBeDefined();
     expect(snapshotEvent.event).toBe("workspace.snapshot");
     expect(snapshotEvent.data?.version).toBe(1);
+    expect(snapshotEvent.data?.payload.workspaceId).toBe(TEST_WORKSPACE_ID);
+
+    streamConnection.close();
+  });
+
+  it("accepts a valid bearer token for packaged null-origin SSE streams", async () => {
+    const serviceToken = "test-service-token-01234567890123456789";
+    const { baseUrl } = await createListeningServer(undefined, serviceToken);
+    const streamConnection = await connectToWorkspaceEvents(baseUrl, TEST_WORKSPACE_ID, undefined, "null", serviceToken);
+
+    expect(streamConnection.response.statusCode).toBe(200);
+    expect(streamConnection.response.headers["access-control-allow-origin"]).toBe("null");
+
+    const snapshotEvent = await streamConnection.nextEvent();
+
+    expect(snapshotEvent.event).toBe("workspace.snapshot");
     expect(snapshotEvent.data?.payload.workspaceId).toBe(TEST_WORKSPACE_ID);
 
     streamConnection.close();

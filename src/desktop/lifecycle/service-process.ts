@@ -13,6 +13,7 @@ export interface ServiceProcess {
   baseUrl: string;
   endpoint: LocalServiceEndpointConfig;
   appDataDir: string;
+  serviceToken: string;
   stop: () => Promise<void>;
 }
 
@@ -21,6 +22,7 @@ export interface StartServiceProcessOptions {
   appDataDir: string;
   serviceEntrypoint: string;
   workingDirectory: string;
+  serviceToken: string;
   host?: string;
   protocol?: LocalServiceProtocol;
 }
@@ -43,6 +45,7 @@ export async function startServiceProcess(options: StartServiceProcessOptions): 
       JACKDAW_HOST: endpoint.host,
       JACKDAW_PORT: String(endpoint.port),
       JACKDAW_APP_DATA_DIR: options.appDataDir,
+      JACKDAW_SERVICE_TOKEN: validateServiceToken(options.serviceToken),
     },
     stdio: "inherit",
   });
@@ -51,6 +54,7 @@ export async function startServiceProcess(options: StartServiceProcessOptions): 
     child,
     endpoint,
     appDataDir: options.appDataDir,
+    serviceToken: options.serviceToken,
     baseUrl: createLocalServiceBaseUrl(endpoint),
     stop: () => stopChild(child),
   };
@@ -62,6 +66,14 @@ function validateLocalServiceHost(host: string): string {
   }
 
   return host;
+}
+
+function validateServiceToken(serviceToken: string): string {
+  if (serviceToken.trim().length < 32) {
+    throw new Error("Local service token must be at least 32 characters.");
+  }
+
+  return serviceToken;
 }
 
 async function stopChild(child: ChildProcess): Promise<void> {
