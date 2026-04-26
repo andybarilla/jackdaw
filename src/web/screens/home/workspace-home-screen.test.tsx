@@ -214,6 +214,7 @@ function createApiClient(): ApiClient {
     listWorkspaces: vi.fn(async () => WORKSPACE_SUMMARIES),
     getWorkspaceDetail: vi.fn(async () => WORKSPACE_DETAIL),
     updateWorkspace: vi.fn(async () => WORKSPACE_DETAIL),
+    addWorkspaceWorktree: vi.fn(async () => WORKSPACE_DETAIL),
     listWorkspaceArtifacts: vi.fn(async () => ({ workspaceId: "ws-demo", artifacts: WORKSPACE_DETAIL.artifacts })),
     getArtifactDetail: vi.fn(async () => ({ artifact: WORKSPACE_DETAIL.artifacts[0], content: "# Live workspace slice plan", readOnly: true as const })),
     getIntegrationSettings: vi.fn(async () => ({ hq: { status: "configured" as const, linkedIds: { projectId: "hq-123", workItemIds: [], sessionIds: [] } } })),

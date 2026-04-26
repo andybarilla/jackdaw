@@ -129,6 +129,89 @@ describe("workspace routes", () => {
     await expect(readFile(staleWorkspaceJsonPath, "utf8")).resolves.toBe("{not-json");
   });
 
+  it("creates a workspace with an initial registered worktree", async () => {
+    const server = await createTestServer(false);
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/workspaces",
+      payload: {
+        name: "Workspace with worktree",
+        repoRoots: ["/workspace/new-repo"],
+        worktrees: [{
+          repoRootPath: "/workspace/new-repo",
+          path: "/workspace/new-repo/.worktrees/task-10",
+          branch: "task-10",
+          label: "Task 10",
+        }],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json<WorkspaceDetailDto>().workspace.worktrees).toEqual([
+      expect.objectContaining({
+        repoRootId: "repo-1",
+        path: "/workspace/new-repo/.worktrees/task-10",
+        branch: "task-10",
+        label: "Task 10",
+      }),
+    ]);
+  });
+
+  it("registers a worktree under an existing workspace repo root", async () => {
+    const server = await createTestServer();
+
+    const response = await server.inject({
+      method: "POST",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/worktrees`,
+      payload: {
+        repoRootId: "repo-1",
+        path: "/workspace/jackdaw/.worktrees/task-10",
+        branch: "task-10-restart-recovery-hardening",
+        label: "Task 10",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<WorkspaceDetailDto>().workspace.worktrees).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "wt-1",
+        repoRootId: "repo-1",
+        path: "/workspace/jackdaw/.worktrees/task-10",
+        branch: "task-10-restart-recovery-hardening",
+        label: "Task 10",
+      }),
+    ]));
+  });
+
+  it("rejects invalid worktree registrations", async () => {
+    const server = await createTestServer();
+
+    const missingRepoResponse = await server.inject({
+      method: "POST",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/worktrees`,
+      payload: {
+        repoRootId: "repo-missing",
+        path: "/workspace/jackdaw/.worktrees/missing-repo",
+      },
+    });
+
+    expect(missingRepoResponse.statusCode).toBe(400);
+    expect(missingRepoResponse.json<{ error: string }>().error).toContain("repoRootId");
+
+    const outsideRepoResponse = await server.inject({
+      method: "POST",
+      url: `/workspaces/${TEST_WORKSPACE_ID}/worktrees`,
+      payload: {
+        repoRootId: "repo-1",
+        path: "/workspace/elsewhere/task-10",
+      },
+    });
+
+    expect(outsideRepoResponse.statusCode).toBe(400);
+    expect(outsideRepoResponse.json<{ error: string }>().error).toContain("must stay inside repo root");
+  });
+
   it("rejects duplicate repo root paths when creating or updating workspaces", async () => {
     const server = await createTestServer();
 

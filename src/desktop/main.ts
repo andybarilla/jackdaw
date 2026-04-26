@@ -3,15 +3,14 @@ import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { resolveAppAssetPath, resolveAppDataDir } from "./lifecycle/app-paths.js";
 import { startServiceProcess, type ServiceProcess } from "./lifecycle/service-process.js";
-import { createMainWindow } from "./lifecycle/window.js";
+import { createDesktopErrorWindow, createMainWindow } from "./lifecycle/window.js";
 
 let serviceProcess: ServiceProcess | undefined;
 let preloadPath = "";
 let rendererFilePath = "";
 
-void bootstrap().catch((error) => {
-  console.error("[jackdaw-desktop] bootstrap failed", error);
-  app.exit(1);
+void bootstrap().catch((error: unknown) => {
+  void showBootstrapFailure(error);
 });
 
 app.on("window-all-closed", async () => {
@@ -32,6 +31,20 @@ app.on("activate", async () => {
     });
   }
 });
+
+async function showBootstrapFailure(error: unknown): Promise<void> {
+  console.error("[jackdaw-desktop] bootstrap failed", error);
+  try {
+    await app.whenReady();
+    await createDesktopErrorWindow({
+      title: "Startup failed",
+      message: "The local workspace service did not become ready. Close this window and restart Jackdaw after checking the details below.",
+      detail: error instanceof Error ? error.stack ?? error.message : String(error),
+    });
+  } catch (windowError: unknown) {
+    console.error("[jackdaw-desktop] failed to show startup error window", windowError);
+  }
+}
 
 async function bootstrap(): Promise<void> {
   console.log("[jackdaw-desktop] waiting for Electron app readiness");

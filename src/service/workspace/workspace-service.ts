@@ -6,9 +6,10 @@ import {
   type AttentionEvent,
 } from "../../shared/domain/attention.js";
 import type { WorkspaceSession, WorkspaceSessionStatus } from "../../shared/domain/session.js";
-import type { Workspace, WorkspaceRepoRoot } from "../../shared/domain/workspace.js";
+import type { Workspace, WorkspaceRepoRoot, WorkspaceWorktree } from "../../shared/domain/workspace.js";
 import type {
   AddWorkspaceRepoDto,
+  AddWorkspaceWorktreeDto,
   ArtifactLinkedEventDto,
   CreateSessionDto,
   CreateWorkspaceDto,
@@ -69,6 +70,7 @@ export class WorkspaceService {
   private runtimeManager: RuntimeManager | undefined;
   private workspaceCounter: number;
   private repoCounter: number;
+  private worktreeCounter: number;
   private attentionCounter: number = 0;
 
   private constructor(private readonly registry: WorkspaceRegistry) {
@@ -77,6 +79,10 @@ export class WorkspaceService {
     this.repoCounter = getHighestPrefixedCounter(
       workspaces.flatMap((workspace) => workspace.repoRoots.map((repoRoot) => repoRoot.id)),
       "repo-",
+    );
+    this.worktreeCounter = getHighestPrefixedCounter(
+      workspaces.flatMap((workspace) => workspace.worktrees.map((worktree) => worktree.id)),
+      "wt-",
     );
   }
 
@@ -152,11 +158,13 @@ export class WorkspaceService {
     const createdAt = new Date().toISOString();
     const workspaceId = `ws-${this.workspaceCounter}`;
     const repoRoots = canonicalRepoPaths.map((repoPath) => this.createRepoRoot(repoPath));
+    const worktrees = await this.createInitialWorktrees(input.worktrees ?? [], repoRoots);
     const detail = await this.registry.createWorkspace({
       id: workspaceId,
       name: input.name,
       description: input.description,
       repoRoots,
+      worktrees,
       createdAt,
       updatedAt: createdAt,
     });
@@ -230,6 +238,44 @@ export class WorkspaceService {
       detail.workspace.updatedAt,
       "Workspace repo added",
       `Added repo ${repoRoot.name} to ${detail.workspace.name}.`,
+    );
+
+    return {
+      payload: this.toWorkspaceDetailDto(detail),
+      events: [{
+        workspaceId,
+        event: createWorkspaceUpdatedEvent(workspaceId, detail.workspace.updatedAt),
+      }],
+    };
+  }
+
+  async addWorkspaceWorktree(
+    workspaceId: string,
+    input: AddWorkspaceWorktreeDto,
+  ): Promise<WorkspaceMutationResult<WorkspaceDetailDto> | undefined> {
+    const currentDetail = this.registry.getWorkspaceDetail(workspaceId);
+    if (currentDetail === undefined) {
+      return undefined;
+    }
+
+    const repoRoot = currentDetail.workspace.repoRoots.find((candidate) => candidate.id === input.repoRootId);
+    if (repoRoot === undefined) {
+      throw new WorkspaceMutationValidationError(`repoRootId must reference a registered repo root in workspace ${workspaceId}: ${input.repoRootId}`);
+    }
+
+    const canonicalWorktreePath = await canonicalizeMutationPath(input.path, "worktree path");
+    validateNewWorktreePath(currentDetail.workspace, repoRoot, canonicalWorktreePath);
+    const worktree = this.createWorktree(repoRoot.id, canonicalWorktreePath, input.branch, input.label);
+    const detail = await this.registry.addWorktree(workspaceId, worktree);
+    if (detail === undefined) {
+      return undefined;
+    }
+
+    this.appendWorkspaceAttentionEvent(
+      detail.workspace,
+      detail.workspace.updatedAt,
+      "Workspace worktree added",
+      `Added worktree ${worktree.label ?? worktree.path} to ${detail.workspace.name}.`,
     );
 
     return {
@@ -473,6 +519,38 @@ export class WorkspaceService {
     };
   }
 
+  private createWorktree(repoRootId: string, worktreePath: string, branch?: string, label?: string): WorkspaceWorktree {
+    this.worktreeCounter += 1;
+
+    return {
+      id: `wt-${this.worktreeCounter}`,
+      repoRootId,
+      path: worktreePath,
+      branch,
+      label,
+    };
+  }
+
+  private async createInitialWorktrees(
+    inputs: readonly NonNullable<CreateWorkspaceDto["worktrees"]>[number][],
+    repoRoots: readonly WorkspaceRepoRoot[],
+  ): Promise<WorkspaceWorktree[]> {
+    const worktrees: WorkspaceWorktree[] = [];
+    for (const input of inputs) {
+      const canonicalRepoRootPath = await canonicalizeMutationPath(input.repoRootPath, "worktree repoRootPath");
+      const repoRoot = repoRoots.find((candidate) => pathsMatch(candidate.path, canonicalRepoRootPath));
+      if (repoRoot === undefined) {
+        throw new WorkspaceMutationValidationError(`worktree repoRootPath must reference a repo root in the new workspace: ${input.repoRootPath}`);
+      }
+
+      const canonicalWorktreePath = await canonicalizeMutationPath(input.path, "worktree path");
+      validateNewWorktreePath({ worktrees }, repoRoot, canonicalWorktreePath);
+      worktrees.push(this.createWorktree(repoRoot.id, canonicalWorktreePath, input.branch, input.label));
+    }
+
+    return worktrees;
+  }
+
   private findSession(sessionId: string): WorkspaceSession | undefined {
     for (const workspace of this.registry.listWorkspaces()) {
       const detail = this.registry.getWorkspaceDetail(workspace.id);
@@ -599,6 +677,17 @@ function assertUniqueNewRepoRootPaths(existingRepoRoots: readonly WorkspaceRepoR
       throw new WorkspaceMutationValidationError(`repo root path must be unique: ${repoPath}`);
     }
     seenPaths.add(normalizedRepoPath);
+  }
+}
+
+function validateNewWorktreePath(workspace: Pick<Workspace, "worktrees">, repoRoot: WorkspaceRepoRoot, worktreePath: string): void {
+  if (!isWorkspacePathInside(repoRoot.path, worktreePath)) {
+    throw new WorkspaceMutationValidationError(`worktree path must stay inside repo root ${repoRoot.path}: ${worktreePath}`);
+  }
+
+  const normalizedWorktreePath = normalizeWorkspacePathForComparison(worktreePath);
+  if (workspace.worktrees.some((worktree) => normalizeWorkspacePathForComparison(worktree.path) === normalizedWorktreePath)) {
+    throw new WorkspaceMutationValidationError(`worktree path must be unique: ${worktreePath}`);
   }
 }
 

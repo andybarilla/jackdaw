@@ -1,5 +1,6 @@
 import type { HealthResponse, RendererBootstrap } from "../../shared/transport/api.js";
 import type {
+  AddWorkspaceWorktreeDto,
   ArtifactDetailDto,
   ArtifactListDto,
   IntegrationSettingsDto,
@@ -28,6 +29,7 @@ export interface ApiClient {
   listWorkspaces(): Promise<WorkspaceSummaryDto[]>;
   getWorkspaceDetail(workspaceId: string): Promise<WorkspaceDetailDto>;
   updateWorkspace(workspaceId: string, update: UpdateWorkspaceDto): Promise<WorkspaceDetailDto>;
+  addWorkspaceWorktree(workspaceId: string, worktree: AddWorkspaceWorktreeDto): Promise<WorkspaceDetailDto>;
   listWorkspaceArtifacts(workspaceId: string): Promise<ArtifactListDto>;
   getArtifactDetail(workspaceId: string, artifactId: string): Promise<ArtifactDetailDto>;
   getIntegrationSettings(): Promise<IntegrationSettingsDto>;
@@ -131,6 +133,18 @@ export function createApiClient(configOrBaseUrl: string | ServiceApiConfig): Api
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(update),
+        },
+      );
+    },
+    addWorkspaceWorktree: async (workspaceId: string, worktree: AddWorkspaceWorktreeDto): Promise<WorkspaceDetailDto> => {
+      return fetchJson<WorkspaceDetailDto>(
+        config,
+        `/workspaces/${encodePathSegment(workspaceId)}/worktrees`,
+        "Worktree registration failed",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(worktree),
         },
       );
     },

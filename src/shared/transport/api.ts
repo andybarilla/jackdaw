@@ -1,6 +1,7 @@
 import type {
   CreateSessionDto,
   AddWorkspaceRepoDto,
+  AddWorkspaceWorktreeDto,
   ArtifactDetailDto,
   ArtifactListDto,
   CreateWorkspaceDto,
@@ -52,6 +53,10 @@ export interface ApiContract {
   };
   "POST /workspaces/:workspaceId/repos": {
     body: AddWorkspaceRepoDto;
+    response: WorkspaceDetailDto;
+  };
+  "POST /workspaces/:workspaceId/worktrees": {
+    body: AddWorkspaceWorktreeDto;
     response: WorkspaceDetailDto;
   };
   "GET /workspaces/:workspaceId/sessions": {

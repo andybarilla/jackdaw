@@ -4,6 +4,7 @@ import type { WorkspaceEventBus } from "../sse/event-bus.js";
 import { mergeIndexedArtifacts } from "../../workspace/workspace-detail.js";
 import type {
   AddWorkspaceRepoDto,
+  AddWorkspaceWorktreeDto,
   CreateWorkspaceDto,
   UpdateWorkspaceDto,
   WorkspaceDetailDto,
@@ -35,6 +36,20 @@ const createWorkspaceBodySchema = {
       type: "array",
       items: { type: "string", minLength: 1 },
     },
+    worktrees: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["repoRootPath", "path"],
+        properties: {
+          repoRootPath: { type: "string", minLength: 1 },
+          path: { type: "string", minLength: 1 },
+          branch: { type: "string", minLength: 1 },
+          label: { type: "string", minLength: 1 },
+        },
+      },
+    },
   },
 } as const;
 
@@ -65,6 +80,18 @@ const addWorkspaceRepoBodySchema = {
     path: { type: "string", minLength: 1 },
     name: { type: "string", minLength: 1 },
     defaultBranch: { type: "string", minLength: 1 },
+  },
+} as const;
+
+const addWorkspaceWorktreeBodySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["repoRootId", "path"],
+  properties: {
+    repoRootId: { type: "string", minLength: 1 },
+    path: { type: "string", minLength: 1 },
+    branch: { type: "string", minLength: 1 },
+    label: { type: "string", minLength: 1 },
   },
 } as const;
 
@@ -159,6 +186,36 @@ export async function registerWorkspaceRoutes(app: FastifyInstance, options: Wor
       try {
         const workspaceService = await options.workspaceService;
         const updatedWorkspace = await workspaceService.addWorkspaceRepo(request.params.workspaceId, request.body);
+        if (updatedWorkspace === undefined) {
+          return reply.code(404).send({ error: "Workspace not found" });
+        }
+
+        for (const { workspaceId, event } of updatedWorkspace.events) {
+          options.eventBus.publish(workspaceId, event);
+        }
+
+        return updatedWorkspace.payload;
+      } catch (error: unknown) {
+        if (error instanceof WorkspaceMutationValidationError) {
+          return reply.code(400).send({ error: error.message });
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.post<{ Params: { workspaceId: string }; Body: AddWorkspaceWorktreeDto }>(
+    "/workspaces/:workspaceId/worktrees",
+    {
+      schema: {
+        params: workspaceIdParamsSchema,
+        body: addWorkspaceWorktreeBodySchema,
+      },
+    },
+    async (request, reply) => {
+      try {
+        const workspaceService = await options.workspaceService;
+        const updatedWorkspace = await workspaceService.addWorkspaceWorktree(request.params.workspaceId, request.body);
         if (updatedWorkspace === undefined) {
           return reply.code(404).send({ error: "Workspace not found" });
         }

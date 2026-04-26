@@ -60,10 +60,18 @@ export interface IntegrationSettingsDto {
   };
 }
 
+export interface CreateWorkspaceWorktreeDto {
+  repoRootPath: string;
+  path: string;
+  branch?: string;
+  label?: string;
+}
+
 export interface CreateWorkspaceDto {
   name: string;
   description?: string;
   repoRoots?: string[];
+  worktrees?: CreateWorkspaceWorktreeDto[];
 }
 
 export interface UpdateWorkspaceDto {
@@ -76,6 +84,13 @@ export interface AddWorkspaceRepoDto {
   path: string;
   name?: string;
   defaultBranch?: string;
+}
+
+export interface AddWorkspaceWorktreeDto {
+  repoRootId: string;
+  path: string;
+  branch?: string;
+  label?: string;
 }
 
 export type CreateSessionDto = SpawnSessionCommand;

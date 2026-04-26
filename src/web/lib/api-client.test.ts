@@ -66,6 +66,38 @@ describe("api-client", () => {
     expect(fetchSpy).toHaveBeenCalledWith("http://127.0.0.1:7345/api/workspaces/workspace%2Fa%20b/artifacts/artifact%2Fa%20b");
   });
 
+  it("registers workspace worktrees through the explicit workspace API", async () => {
+    const fetchSpy = vi.fn<typeof fetch>(async () => {
+      return new Response(JSON.stringify({ workspace: { id: "workspace/a b", worktrees: [{ id: "wt-1" }] }, sessions: [], artifacts: [], recentAttention: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    global.fetch = fetchSpy;
+    const client = createApiClient("http://127.0.0.1:7345/api");
+
+    await expect(client.addWorkspaceWorktree("workspace/a b", {
+      repoRootId: "repo-1",
+      path: "/workspace/repo/.worktrees/task-10",
+      branch: "task-10",
+      label: "Task 10",
+    })).resolves.toMatchObject({ workspace: { worktrees: [{ id: "wt-1" }] } });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:7345/api/workspaces/workspace%2Fa%20b/worktrees",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoRootId: "repo-1",
+          path: "/workspace/repo/.worktrees/task-10",
+          branch: "task-10",
+          label: "Task 10",
+        }),
+      },
+    );
+  });
+
   it("persists workspace preferences through the workspace update API", async () => {
     const fetchSpy = vi.fn<typeof fetch>(async () => {
       return new Response(JSON.stringify({ workspace: { id: "workspace/a b", preferences: { selectedSessionId: "session-2" } }, sessions: [], artifacts: [], recentAttention: [] }), {

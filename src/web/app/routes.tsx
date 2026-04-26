@@ -115,6 +115,7 @@ export function AppRoutes(): React.JSX.Element {
   if (workspaceStream.detail.status === "ready" && route === "workspace-explorer") {
     return (
       <WorkspaceExplorerScreen
+        apiClient={apiClient}
         detail={workspaceStream.detail.data}
         selectedArtifactId={selectedArtifactId}
         onOpenArtifact={handleOpenArtifact}

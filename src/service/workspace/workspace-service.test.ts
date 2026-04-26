@@ -3,6 +3,7 @@ import type { CommandResult } from "../../shared/domain/commands.js";
 import type { WorkspaceSession } from "../../shared/domain/session.js";
 import type { RuntimeManager } from "../orchestration/runtime-manager.js";
 import {
+  createEmptyServiceState,
   createSeededServiceState,
   removeSeededServiceState,
   TEST_AWAITING_INPUT_SESSION_ID,
@@ -34,6 +35,45 @@ function requireSession(service: WorkspaceService, sessionId: string): Workspace
 
   return session;
 }
+
+describe("WorkspaceService worktree registration", () => {
+  it("persists worktrees registered after workspace creation", async () => {
+    const serviceState = await createEmptyServiceState();
+    temporaryDirectories.push(serviceState.appDataDir);
+    const service = await WorkspaceService.load({ appDataDir: serviceState.appDataDir });
+
+    const created = await service.createWorkspace({
+      name: "Worktree workspace",
+      repoRoots: ["/workspace/worktree-repo"],
+    });
+    const repoRootId = created.payload.workspace.repoRoots[0]?.id;
+    if (repoRootId === undefined) {
+      throw new Error("Expected created repo root");
+    }
+
+    const updated = await service.addWorkspaceWorktree(created.payload.workspace.id, {
+      repoRootId,
+      path: "/workspace/worktree-repo/.worktrees/task-10",
+      branch: "task-10",
+      label: "Task 10",
+    });
+
+    expect(updated?.payload.workspace.worktrees).toEqual([
+      expect.objectContaining({
+        id: "wt-1",
+        repoRootId,
+        path: "/workspace/worktree-repo/.worktrees/task-10",
+        branch: "task-10",
+        label: "Task 10",
+      }),
+    ]);
+    await expect(service.getWorkspaceDetail(created.payload.workspace.id)).resolves.toMatchObject({
+      workspace: {
+        worktrees: [expect.objectContaining({ path: "/workspace/worktree-repo/.worktrees/task-10" })],
+      },
+    });
+  });
+});
 
 describe("WorkspaceService session command failures", () => {
   it("emits intervention events from the fresh persisted rejection state", async () => {
