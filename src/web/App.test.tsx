@@ -262,6 +262,47 @@ describe("App", () => {
     expect(matches.length).toBeGreaterThan(0);
   });
 
+  it("restores the persisted selected session from workspace preferences", async () => {
+    mockFetchImplementation({
+      "ws-demo": {
+        ...WORKSPACE_DETAIL,
+        workspace: {
+          ...WORKSPACE_DETAIL.workspace,
+          preferences: { selectedSessionId: "session-running", attentionView: "all", detailView: "summary" },
+        },
+      },
+      "ws-ops": OPS_WORKSPACE_DETAIL,
+    });
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(<App />);
+
+    expect(await within(await screen.findByLabelText("Live summary panel")).findByText("Implementing deterministic service fixtures.")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Service read model" })).toBeVisible();
+  });
+
+  it("persists manual session selection to workspace preferences", async () => {
+    mockFetchImplementation();
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Operator follow-up" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /service read model/i }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "http://127.0.0.1:7345/workspaces/ws-demo",
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preferences: { selectedSessionId: "session-running" } }),
+        },
+      );
+    });
+    expect(await within(await screen.findByLabelText("Live summary panel")).findByText("Implementing deterministic service fixtures.")).toBeVisible();
+  });
+
   it("scopes the selected session to the active workspace when switching workspaces", async () => {
     mockFetchImplementation({
       "ws-demo": SCOPED_SELECTION_DEMO_DETAIL,

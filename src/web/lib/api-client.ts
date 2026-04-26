@@ -1,5 +1,12 @@
 import type { HealthResponse, RendererBootstrap } from "../../shared/transport/api.js";
-import type { ArtifactDetailDto, ArtifactListDto, IntegrationSettingsDto, WorkspaceDetailDto, WorkspaceSummaryDto } from "../../shared/transport/dto.js";
+import type {
+  ArtifactDetailDto,
+  ArtifactListDto,
+  IntegrationSettingsDto,
+  UpdateWorkspaceDto,
+  WorkspaceDetailDto,
+  WorkspaceSummaryDto,
+} from "../../shared/transport/dto.js";
 
 declare global {
   interface Window {
@@ -20,6 +27,7 @@ export interface ApiClient {
   getHealth(): Promise<HealthResponse>;
   listWorkspaces(): Promise<WorkspaceSummaryDto[]>;
   getWorkspaceDetail(workspaceId: string): Promise<WorkspaceDetailDto>;
+  updateWorkspace(workspaceId: string, update: UpdateWorkspaceDto): Promise<WorkspaceDetailDto>;
   listWorkspaceArtifacts(workspaceId: string): Promise<ArtifactListDto>;
   getArtifactDetail(workspaceId: string, artifactId: string): Promise<ArtifactDetailDto>;
   getIntegrationSettings(): Promise<IntegrationSettingsDto>;
@@ -86,8 +94,9 @@ function createServiceUrl(config: ServiceApiConfig, apiPath: string): string {
   return url.toString();
 }
 
-async function fetchJson<TData>(config: ServiceApiConfig, path: string, fallbackMessage: string): Promise<TData> {
-  const response = await fetch(createServiceUrl(config, path));
+async function fetchJson<TData>(config: ServiceApiConfig, path: string, fallbackMessage: string, init?: RequestInit): Promise<TData> {
+  const url = createServiceUrl(config, path);
+  const response = init === undefined ? await fetch(url) : await fetch(url, init);
   if (!response.ok) {
     throw new Error(await getResponseErrorMessage(response, fallbackMessage));
   }
@@ -112,6 +121,18 @@ export function createApiClient(configOrBaseUrl: string | ServiceApiConfig): Api
     },
     getWorkspaceDetail: async (workspaceId: string): Promise<WorkspaceDetailDto> => {
       return fetchJson<WorkspaceDetailDto>(config, `/workspaces/${encodePathSegment(workspaceId)}`, "Workspace detail fetch failed");
+    },
+    updateWorkspace: async (workspaceId: string, update: UpdateWorkspaceDto): Promise<WorkspaceDetailDto> => {
+      return fetchJson<WorkspaceDetailDto>(
+        config,
+        `/workspaces/${encodePathSegment(workspaceId)}`,
+        "Workspace update failed",
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(update),
+        },
+      );
     },
     listWorkspaceArtifacts: async (workspaceId: string): Promise<ArtifactListDto> => {
       return fetchJson<ArtifactListDto>(config, `/workspaces/${encodePathSegment(workspaceId)}/artifacts`, "Artifact index fetch failed");

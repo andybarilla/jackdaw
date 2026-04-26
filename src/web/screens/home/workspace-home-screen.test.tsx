@@ -213,6 +213,7 @@ function createApiClient(): ApiClient {
     getHealth: vi.fn(async () => ({ ok: true, service: "jackdaw-service" as const, version: "0.1.0", appDataDir: "/tmp/jackdaw", timestamp: "2026-04-23T12:00:00.000Z" })),
     listWorkspaces: vi.fn(async () => WORKSPACE_SUMMARIES),
     getWorkspaceDetail: vi.fn(async () => WORKSPACE_DETAIL),
+    updateWorkspace: vi.fn(async () => WORKSPACE_DETAIL),
     listWorkspaceArtifacts: vi.fn(async () => ({ workspaceId: "ws-demo", artifacts: WORKSPACE_DETAIL.artifacts })),
     getArtifactDetail: vi.fn(async () => ({ artifact: WORKSPACE_DETAIL.artifacts[0], content: "# Live workspace slice plan", readOnly: true as const })),
     getIntegrationSettings: vi.fn(async () => ({ hq: { status: "configured" as const, linkedIds: { projectId: "hq-123", workItemIds: [], sessionIds: [] } } })),

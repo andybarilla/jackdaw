@@ -66,6 +66,30 @@ describe("api-client", () => {
     expect(fetchSpy).toHaveBeenCalledWith("http://127.0.0.1:7345/api/workspaces/workspace%2Fa%20b/artifacts/artifact%2Fa%20b");
   });
 
+  it("persists workspace preferences through the workspace update API", async () => {
+    const fetchSpy = vi.fn<typeof fetch>(async () => {
+      return new Response(JSON.stringify({ workspace: { id: "workspace/a b", preferences: { selectedSessionId: "session-2" } }, sessions: [], artifacts: [], recentAttention: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    global.fetch = fetchSpy;
+    const client = createApiClient("http://127.0.0.1:7345/api");
+
+    await expect(client.updateWorkspace("workspace/a b", { preferences: { selectedSessionId: "session-2" } })).resolves.toMatchObject({
+      workspace: { preferences: { selectedSessionId: "session-2" } },
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:7345/api/workspaces/workspace%2Fa%20b",
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferences: { selectedSessionId: "session-2" } }),
+      },
+    );
+  });
+
   it("surfaces service error payloads before generic response failures", async () => {
     const fetchSpy = vi.fn<typeof fetch>(async () => {
       return new Response(JSON.stringify({ error: "Workspace not found" }), {

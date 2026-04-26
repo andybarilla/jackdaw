@@ -92,7 +92,12 @@ export function AppRoutes(): React.JSX.Element {
       ...currentSelectedSessionIdByWorkspaceId,
       [selectedWorkspaceId]: sessionId,
     }));
-  }, [selectedWorkspaceId]);
+
+    void apiClient.updateWorkspace(selectedWorkspaceId, { preferences: { selectedSessionId: sessionId } })
+      .catch((error: unknown) => {
+        console.error("Failed to persist selected session", error);
+      });
+  }, [apiClient, selectedWorkspaceId]);
 
   const handleOpenArtifact = React.useCallback((artifactId: string): void => {
     setSelectedArtifactId(artifactId);

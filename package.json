@@ -20,12 +20,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@mariozechner/pi-coding-agent": "latest",
     "fastify": "^5.6.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "@mariozechner/pi-coding-agent": "latest",
     "@mariozechner/pi-tui": "latest",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",

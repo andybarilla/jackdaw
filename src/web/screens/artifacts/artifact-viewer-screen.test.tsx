@@ -45,6 +45,7 @@ function createApiClient(): ApiClient {
     getHealth: vi.fn(),
     listWorkspaces: vi.fn(),
     getWorkspaceDetail: vi.fn(),
+    updateWorkspace: vi.fn(),
     listWorkspaceArtifacts: vi.fn(),
     getArtifactDetail: vi.fn(async (_workspaceId: string, artifactId: string) => {
       const artifact = ARTIFACTS.find((candidate) => candidate.id === artifactId);
