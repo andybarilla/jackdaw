@@ -480,7 +480,9 @@ describe("RuntimeManager", () => {
     expect(detail?.sessions).toHaveLength(1);
     expect(detail?.sessions[0]).toMatchObject({
       id: "ses-historical",
+      status: "done",
       connectionState: "historical",
+      currentActivity: "Historical-only session. No live controller is attached.",
       reconnectNote: expect.stringContaining("Could not reconnect after restart"),
     });
     expect(runtimeManager.listActiveSessionKeys()).toEqual([]);

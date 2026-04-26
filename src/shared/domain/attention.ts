@@ -1,5 +1,6 @@
 import {
   compareSessionStatusPriority,
+  type SessionConnectionState,
   type WorkspaceSession,
   type WorkspaceSessionStatus,
 } from "./session.js";
@@ -22,6 +23,7 @@ export interface AttentionEvent {
 export interface AttentionCandidate {
   sessionId: string;
   status: WorkspaceSessionStatus;
+  connectionState: SessionConnectionState;
   insertionOrder: number;
   updatedAt: string;
 }
@@ -36,8 +38,16 @@ export function attentionBandForStatus(status: WorkspaceSessionStatus): Attentio
   return "quiet";
 }
 
+export function attentionBandForSession(session: WorkspaceSession): AttentionBand {
+  if (session.connectionState === "historical") {
+    return "quiet";
+  }
+
+  return attentionBandForStatus(session.status);
+}
+
 export function compareAttentionCandidates(a: AttentionCandidate, b: AttentionCandidate): number {
-  const statusPriority = compareSessionStatusPriority(a.status, b.status);
+  const statusPriority = compareSessionStatusPriority(effectiveStatusForAttention(a), effectiveStatusForAttention(b));
   if (statusPriority !== 0) {
     return statusPriority;
   }
@@ -49,7 +59,16 @@ export function createAttentionCandidate(session: WorkspaceSession, insertionOrd
   return {
     sessionId: session.id,
     status: session.status,
+    connectionState: session.connectionState,
     insertionOrder,
     updatedAt: session.updatedAt,
   };
+}
+
+function effectiveStatusForAttention(candidate: AttentionCandidate): WorkspaceSessionStatus {
+  if (candidate.connectionState === "historical") {
+    return "done";
+  }
+
+  return candidate.status;
 }

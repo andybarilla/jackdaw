@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  attentionBandForSession,
   attentionBandForStatus,
   compareAttentionCandidates,
   createAttentionCandidate,
 } from "./attention.js";
 import type { WorkspaceSession } from "./session.js";
 
-function session(status: WorkspaceSession["status"], id: string, updatedAt = "2026-04-23T00:00:00.000Z"): WorkspaceSession {
+function session(
+  status: WorkspaceSession["status"],
+  id: string,
+  updatedAt = "2026-04-23T00:00:00.000Z",
+  connectionState: WorkspaceSession["connectionState"] = "live",
+): WorkspaceSession {
   return {
     id,
     workspaceId: "ws-1",
@@ -22,7 +28,7 @@ function session(status: WorkspaceSession["status"], id: string, updatedAt = "20
       workItemIds: [],
       reviewIds: [],
     },
-    connectionState: "live",
+    connectionState,
     updatedAt,
   };
 }
@@ -36,11 +42,22 @@ describe("attention domain", () => {
     expect(attentionBandForStatus("done")).toBe("quiet");
   });
 
+  it("treats historical-only sessions as quiet", () => {
+    expect(attentionBandForSession(session("running", "historical", "2026-04-23T00:00:00.000Z", "historical"))).toBe("quiet");
+  });
+
   it("ranks urgent sessions above running sessions", () => {
     const urgent = createAttentionCandidate(session("awaiting-input", "a"), 3);
     const running = createAttentionCandidate(session("running", "b"), 1);
 
     expect(compareAttentionCandidates(urgent, running)).toBeLessThan(0);
+  });
+
+  it("ranks historical-only running sessions below live running sessions", () => {
+    const live = createAttentionCandidate(session("running", "live"), 1);
+    const historical = createAttentionCandidate(session("running", "historical", "2026-04-23T00:00:00.000Z", "historical"), 0);
+
+    expect(compareAttentionCandidates(historical, live)).toBeGreaterThan(0);
   });
 
   it("preserves stable ordering within the same status band", () => {

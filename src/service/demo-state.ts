@@ -1,5 +1,5 @@
 import {
-  attentionBandForStatus,
+  attentionBandForSession,
   compareAttentionCandidates,
   createAttentionCandidate,
   type AttentionEvent,
@@ -441,7 +441,7 @@ export function createDemoStateStore(): DemoStateStore {
     appendAttentionRecord(
       session.id,
       session.workspaceId,
-      attentionBandForStatus(session.status),
+      attentionBandForSession(session),
       occurredAt,
       title,
       detail,

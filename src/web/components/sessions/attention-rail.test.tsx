@@ -91,6 +91,30 @@ describe("AttentionRail", () => {
     expect(within(needsOperatorGroup).getByText(/plan · Workspace GUI successor plan/)).toBeVisible();
   });
 
+  it("surfaces historical-only recovered sessions as quiet history", () => {
+    render(
+      <AttentionRail
+        sessions={[
+          {
+            ...SESSIONS[1],
+            id: "session-historical",
+            connectionState: "historical",
+            status: "running",
+            reconnectNote: "Could not reconnect after restart: session file missing.",
+          },
+        ]}
+        artifacts={ARTIFACTS}
+        selectedSessionId="session-historical"
+        onSelectSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByLabelText("Active sessions")).toBeNull();
+    const quietGroup = screen.getByLabelText("Quiet sessions");
+    expect(within(quietGroup).getByText("Historical-only · Not live")).toBeVisible();
+    expect(within(quietGroup).getByText("Could not reconnect after restart: session file missing.")).toBeVisible();
+  });
+
   it("does not expose HQ-only work item links in session rows", () => {
     render(
       <AttentionRail

@@ -10,6 +10,10 @@ export interface SessionRowProps {
 }
 
 function statusLabel(session: WorkspaceSession): string {
+  if (session.connectionState === "historical") {
+    return "Historical-only · Not live";
+  }
+
   if (session.status === "awaiting-input") {
     return "Needs operator · Awaiting input";
   }
@@ -27,6 +31,10 @@ function statusLabel(session: WorkspaceSession): string {
 }
 
 function attentionReason(session: WorkspaceSession): string {
+  if (session.reconnectNote !== undefined && session.reconnectNote.length > 0) {
+    return session.reconnectNote;
+  }
+
   if (session.lastIntervention?.text !== undefined && session.lastIntervention.text.length > 0) {
     return session.lastIntervention.text;
   }

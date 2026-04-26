@@ -1,5 +1,5 @@
 import React from "react";
-import { attentionBandForStatus, ATTENTION_BANDS } from "../../../shared/domain/attention.js";
+import { attentionBandForSession, ATTENTION_BANDS } from "../../../shared/domain/attention.js";
 import type { WorkspaceArtifact } from "../../../shared/domain/artifact.js";
 import type { WorkspaceSession } from "../../../shared/domain/session.js";
 import { SessionRow } from "./session-row.js";
@@ -33,7 +33,7 @@ export function AttentionRail({ sessions, artifacts, selectedSessionId, onSelect
 
       <div className="attention-rail-groups">
         {ATTENTION_BANDS.map((band) => {
-          const bandSessions = sessions.filter((session) => attentionBandForStatus(session.status) === band);
+          const bandSessions = sessions.filter((session) => attentionBandForSession(session) === band);
           if (bandSessions.length === 0) {
             return null;
           }

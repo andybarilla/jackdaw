@@ -1,6 +1,6 @@
 import path from "node:path";
 import {
-  attentionBandForStatus,
+  attentionBandForSession,
   compareAttentionCandidates,
   createAttentionCandidate,
   type AttentionEvent,
@@ -523,7 +523,7 @@ export class WorkspaceService {
       id: this.createAttentionEventId(),
       sessionId: session.id,
       workspaceId: session.workspaceId,
-      band: attentionBandForStatus(session.status),
+      band: attentionBandForSession(session),
       title,
       detail,
       occurredAt,

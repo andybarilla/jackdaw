@@ -583,8 +583,11 @@ export class RuntimeManager {
     const updatedAt = this.nowIso();
     const historicalSession: WorkspaceSession = {
       ...session,
+      status: "done",
       connectionState: "historical",
       reconnectNote,
+      currentTool: undefined,
+      currentActivity: "Historical-only session. No live controller is attached.",
       updatedAt,
     };
     await this.registry.upsertSession(historicalSession);

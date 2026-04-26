@@ -1,20 +1,23 @@
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getPathMock } = vi.hoisted(() => ({
+const { getAppPathMock, getPathMock } = vi.hoisted(() => ({
+  getAppPathMock: vi.fn<() => string>(),
   getPathMock: vi.fn<(name: string) => string>(),
 }));
 
 vi.mock("electron", () => ({
   app: {
+    getAppPath: getAppPathMock,
     getPath: getPathMock,
   },
 }));
 
-import { resolveAppDataDir } from "./app-paths.js";
+import { resolveAppAssetPath, resolveAppDataDir } from "./app-paths.js";
 
 describe("resolveAppDataDir", () => {
   beforeEach(() => {
+    getAppPathMock.mockReset();
     getPathMock.mockReset();
     delete process.env.JACKDAW_APP_DATA_DIR;
   });
@@ -31,5 +34,13 @@ describe("resolveAppDataDir", () => {
 
     expect(resolveAppDataDir()).toBe("/Users/test/Library/Application Support/Jackdaw");
     expect(getPathMock).toHaveBeenCalledWith("userData");
+  });
+
+  it("resolves packaged assets from the Electron app path", () => {
+    getAppPathMock.mockReturnValue("/Applications/Jackdaw.app/Contents/Resources/app.asar");
+
+    expect(resolveAppAssetPath("dist", "service", "main.js")).toBe(
+      path.join("/Applications/Jackdaw.app/Contents/Resources/app.asar", "dist", "service", "main.js"),
+    );
   });
 });

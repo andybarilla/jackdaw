@@ -48,6 +48,13 @@ export function SummaryPanel({
         </article>
       </div>
 
+      {session.connectionState === "historical" && (
+        <article className="summary-card" aria-label="Historical-only reconnect state">
+          <p className="eyebrow">Historical-only</p>
+          <p>{session.reconnectNote ?? "This session is visible as history, but no live controller is attached."}</p>
+        </article>
+      )}
+
       <dl className="session-facts compact">
         <div>
           <dt>Current activity</dt>

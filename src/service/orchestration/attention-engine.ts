@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
-  attentionBandForStatus,
+  attentionBandForSession,
   compareAttentionCandidates,
   createAttentionCandidate,
   type AttentionEvent,
@@ -50,7 +50,7 @@ export class AttentionEngine {
       id: this.idFactory(),
       workspaceId: session.workspaceId,
       sessionId: session.id,
-      band: attentionBandForStatus(session.status),
+      band: attentionBandForSession(session),
       title,
       detail,
       occurredAt,
@@ -64,7 +64,7 @@ export class AttentionEngine {
       id: this.idFactory(),
       workspaceId: session.workspaceId,
       sessionId: session.id,
-      band: attentionBandForStatus(session.status),
+      band: attentionBandForSession(session),
       title: attentionTitleForActivity(activity),
       detail: activity.summary,
       occurredAt: activity.occurredAt,

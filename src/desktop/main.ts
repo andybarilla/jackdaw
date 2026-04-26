@@ -1,12 +1,13 @@
 import net from "node:net";
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
-import { resolveAppDataDir } from "./lifecycle/app-paths.js";
+import { resolveAppAssetPath, resolveAppDataDir } from "./lifecycle/app-paths.js";
 import { startServiceProcess, type ServiceProcess } from "./lifecycle/service-process.js";
 import { createMainWindow } from "./lifecycle/window.js";
 
 let serviceProcess: ServiceProcess | undefined;
 let preloadPath = "";
+let rendererFilePath = "";
 
 void bootstrap().catch((error) => {
   console.error("[jackdaw-desktop] bootstrap failed", error);
@@ -26,6 +27,7 @@ app.on("activate", async () => {
   if (serviceProcess && BrowserWindow.getAllWindows().length === 0) {
     await createMainWindow({
       preloadPath,
+      rendererFilePath,
       rendererUrl: process.env.JACKDAW_WEB_URL,
     });
   }
@@ -38,13 +40,19 @@ async function bootstrap(): Promise<void> {
 
   const appDataDir = resolveAppDataDir();
   const port = await findAvailablePort();
-  const serviceEntrypoint = path.resolve("dist/service/main.js");
-  preloadPath = path.resolve("dist/desktop/preload.cjs");
+  const appRoot = resolveAppAssetPath();
+  const serviceWorkingDirectory = appRoot.endsWith(".asar") ? path.dirname(appRoot) : appRoot;
+  const serviceEntrypoint = resolveAppAssetPath("dist", "service", "main.js");
+  preloadPath = resolveAppAssetPath("dist", "desktop", "preload.cjs");
+  rendererFilePath = resolveAppAssetPath("dist", "web", "index.html");
   console.log("[jackdaw-desktop] resolved runtime paths", {
     appDataDir,
     port,
+    appRoot,
+    serviceWorkingDirectory,
     serviceEntrypoint,
     preloadPath,
+    rendererFilePath,
     webUrl: process.env.JACKDAW_WEB_URL,
   });
 
@@ -52,6 +60,7 @@ async function bootstrap(): Promise<void> {
     port,
     appDataDir,
     serviceEntrypoint,
+    workingDirectory: serviceWorkingDirectory,
   });
   console.log("[jackdaw-desktop] started local service process", { baseUrl: serviceProcess.baseUrl });
 
@@ -63,6 +72,7 @@ async function bootstrap(): Promise<void> {
 
   await createMainWindow({
     preloadPath,
+    rendererFilePath,
     rendererUrl: process.env.JACKDAW_WEB_URL,
   });
   console.log("[jackdaw-desktop] main window created");

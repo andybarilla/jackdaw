@@ -1,8 +1,8 @@
-import path from "node:path";
 import { BrowserWindow } from "electron";
 
 export interface CreateMainWindowOptions {
   preloadPath: string;
+  rendererFilePath: string;
   rendererUrl?: string;
 }
 
@@ -47,6 +47,6 @@ export async function createMainWindow(options: CreateMainWindowOptions): Promis
     return window;
   }
 
-  await window.loadFile(path.resolve("dist/web/index.html"));
+  await window.loadFile(options.rendererFilePath);
   return window;
 }

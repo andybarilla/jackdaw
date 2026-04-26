@@ -1,4 +1,3 @@
-import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 
 export type LocalServiceProtocol = "http";
@@ -21,6 +20,7 @@ export interface StartServiceProcessOptions {
   port: number;
   appDataDir: string;
   serviceEntrypoint: string;
+  workingDirectory: string;
   host?: string;
   protocol?: LocalServiceProtocol;
 }
@@ -35,7 +35,8 @@ export async function startServiceProcess(options: StartServiceProcessOptions): 
     host: validateLocalServiceHost(options.host ?? "127.0.0.1"),
     port: options.port,
   };
-  const child = spawn(process.execPath, [path.resolve(options.serviceEntrypoint)], {
+  const child = spawn(process.execPath, [options.serviceEntrypoint], {
+    cwd: options.workingDirectory,
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
