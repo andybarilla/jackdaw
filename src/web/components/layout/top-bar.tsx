@@ -29,7 +29,7 @@ export function TopBar({
         <div className="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 36 28" width="20" height="16" fill="none">
             <path d="M4 14 L18 4 L32 14" stroke="currentColor" strokeWidth="3" strokeLinejoin="miter" strokeLinecap="square" />
-            <path d="M4 24 L18 14 L32 24" stroke="var(--fg-0)" strokeWidth="3" strokeLinejoin="miter" strokeLinecap="square" opacity="0.55" />
+            <path d="M4 24 L18 14 L32 24" stroke="var(--text-primary)" strokeWidth="3" strokeLinejoin="miter" strokeLinecap="square" opacity="0.55" />
           </svg>
         </div>
         <div>
