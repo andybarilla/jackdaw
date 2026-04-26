@@ -347,6 +347,31 @@ describe("workspace SSE stream", () => {
     }
   });
 
+  it("includes packaged file renderer cors headers for the null origin outside development", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const { baseUrl } = await createListeningServer();
+    const streamConnection = await connectToWorkspaceEvents(
+      baseUrl,
+      TEST_WORKSPACE_ID,
+      undefined,
+      "null",
+    );
+
+    try {
+      expect(streamConnection.response.statusCode).toBe(200);
+      expect(streamConnection.response.headers["content-type"]).toContain("text/event-stream");
+      expect(streamConnection.response.headers["access-control-allow-origin"]).toBe("null");
+      expect(String(streamConnection.response.headers.vary)).toContain("Origin");
+      expect(String(streamConnection.response.headers["access-control-allow-headers"])).toContain("Last-Event-ID");
+
+      const snapshotEvent = await streamConnection.nextEvent();
+
+      expect(snapshotEvent.event).toBe("workspace.snapshot");
+    } finally {
+      streamConnection.close();
+    }
+  });
+
   it("emits background session failure events from runtime-managed prompt rejection", async () => {
     const { baseUrl } = await createListeningServer(new PromptFailingPiSessionAdapter());
     const streamConnection = await connectToWorkspaceEvents(baseUrl, TEST_WORKSPACE_ID);

@@ -15,17 +15,18 @@ const DEV_ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
   "http://127.0.0.1:5173",
   "http://localhost:5173",
 ]);
+const PACKAGED_RENDERER_ORIGIN = "null";
 
-function getAllowedDevelopmentOrigin(origin: string | undefined): string | undefined {
-  if (process.env.NODE_ENV !== "development") {
-    return undefined;
-  }
-
+function getAllowedCorsOrigin(origin: string | undefined): string | undefined {
   if (origin === undefined) {
     return undefined;
   }
 
-  return DEV_ALLOWED_ORIGINS.has(origin) ? origin : undefined;
+  if (process.env.NODE_ENV === "development") {
+    return DEV_ALLOWED_ORIGINS.has(origin) ? origin : undefined;
+  }
+
+  return origin === PACKAGED_RENDERER_ORIGIN ? PACKAGED_RENDERER_ORIGIN : undefined;
 }
 
 export interface ServiceServerOptions {
@@ -65,7 +66,7 @@ export function createServer(options: ServiceServerOptions): FastifyInstance {
     const requestOrigin = Array.isArray(request.headers.origin)
       ? request.headers.origin[0]
       : request.headers.origin;
-    const allowedOrigin = getAllowedDevelopmentOrigin(requestOrigin);
+    const allowedOrigin = getAllowedCorsOrigin(requestOrigin);
 
     if (allowedOrigin === undefined) {
       return;

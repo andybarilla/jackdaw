@@ -277,6 +277,40 @@ describe("service server", () => {
     expect(response.headers["access-control-allow-origin"]).toBeUndefined();
   });
 
+  it("allows the packaged file renderer null origin outside development", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const server = await createTestServer();
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/health",
+      headers: {
+        origin: "null",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe("null");
+    expect(response.headers.vary).toContain("Origin");
+  });
+
+  it("handles preflight for the packaged file renderer null origin outside development", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const server = await createTestServer();
+
+    const response = await server.inject({
+      method: "OPTIONS",
+      url: "/workspaces",
+      headers: {
+        origin: "null",
+      },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("null");
+    expect(response.headers["access-control-allow-headers"]).toContain("Last-Event-ID");
+  });
+
   it("handles preflight for an allowed dev origin", async () => {
     vi.stubEnv("NODE_ENV", "development");
     const server = await createTestServer();
