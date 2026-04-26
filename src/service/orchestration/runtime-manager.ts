@@ -451,7 +451,10 @@ export class RuntimeManager {
     }
 
     if (session.sessionFile === undefined) {
-      await this.markSessionHistorical(session, createReconnectNote("No pi session file was recorded for this session."));
+      if (session.connectionState !== "historical") {
+        await this.markSessionHistorical(session, createReconnectNote("No pi session file was recorded for this session."));
+      }
+
       return {
         workspaceId: session.workspaceId,
         sessionId: session.id,
@@ -859,7 +862,7 @@ async function disposeManagedSession(managedSession: ManagedPiSession): Promise<
 }
 
 function createReconnectNote(reason: string): string {
-  return `Could not reconnect after restart. Metadata remains visible locally, but steer/follow-up/abort only work for sessions reattached in-process. Reason: ${reason}`;
+  return `Could not reconnect after restart. Historical-only state: metadata remains visible locally, including summary, artifacts, repo, and worktree context. Steer/follow-up/abort only work for sessions reattached to a live runtime. Reason: ${reason}`;
 }
 
 function mergeRecentFiles(

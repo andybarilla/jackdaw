@@ -1,16 +1,20 @@
-import { RuntimeManager, type ReconnectSessionResult } from "./runtime-manager.js";
+import type { ReconnectSessionResult } from "./runtime-manager.js";
+
+export interface ReconnectRuntime {
+  reconnectPersistedSessions(workspaceId?: string): Promise<ReconnectSessionResult[]>;
+}
 
 export interface ReconnectManagerOptions {
-  runtimeManager: RuntimeManager;
+  runtimeManager: ReconnectRuntime;
 }
 
 export class ReconnectManager {
-  private readonly runtimeManager: RuntimeManager;
+  private readonly runtimeManager: ReconnectRuntime;
 
-  constructor(runtimeManagerOrOptions: RuntimeManager | ReconnectManagerOptions) {
-    this.runtimeManager = runtimeManagerOrOptions instanceof RuntimeManager
-      ? runtimeManagerOrOptions
-      : runtimeManagerOrOptions.runtimeManager;
+  constructor(runtimeManagerOrOptions: ReconnectRuntime | ReconnectManagerOptions) {
+    this.runtimeManager = "runtimeManager" in runtimeManagerOrOptions
+      ? runtimeManagerOrOptions.runtimeManager
+      : runtimeManagerOrOptions;
   }
 
   async reconnectAll(): Promise<ReconnectSessionResult[]> {
