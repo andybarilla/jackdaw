@@ -7,7 +7,9 @@ Date: 2026-08-24. Verified on Andy's Linux workstation (CachyOS).
 
 **"Native signals first, scraping as fallback" is a real cross-harness strategy. It is decisively not a Claude-Code-only special case.**
 
-Seven of the eight harnesses surveyed can tell an external supervisor "I am blocked waiting for a human approval" through a structured channel, without anyone reading a rendered terminal cell. `pi` is the sole exception, and it is the exception because it has no built-in approval gate to report on.
+**Six of the eight** harnesses surveyed can tell an external supervisor "I am blocked waiting for a human approval" through a structured channel reachable from a tmux pane, without anyone reading a rendered terminal cell — five of them for free, and a sixth (`opencode`) once Jackdaw supplies a launch flag. Two cannot: `cursor`, whose approval event lives only on a channel that replaces the TUI, and `pi`, which has no built-in approval gate to report on at all.
+
+Of those six, two (`claude`, `codex`) were machine-verified here; the other four rest on vendor documentation or upstream source.
 
 That is the answer to the load-bearing question. The interesting nuance is not *whether* native signals exist but **what it costs to reach them**, and that splits the field three ways:
 
@@ -347,11 +349,11 @@ with per-agent match rules using `contains` / `regex` / `line_regex` / `all` / `
 
 That is regex-matching rendered pane text, shipped as a versioned per-harness manifest.
 
-This is a herdr implementation choice, not evidence that native signals are absent — seven of the eight harnesses here can report approval-blocking natively, and herdr draws on none of it. The reading that matters: herdr gets adequate results from scraping, so Jackdaw's native-signals path must earn its complexity. On this evidence it does, comfortably — a hook that fires on `permission_request` is exact, instant and version-stable, where a regex on a prompt box breaks every time a harness restyles its UI.
+This is a herdr implementation choice, not evidence that native signals are absent — six of the eight harnesses here can report approval-blocking natively on a channel a tmux pane can reach, and herdr draws on none of it. The reading that matters: herdr gets adequate results from scraping, so Jackdaw's native-signals path must earn its complexity. On this evidence it does, comfortably — a hook that fires on `permission_request` is exact, instant and version-stable, where a regex on a prompt box breaks every time a harness restyles its UI.
 
 ## Follow-ups this leaves open
 
-- **Install and verify `qwen`.** It is the strongest harness in this survey on paper and the only one with a documented structured sidecar on a live TUI. If Dual Output works as documented, it belongs in the first round of adapter prototypes, not a later one.
+- **Install and verify `qwen`.** It is the strongest harness in this survey and the only one with a structured sidecar on a live TUI. Dual Output is not doc-only vapour — `--json-fd` / `--json-file` / `--input-file` are registered as real yargs options in `packages/cli/src/config/config.ts` (with a mutual-exclusion check), implemented in `packages/cli/src/dualOutput/DualOutputBridge.ts`, wired into `packages/cli/src/ui/startInteractiveUI.tsx`, and covered by tests and both SDKs' schemas. That was checked because qwen's docs tree demonstrably carries unshipped prose elsewhere ("Mode 2 — Stage 1.5 `qwen --serve` co-hosted TUI (not in this PR)"). What remains unverified is behaviour of a *released build*, not existence. qwen belongs in the first round of adapter prototypes.
 - **Resolve the opencode contradiction.** Docs claim the TUI assigns a random port; `dev` HEAD shows no listener without `--port`/`--hostname`/`--mdns`. Check a release build. This decides whether opencode's adapter needs a launch-argument contribution.
 - **Confirm `droid`, `cursor`, `hermes` against real installs.** All three look plausible on paper; none was executed.
 - **Establish whether droid hooks fire during `droid exec`.** Undocumented; decides whether droid has one supervision channel or two.
