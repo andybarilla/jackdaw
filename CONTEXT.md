@@ -1,0 +1,100 @@
+# Jackdaw
+
+Jackdaw supervises fleets of AI coding-agent sessions across machines. It holds the
+state that today dies when a session ends, so a human does not have to hold it.
+
+## Language
+
+### The fleet
+
+**Machine**:
+A host running one Jackdaw daemon. First-class: agents, workspaces and roles are all
+located on one.
+_Avoid_: host, node, box
+
+**Agent**:
+A named, long-lived supervised worker — a role incarnated in a pane. `lead-alare` is
+an agent; the Claude Code process currently backing it is not.
+_Avoid_: worker, bot, pane
+
+**Session**:
+One incarnation of an agent, from start to death. An agent that is restarted is the
+same agent and a new session.
+_Avoid_: run, instance, process
+
+**Role**:
+The configured shape an agent takes — a name pattern, a prompt file, a machine, and a
+supervision policy. `lead`, `ic-generalist` and `supervisor` are roles.
+_Avoid_: agent type, persona, template
+
+**Supervision policy**:
+The part of a role Jackdaw itself acts on: idle thresholds, restart behaviour, and
+startup choreography. Never judgment — that lives in the role's prompt file.
+
+**Project**:
+A named unit of work with a source root, a tracker binding, a workspace root, a room,
+and the roles expected to be running for it. The join key for everything else.
+
+**Workspace**:
+A directory tree an agent works in, outliving any one session. Identified by its
+**path**, never by the name of an agent sitting in it. A git worktree is one kind; a
+TalosTitle effort tree is another.
+_Avoid_: worktree, checkout, effort tree
+
+**Effort**:
+A kind of workspace whose lifespan is days rather than hours. A configured variation,
+not a separate concept.
+
+**Stranded**:
+A workspace with no live agent under it, holding work nobody is on.
+
+### Communication
+
+**Room**:
+A durable, project-scoped channel carrying agent-authored posts, with membership and
+per-member read state. The supervisor is a member of every room.
+_Avoid_: channel, chat, scuttlebutt
+
+**Post**:
+One short agent-authored message in a room. A wake signal and a pointer — never the
+thing it points at.
+
+**Event**:
+One timestamped machine-observed fact about the fleet. High-volume, unaddressed, and
+aged out; the opposite of a post in every respect.
+
+**Falling behind**:
+The state of a subscriber whose cursor has aged out of the retention window. Being
+told you fell behind is the guarantee; silently missing events is the failure.
+
+### Work in flight
+
+**Handoff**:
+A first-class record of finished work passed from its author to a holder. Unheld work
+is a queryable state rather than something a supervisor infers from an idle pane.
+
+**Gate**:
+The review a handoff must pass before acceptance. Jackdaw records that a handoff was
+returned; it never records that a gate passed.
+
+**Intervention**:
+One entry in the queue of things only the human can do, carrying a `check` predicate
+that resolves it. Interpreted, never executed.
+_Avoid_: blocker, todo, needs-andy
+
+**Lease**:
+A time-bounded exclusive claim on a thing — a pane, a branch lane, a ticket — held by
+one holder. Its purpose is detecting a holder that died without releasing.
+_Avoid_: lock, claim, reservation
+
+### Foreign state
+
+**Adapter**:
+A plugin binding Jackdaw to something outside it. A **harness adapter** covers one
+coding harness; a **tracker adapter** covers one issue tracker.
+_Avoid_: integration, driver, connector
+
+**Projection**:
+Jackdaw's read-only, staleness-stamped local copy of foreign state — issues, git
+status. Never written back; the foreign system stays authoritative.
+_Avoid_: cache, mirror, sync
