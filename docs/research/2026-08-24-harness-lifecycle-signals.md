@@ -244,7 +244,22 @@ esac
 
 and the payload it forwards over `HERDR_SOCKET_PATH` is `pane_id`, `agent_session_id`, `agent_session_path`, `session_start_source`. It is a **session-identity correlator**, not a state reporter. Meanwhile the herdr binary's own agent model carries `agent_status` with the vocabulary `working` / `blocked` / `idle` / `unknown`, alongside fields named `screen_detection_skipped`, `terminal_title_stripped`, and a `detection` variant.
 
-Read together: herdr's cross-harness state detection is primarily screen and terminal-title detection, with hooks used to bind a pane to a session id. That is a herdr implementation choice, not evidence that native signals are absent — four of the harnesses surveyed here have hook systems herdr does not appear to draw state from. The useful reading is narrower: the incumbent gets adequate results from scraping, so Jackdaw's native-signals path has to earn its complexity by being *better*, and the place it can be clearly better is approval-blocking on claude, codex and droid.
+The mechanism is explicit in the binary. herdr ships an **agent-detection manifest** system, refreshed from a remote catalog:
+
+```
+HERDR_AGENT_DETECTION_MANIFEST_CATALOG_URL
+https://herdr.dev/agent-detection/index.toml
+```
+
+with per-agent match rules whose vocabulary is `contains` / `regex` / `line_regex` / `all` / `any` / `not`, resolving to `visible_idle`, `visible_working`, `visible_blocker`, `skip_state_update`. An actual rule embedded in the binary:
+
+```toml
+{ contains = ["hermes needs your"] }
+```
+
+That is string-matching rendered pane text, versioned and shipped as a downloadable manifest per harness. It is the clearest possible statement of the incumbent's architecture.
+
+Read together: herdr's cross-harness state detection is regex screen detection driven by per-agent manifests, plus terminal-title reading, with hooks used only to bind a pane to a session id. That is a herdr implementation choice, not evidence that native signals are absent — four of the harnesses surveyed here have hook systems herdr does not appear to draw state from. The useful reading is narrower: the incumbent gets adequate results from scraping, so Jackdaw's native-signals path has to earn its complexity by being *better*, and the place it can be clearly better is approval-blocking on claude, codex and droid.
 
 ## Implications for the adapter contract
 
