@@ -267,4 +267,12 @@ Read together: herdr's cross-harness state detection is regex screen detection d
 2. **Two distinct native mechanisms, not one.** Push (hooks/notify programs invoked by the harness, needing a socket or endpoint to call) and pull (tailing the session artifact on disk). Claude and codex offer both; opencode's is strongest on pull. The plugin interface should not assume push.
 3. **Headless JSON modes are not a supervision channel.** `claude --print --output-format stream-json`, `codex exec --json`, and `pi --mode rpc` all *replace* the interactive TUI. Under the tmux substrate decision they are irrelevant to supervising a live pane. Do not let them inflate the capability matrix.
 4. **The TTY question is settled by construction.** Every TUI surveyed wants a real terminal — codex refuses to start without one — and tmux supplies exactly that. Launching behind a wrapper is a non-issue for the tmux design; it would only have been a problem for a PTY-owning daemon, which #1 already ruled out.
-5. **Approval-blocking is where scraping survives.** For pi, opencode, and everything unverified, "this pane is waiting on a human" is not natively observable today. If Jackdaw wants that state universally, scraping stays in the design — but scoped to one transition rather than being the whole detector.
+5. **Approval-blocking is where scraping survives.** For pi, cursor, opencode and everything unverified, "this pane is waiting on a human" is not natively observable on the channel a tmux pane uses. If Jackdaw wants that state universally, scraping stays in the design — but scoped to one transition on a subset of harnesses, rather than being the whole detector for all of them. That is a much smaller and much more maintainable surface than herdr's manifest catalog.
+
+## Follow-ups this leaves open
+
+- Install and verify `qwen` and `hermes`. Two of eight is the honest unverified count.
+- Re-verify `opencode` against a current install; the database inspected here is roughly a year stale, and its approval-event story is "not observed", not "confirmed absent".
+- Confirm `droid` and `cursor` against real installs. Both look strong on paper; neither was executed.
+- Establish whether droid hooks fire during `droid exec` — undocumented, and it decides whether droid has one supervision channel or two.
+- Find cursor's on-disk transcript path empirically; it exists but is documented nowhere first-party.
