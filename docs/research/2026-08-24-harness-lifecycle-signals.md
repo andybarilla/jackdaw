@@ -37,10 +37,10 @@ Interactive column = signals available while the harness runs its normal TUI in 
 | **codex** (codex-cli 0.147.0) | Hook engine via `hooks.json`, 10 events: `session_start`, `session_end`, `user_prompt_submit`, `pre_tool_use`, `post_tool_use`, `permission_request`, `pre_compact`, `post_compact`, `subagent_start`, `subagent_stop`. Plus `notify` external program (`agent-turn-complete`) | `codex exec --json` (JSONL, exec-only); `codex app-server` / `mcp-server` / `exec-server` are separate non-TUI modes | yes | yes | yes (`notify` turn-complete) | **yes** (`permission_request`) | yes (`session_end`, `notify`) | `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl`; index at `~/.codex/session_index.jsonl` | TUI refuses to start without a TTY; satisfied by tmux |
 | **pi** (0.84.1) | TypeScript extension events in-TUI: `session_start`, `before_agent_start`, `agent_start`, `turn_start`/`turn_end`, `message_*`, `tool_execution_start/update/end`, `tool_call`, `tool_result`, `agent_end`, `agent_settled`, `input`, `session_shutdown` | `--mode json`, `--mode rpc` (JSONL over stdio; replaces the TUI), `--print` | yes | yes | yes (`agent_settled`) | **no built-in signal** | yes (`agent_settled`, `session_shutdown`) | `~/.pi/agent/sessions/--<cwd-with-slashes-as-dashes>--/<ts>_<uuid>.jsonl` | TUI; satisfied by tmux (pi ships tmux setup docs) |
 | **opencode** | Persisted event log + plugin hooks (see caveat) | HTTP/SSE server mode | yes (`session.created`) | yes (`session.next.step.started`, `tool.called`) | partial (`step.ended`) | **not observed** | yes (`session.next.step.ended`) | SQLite `~/.local/share/opencode/opencode.db`, event-sourced tables `event`/`event_sequence`/`session`/`session_message`/`part` | TUI; not re-verified (binary absent) |
-| **droid** | unverified | unverified | ? | ? | ? | ? | ? | unverified | unverified |
-| **qwen** | unverified | unverified | ? | ? | ? | ? | ? | unverified | unverified |
-| **cursor** | unverified | unverified | ? | ? | ? | ? | ? | unverified | unverified |
-| **hermes** | unverified | unverified | ? | ? | ? | ? | ? | unverified | unverified |
+| **droid** (Factory) | Hook engine, 9 events: `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `SubagentStop`, `PreCompact`. `Notification` carries `notification_type` ∈ {`permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog`} | `droid exec -o json` / `stream-json` / `stream-jsonrpc` (exec-only). JSON-RPC mode adds `droid.request_permission`, `droid.ask_user` | yes | yes | yes (`Notification`/`idle_prompt`) | **yes** (`Notification`/`permission_prompt`) | yes (`Stop`, `SessionEnd`) | JSONL under `~/.factory/projects/…`, surfaced to hooks as `transcript_path` | not documented; docs-only row |
+| **qwen** | see [Unverified](#unverified) | see below | ? | ? | ? | ? | ? | see below | not verified |
+| **cursor** (cursor-agent) | Hook engine (`hooks.json`), 18 agent events incl. `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`, `beforeShellExecution`, `stop`, `afterAgentResponse`, `subagentStart/Stop`, `preCompact`. Confirmed to fire in the CLI by the CLI changelog | `--print --output-format json|stream-json` (print-only, NDJSON). `cursor-agent acp` (JSON-RPC/stdio) adds `session/request_permission` | yes | yes | partial — no hook for "idle, waiting on human" | **no** in TUI or print mode; yes only via `acp` (`session/request_permission`) | yes (`stop`, `sessionEnd`, terminal `result`) | JSONL, "Claude Code-compatible"; **path not documented** — discoverable only at runtime via `transcript_path` / `CURSOR_TRANSCRIPT_PATH` | not documented; docs-only row |
+| **hermes** | see [Unverified](#unverified) | see below | ? | ? | ? | ? | ? | see below | not verified |
 
 ## Evidence
 
@@ -166,18 +166,60 @@ This is the strongest on-disk lifecycle record of any harness surveyed: opencode
 
 Two honest caveats. First, **no permission/approval event type appears in this log** — the `permission` *table* holds project-scoped granted permissions (`action`, `resource`, `time_created`), which is a grant ledger, not a pending-approval signal. Second, this database is from a version roughly a year stale relative to today; the schema and event vocabulary may have moved. The opencode row should be re-verified against a live install before the adapter contract is frozen.
 
+### droid (Factory)
+
+Not installed on this machine — no `~/.factory`, no binary. Everything below is from Factory's own documentation, not from a running install.
+
+`https://docs.factory.ai/harness/hooks` documents nine hook events — `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Notification`, `Stop`, `SubagentStop`, `PreCompact`, `SessionStart`, `SessionEnd` — configured in `~/.factory/hooks.json` (user), `.factory/hooks.json` (project), or a `hooks` key in the matching `settings.json`, and managed in-TUI via `/hooks`.
+
+The decisive one is `Notification`, which carries a `notification_type`:
+
+> `permission_prompt` — "Droid is waiting for permission to run an action."
+> `idle_prompt` — "Droid is waiting for user input, including immediately after the user cancels a turn."
+> `elicitation_dialog` — "Droid needs structured input in an elicitation dialog."
+
+That is a native, in-TUI, blocked-on-approval signal *and* a native awaiting-input signal. On the documented surface, droid is the equal of claude and codex for supervision purposes — arguably better, because it distinguishes idle from blocked explicitly.
+
+Note the distinction between deciding and observing: `PreToolUse` can return `permissionDecision: "allow" | "deny" | "ask"`, which makes the hook an approver. That is a different thing from `Notification`/`permission_prompt`, which reports that droid is *currently stuck*. Only the latter is a supervision signal.
+
+Transcripts: `transcript_path` is a documented hook-input field, and the doc's own example payload shows JSONL under `~/.factory/projects/…`. Factory never writes the directory layout out in prose; that example string is the only first-party evidence, so treat the exact filename shape as unconfirmed.
+
+Headless: `droid exec -o/--output-format text|json|stream-json|stream-jsonrpc`. The JSON-RPC mode has explicit server-to-client requests `droid.request_permission` and `droid.ask_user` — but that is a custom-client topology, not a tmux pane.
+
+**Could not verify:** whether hooks fire during `droid exec` (the hooks page, the droid-exec page, the CLI reference and the changelog are all silent), and the exact on-disk transcript filename.
+
+### cursor (cursor-agent)
+
+Not installed — no `~/.cursor`, no `cursor` or `cursor-agent` on `PATH`. Docs-only.
+
+`https://cursor.com/docs/hooks` documents 18 agent hook events (`sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`, `postToolUseFailure`, `subagentStart`, `subagentStop`, `beforeShellExecution`, `afterShellExecution`, `beforeMCPExecution`, `afterMCPExecution`, `beforeReadFile`, `afterFileEdit`, `beforeSubmitPrompt`, `preCompact`, `stop`, `afterAgentResponse`, `afterAgentThought`) plus tab and app-lifecycle hooks, configured in `hooks.json` with enterprise → team → project → user precedence.
+
+A documentation caveat worth carrying: that page is framed around the IDE throughout, and neither the CLI overview nor `cli-config.json` mentions hooks. The CLI-scoped confirmation comes from the CLI changelog:
+
+> "**Hooks fire reliably.** `afterAgentThought`/`afterAgentResponse` events emit in the CLI, and Claude Code-format hook responses are accepted."
+
+**Cursor has no in-TUI blocked-on-approval signal.** Its hooks let you *decide* permission (`beforeShellExecution` returning `permission: "allow"/"deny"/"ask"`), but nothing fires because Cursor's own approval prompt is on screen. The approval event exists only on the ACP channel: `cursor-agent acp` (JSON-RPC 2.0 over stdio, "hidden from default command help output") sends `session/request_permission`, and the docs warn "If your client does not answer permission requests, tool execution can block." Awaiting-input is likewise ACP-only (`cursor/ask_question`, documented as blocking).
+
+Structured output is unusually explicitly gated:
+
+> "This option is only valid when printing (`--print`) or when print mode is inferred (non-TTY stdout or piped stdin)."
+
+`stream-json` emits NDJSON with `system/init`, `user`, `assistant`, `tool_call` (started/completed) and a terminal `result`. **No permission event in that schema.** In headless runs approval mostly resolves as a non-zero exit rather than an observable blocked state — untrusted workspaces "fail with guidance" unless `--trust`/`--force` is passed.
+
+Transcripts: the changelog says "headless transcripts write Claude Code-compatible JSONL" and "transcripts persist to disk for tooling and hooks", and hooks receive `transcript_path` / `CURSOR_TRANSCRIPT_PATH`. **The on-disk path is not documented anywhere first-party** — it is runtime-discoverable only.
+
+Two near-misses that are *not* programmatic channels and should not be mistaken for signals: `notifications` ("Send a terminal notification when the agent finishes or needs input") and `display.showStatusIndicators` ("Enable terminal title status indicators"). The second is rendered terminal state — that is scraping with extra steps.
+
 ### Unverified
 
 | Harness | Why not verified |
 |---|---|
-| **droid** (Factory) | Not installed; no `~/.factory` on this machine; no first-party artifact available to inspect. |
 | **qwen** | Not installed; no `~/.qwen`. |
-| **cursor** | Not installed; no `~/.cursor`; no `cursor`/`cursor-agent` on `PATH`. |
-| **hermes** | Not installed; no `~/.hermes`. The product identity behind this name was not established with confidence from a first-party source. |
+| **hermes** | Not installed; no `~/.hermes`. |
 
-For all four, the only local signal is that `herdr integration list` offers an installer, and `herdr integration status` names a target path (`~/.factory/hooks/herdr-agent-state.sh`, `~/.qwen/hooks/herdr-agent-session.sh`, `~/.cursor/herdr-agent-state.sh`, `~/.hermes/plugins/herdr-agent-state/__init__.py`). That is a hint that *some* extension point exists in each, and the file extensions hint at its shape (shell hook vs Python plugin). It is not evidence of which events fire, and it is deliberately not used as such here. One detail worth chasing later: qwen's file is named `herdr-agent-session.sh`, not `-state.sh`, which reads like session-identity only rather than state transitions.
+For both, the only local signal is that `herdr integration list` offers an installer and `herdr integration status` names a target path (`~/.qwen/hooks/herdr-agent-session.sh`, `~/.hermes/plugins/herdr-agent-state/__init__.py`). That hints that *some* extension point exists and hints at its shape (shell hook vs Python plugin). It is not evidence of which events fire and is deliberately not used as such. One detail worth chasing: qwen's file is named `herdr-agent-session.sh`, not `-state.sh`, which reads like session-identity only rather than state transitions.
 
-Verifying these four requires installing them. That is a follow-up task, not something to paper over.
+Verifying these requires installing them. That is a follow-up task, not something to paper over.
 
 ## What herdr's own design suggests
 
