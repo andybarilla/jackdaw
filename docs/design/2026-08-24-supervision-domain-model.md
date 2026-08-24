@@ -135,7 +135,7 @@ check cannot be evaluated is never dropped — it is kept and marked, so it read
 rather than live.
 
 ### Lease
-`resource`, `holder` (session id), `acquired_at`, `expires_at`.
+`resource`, `holder` (session id), `acquired_at`, `expires_at`, `last_renewed_at`.
 
 One noun over three ad-hoc locks: the branch lane (`canonical-worktree claim/release`,
 single-occupancy, refuses dirty-or-unpushed release), the claim-a-ticket-by-assignment
@@ -144,6 +144,15 @@ convention, and the pane write interlock.
 They share the failure that matters — a holder that dies without releasing. `lead-talostitle`
 puts it plainly: a lane you never release is a branch nobody else can use. Expiry plus a
 holder that is a *session id* makes that detectable once instead of three times.
+
+**Expiry advances detection; it never grants.** A live holder renews, and an expired lease
+marks the resource as *suspect* rather than free. A branch lane is legitimately held for
+hours — `canonical-worktree` has no expiry today for exactly that reason, and its `release`
+refuses dirty-or-unpushed work by design. A lease that expired under a live holder and was
+then reissued would produce the measured defect verbatim: on 2026-08-17 a session committed
+onto another session's branch with **no error**, and the work landed in the wrong PR.
+Reclaiming a suspect lease is a separate act with its own check that the holder is really
+gone.
 
 The pane interlock is the urgent one. [#3](https://github.com/andybarilla/jackdaw/issues/3)
 proved tmux offers nothing here — `attach -r` is client-scoped and does not block

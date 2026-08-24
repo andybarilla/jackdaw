@@ -83,8 +83,9 @@ that resolves it. Interpreted, never executed.
 _Avoid_: blocker, todo, needs-andy
 
 **Lease**:
-A time-bounded exclusive claim on a thing — a pane, a branch lane, a ticket — held by
-one holder. Its purpose is detecting a holder that died without releasing.
+A renewable exclusive claim on a thing — a pane, a branch lane, a ticket — held by one
+holder. Its purpose is detecting a holder that died without releasing; expiry marks a
+lease **suspect**, never free.
 _Avoid_: lock, claim, reservation
 
 ### Foreign state
