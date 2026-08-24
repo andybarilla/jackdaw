@@ -161,8 +161,10 @@ sleep per line) flooding 100 000 lines:
 %pause %0
 ```
 
-tmux emitted `%pause %0` and stopped sending that pane's output. Resuming requires
-`refresh-client -A %0:continue`. Under `pause-after`, `%output` is replaced by
+tmux emitted `%pause %0` and stopped sending that pane's output. `man tmux` says resuming is
+`refresh-client -A %0:continue`; that command was issued in this run and **no `%continue` was
+observed**, so the resume path is documented but not experiment-confirmed here. Under
+`pause-after`, `%output` is replaced by
 `%extended-output %0 <age-ms> : <data>` — the `age` field is the buffering delay and is
 directly usable as a lag metric (observed 0–668 ms).
 
@@ -190,10 +192,36 @@ $ printf 'refresh-client -B jdcmd:%%*:"#{pane_current_command}"\n' >&9
 %subscription-changed jdtitle $0 @0 0 %0 : x Done
 ```
 
-`%*` subscribes for every pane in the attached session. Changes are reported at most once a
-second (documented in `man tmux` under `refresh-client -B`), which is the right granularity
-for supervision and is far below the firehose. Because `no-output` suppresses `%output`
-entirely, there is no backlog and therefore no `%pause` exposure.
+`%*` subscribes for every pane in the attached session. Because `no-output` suppresses
+`%output` entirely, there is no backlog and therefore no `%pause` exposure.
+
+**`%*` is dynamic, not a snapshot.** Subscribing first and *then* creating panes:
+
+```
+$ printf 'refresh-client -B jdtitle:%%*:"#{pane_title}"\n' >&9    # subscribe first
+$ tmux ... split-window -t A -d 'bash --norc --noprofile'          # new pane, after
+$ tmux ... new-window   -t A -d 'bash --norc --noprofile'          # new window, after
+
+%subscription-changed jdtitle $0 @0 0 %0 : OLDPANE
+%layout-change @0 c195,80x24,0,0[...] ... *
+%subscription-changed jdtitle $0 @0 0 %1 : NEWPANE
+%window-add @1
+%subscription-changed jdtitle $0 @1 1 %2 : NEWWINDOWPANE
+```
+
+Panes and whole windows created after the subscription are covered automatically, and each new
+pane fires an initial `%subscription-changed` with its current value. This matters: agents are
+spawned into new panes constantly, and if `%*` had snapshotted the pane set, the stream manager
+would have had to re-issue every `-B` on every `after-split-window`. It does not.
+
+**The push channel is a 1 Hz sampler, not a true event stream.** `man tmux` states changes are
+reported "at most once a second", and the observed cadence matches. A transition that happens
+and reverts inside one second is invisible, and Jackdaw's event timestamps derived from
+subscriptions carry up to ~1 s of skew. The map's "state transitions are timestamped events,
+not a polled field" holds at the *interface* — the daemon publishes events — but the underlying
+sampling is tmux's, at 1 Hz, and the daemon cannot do better without falling back to `%output`
+(which is pausable) or to its own faster `capture-pane` poll. This is a requirement to write
+down, not a defect to fix.
 
 This matters more than it looks, because `#{pane_title}` is exactly the field herdr's status
 detection reads. `herdr api snapshot` shows `terminal_title: "✳ PR merge workflow for IC
@@ -243,8 +271,9 @@ not cost.
 - **`pane.wait_for_output` / `agent wait`.** No tmux equivalent. `wait-for` is an unrelated
   named-channel primitive, not an output matcher. Jackdaw builds pattern-matching-with-timeout
   on top of its own stream.
-- **One control client per session**, with lifecycle management (reconnect on `%exit`,
-  re-subscribe, re-establish the `-B` subscriptions, which are per-client and not persisted).
+- **One control client per session**, with lifecycle management: reconnect on `%exit` and
+  re-establish the `-B` subscriptions, which are per-client and not persisted anywhere. New
+  panes need no re-subscription (`%*` is dynamic), but a *new session* does need a new client.
 - **A cross-session view.** Nothing in tmux gives one stream over all sessions.
 
 **Recommended architecture.** One control-mode client per session with `-f no-output`;
@@ -468,10 +497,14 @@ scopes Jackdaw to supervising *agent* panes, that is the correct trade.
 - A `kill-pane` / user-closed-pane reconciliation path: `pane-exited` fires (see §6), and
   Jackdaw must decide restart-vs-record. herdr's `pane_exited` / `pane_closed` distinction maps
   onto tmux's `pane-died` (with `remain-on-exit`) vs `pane-exited`.
-- Cross-machine: **tmux is not installed on `apbmbp`** (`ssh apbmbp 'zsh -lc "tmux -V"'` →
-  `command not found`). Migrating TalosTitle onto Jackdaw requires installing and version-
-  pinning tmux there first. Its version is therefore unknown and the 3.2 floor is unverified
-  on that machine.
+- Cross-machine: **tmux appears to be absent on `apbmbp`.** `ssh apbmbp 'zsh -lc "tmux -V"'`
+  → `command not found` (login PATH, per `supervisor.md`'s PATH gate), and
+  `ls -l /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux` → no such file for all
+  three. `brew list --versions tmux` could not run because `brew` itself is not on the SSH
+  PATH, so the Homebrew inventory was not queried and this is not a conclusive negative.
+  Treat it as: tmux is not on that machine's login PATH or in any standard location, so
+  migrating TalosTitle onto Jackdaw almost certainly requires installing and version-pinning
+  tmux there first, and the 3.2 floor is unverified on that machine either way.
 
 ---
 
@@ -639,6 +672,16 @@ solve it right up until `kill-server`.
 
 ## What could not be verified
 
+- **Whether Claude Code's status title reaches `#{pane_title}` under tmux. This is the largest
+  single risk in the document.** What was proven is that tmux carries an OSC 2 title into
+  `#{pane_title}` (§1), and that Claude Code emits status-glyph titles — but the glyph evidence
+  (`✳ PR merge workflow…`) comes from `herdr api snapshot`, i.e. herdr's own PTY, not from a
+  Claude Code running inside a tmux pane. No agent was launched under tmux in this audit.
+  Consequence if it does not hold: the `-B` title subscription carries nothing useful, the
+  recommended push architecture loses its status signal, and status detection falls back to
+  polling `capture-pane` and parsing the rendered screen. That changes the *size* of sizing-note
+  item 4, not just its implementation, so it should be the first thing tested before the daemon
+  is specified.
 - **Real terminal focus.** No interactive terminal was available. Whether `focus-events on` plus
   `client-focus-in`/`client-focus-out` gives a trustworthy human-presence signal on the user's
   actual terminal (WezTerm, judging by the `WEZTERM_*` user vars seen in the `pipe-pane`
