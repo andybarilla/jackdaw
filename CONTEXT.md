@@ -88,6 +88,25 @@ holder. Its purpose is detecting a holder that died without releasing; expiry ma
 lease **suspect**, never free.
 _Avoid_: lock, claim, reservation
 
+### Attention
+
+**Finding**:
+One condition the fleet currently meets that a human should look at, carrying a subject, a
+fixed rank, and how long it has been true. Absences count: no live agent, no open PR, no
+holder.
+_Avoid_: alert, warning, issue
+
+**Acknowledgement**:
+A finding muted until its **material** evidence changes — the fields that condition declares
+it is watching, not every field it reports. Expires; never permanent.
+_Avoid_: dismiss, snooze, ignore
+
+**Blind**:
+Not knowing a source's state, as distinct from knowing it holds nothing. An unreachable
+machine is blind; a machine with no agents is empty. Rendering the first as the second hides
+an outage behind an all-clear.
+_Avoid_: unavailable, offline, stale
+
 ### Foreign state
 
 **Adapter**:
