@@ -51,9 +51,16 @@ A workspace with no live agent under it, holding work nobody is on.
 ### Communication
 
 **Room**:
-A durable, project-scoped channel carrying agent-authored posts, with membership and
-per-member read state. The supervisor is a member of every room.
+A durable, project-scoped channel carrying agent-authored posts. Membership is **stored**,
+never derived from where an agent happens to be working, and the supervisor is a member of
+every room.
 _Avoid_: channel, chat, scuttlebutt
+
+**Read cursor**:
+One member's position in one room — the last post it has been delivered. Per member, and the
+only read state a room keeps. Survives the member being absent: a member that comes back
+resumes from its cursor, never from the room's tail.
+_Avoid_: read receipt, high-water mark, last-seen
 
 **Post**:
 One short agent-authored message in a room. A wake signal and a pointer — never the

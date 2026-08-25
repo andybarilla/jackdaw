@@ -90,12 +90,38 @@ not the basis for it.
 one. Three effort trees were sitting stranded when `supervisor.md` was written.
 
 ### Room and Post
-**Room**: `project`, `members[]`.
-**Post**: `id`, `room`, `author`, `body` (≤700 chars), `posted_at`, `read_by[]`.
+**Room**: `project`, `members[]`, `cursors[]`.
+**Post**: `id`, `room`, `author`, `body` (≤700 chars), `posted_at`.
+
+> **Corrected 2026-08-25** against the working implementation, read in
+> [#10](https://github.com/andybarilla/jackdaw/issues/10). `Post.read_by[]` is gone; read state
+> is a **per-member cursor** on the room. Membership stays stored and explicit, which is where
+> the model was already right and the implementation is wrong. Both changes are argued below.
 
 Agent-to-agent, grouped by project. Leads, ICs and project-level skills talk through their
 project's room; the supervisor is a member of every room, which is a membership fact rather
 than a special case in delivery.
+
+**Membership is stored, never derived.** Scuttlebutt derives it from an agent's cwd, and that
+is a live defect rather than a shortcut: the supervisor sits at `~`, matches no group, and is
+therefore in **no room on any daemon start in the whole log** — the exact opposite of the
+guarantee above. An IC in a workspace the derivation does not recognise is silently in no room
+either, which is the same failure wearing different clothes. A membership you cannot enumerate
+is a membership you cannot check.
+
+**Read state is a per-member cursor, not `read_by[]` on the post.** The implementation keeps a
+high-water mark per member and is right to; a list on every post grows with every member on
+every post, and — the reason that matters here — it cannot express *falling behind* at all,
+which this document makes the load-bearing guarantee of the subscription mechanism. One cursor
+per member per room answers "what have you not seen" and "have you aged out" with the same read.
+
+**A cursor must survive its member's absence.** This is the mechanism of the 2026-08-24 orphan,
+and it is a rule rather than an implementation note. Scuttlebutt purges a member ~6 seconds
+after it stops appearing in the agent list and, on return, reseeds its cursor at the room's
+**current tail** — so every post made while it was away is skipped in silence. Any real restart
+exceeds six seconds, so the reset always wins. The log survived; the cursor did not. A member
+that returns resumes from its cursor or is **told it fell behind**; those are the only two
+outcomes, and silently advancing to the tail is neither.
 
 Delivery-on-idle is a **subscription mode**, not a property of the store: a post is delivered
 to a member when that member goes idle. That is what makes the room the backstop for
