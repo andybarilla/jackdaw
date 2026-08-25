@@ -299,10 +299,18 @@ Two aggravating conditions, both visible in the live data:
   `-1035`, `-1037`, …). Every one of them has been purged. Nothing records that they were ever
   members, or what they had read.
 
-**One root cause under all of it: membership and read state are derived from live process state
-instead of stored.** The room's contents are durable; who is in it and what they have seen is not.
-That is also the cheapest thing to state as a requirement, because it explains the cursor reset, the
-absent supervisor, the group-config trap, and the empty rosters at once.
+**The room's contents are durable; everything about who is in it and what they have seen is derived.**
+That is one sentence but **two independent axes**, and they need two different fixes — collapsing
+them hides the second:
+
+- **Which room you are in is derived from cwd.** This produces the supervisor in no room
+  (`cwd /home/andy matches no group`) and an IC in an unlisted worktree landing in a different room
+  from its lead. The fix is binding `Room` to `Project` — change 6 below.
+- **What you have read is derived from liveness.** This produces the six-second purge, the reseed at
+  the tail, and the empty rosters. The fix is stored membership with a cursor keyed by session
+  identity — changes 1–3 below.
+
+Only the second axis caused the 08-24 orphan. The first is why nothing else caught it.
 
 **The cheap mitigation nobody wired up:** `cmd_read` needs no herd at all — it reads the file
 directly and shows the last 20 posts by default. A restarted lead running `read` at startup recovers
