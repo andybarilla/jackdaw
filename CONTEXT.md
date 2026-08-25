@@ -118,8 +118,25 @@ _Avoid_: unavailable, offline, stale
 
 **Adapter**:
 A plugin binding Jackdaw to something outside it. A **harness adapter** covers one
-coding harness; a **tracker adapter** covers one issue tracker.
+coding harness; a **tracker adapter** covers one issue tracker. It **declares** what it can
+observe rather than answering for the state of things.
 _Avoid_: integration, driver, connector
+
+**Observation**:
+One question the daemon asks an adapter about a pane, from a fixed vocabulary. Answered with a
+method and a confidence, or with **unavailable** — which is an answer, not a gap.
+_Avoid_: probe, check, signal
+
+**Tier**:
+How observable a **pane** is, set by how that pane came to exist: adopted by Jackdaw, launched
+by it, or launched with a config Jackdaw also owns. A property of the pane, never of the
+adapter.
+_Avoid_: level, capability class
+
+**Hint**:
+An adapter's notice that something has changed, carrying no state of its own. It makes the
+daemon look now instead of later; losing hints costs latency, never correctness.
+_Avoid_: push, event, callback
 
 **Projection**:
 Jackdaw's read-only, staleness-stamped local copy of foreign state — issues, git
