@@ -61,7 +61,7 @@ peer's config entry carries `name`, `address` and that peer's certificate finger
 mutual: both ends verify.
 
 No CA to operate, no expiry to renew, no issuance path to get wrong. This is `known_hosts` trust,
-which is the right shape for a fleet of three machines whose config is hand-edited and
+which is the right shape for a fleet of two machines whose config is hand-edited and
 version-controlled.
 
 **No trust-on-first-use.** An unknown fingerprint is refused at `hello`: `blind` with reason
@@ -69,8 +69,8 @@ version-controlled.
 local fingerprint for pasting into a peer's config.
 
 The cost, stated rather than discovered: **adding a machine means editing config on every machine.**
-Three edits and a diff, and it is the same *declaration you can diff* property that made config
-canonical in the first place.
+Two edits and a diff today, and it is the same *declaration you can diff* property that made
+config canonical in the first place.
 
 ### 2.3 Identity comes from the dialer, never from the peer
 
@@ -191,6 +191,13 @@ on the peer.
 #4 calls the event log high-volume, and #14 §3 names the only thing the mesh provably needs events
 for. Widening a declared subset later is additive; narrowing a firehose is a breaking change.
 
+**The local daemon holds a cursor per peer and passes it on every `subscribe`.** A subscription
+cannot outlive its connection (#26 §4), so every reconnect in §3 re-subscribes — and a re-subscribe
+without a cursor resumes at the peer's tail, which is the mechanism of the 2026-08-24 orphan
+arriving over the network. #26 §5 already makes an event-log subscriber pass its cursor; the mesh is
+one such subscriber. An aged-out cursor is answered with `fell_behind`, which is what produces the
+gap in §5.2 rather than silence.
+
 ### 5.2 Peer events live in per-peer buffers
 
 **Never merged into the local event log.** #4's log is bounded and was sized for one machine's
@@ -215,8 +222,11 @@ failure being prevented is a wrong duration that looks exactly like a right one.
 
 ### 5.4 A machine computes findings about itself
 
-Findings about `apbmbp` are computed on `apbmbp` and relayed. The local daemon computes only the
-finding it alone can see: **that a peer is blind.**
+**A machine computes findings about its own state; the local daemon computes findings about the
+link and about its own view of a peer.** Findings about `apbmbp` are computed on `apbmbp` and
+relayed; that a peer is blind, that a peer's view is gapped, that measured clock skew is out of
+threshold (§5.3) and that a room's owner is unreachable (§6) are all the local daemon's, because
+each is a fact about the link rather than about the peer.
 
 Both ends computing the same condition means two vantage points that can disagree about one fact.
 
@@ -263,13 +273,14 @@ It also unties a circularity: #6 §5 wants `config validate` to check a prompt f
 the role runs on*, which needs the mesh, while the mesh's role-file story needs validation.
 **Validation is advisory; `agent start` is enforcing.**
 
-**The hash lives in config, not in a live comparison against the source.** Comparing live would
-make `agent start` mesh-dependent, and the moment you most need to restart an agent is the moment a
-machine is unreachable.
+**The hash lives in the config of the machine that runs the role**, not in a live comparison
+against the source. Comparing live would make `agent start` mesh-dependent, and the moment you most
+need to restart an agent is the moment a machine is unreachable.
 
-The cost: editing a role file means recomputing a hash and editing config. `jackdaw config hash
-<path>` prints it and a human pastes it, because #6 §5 forbids the CLI writing config. Roughly six
-roles across three machines.
+The cost, which is the same O(N) shape as §2.2's fingerprints: editing `lead-talostitle.md` on
+`apbfw16` means recomputing a hash and editing it into **`apbmbp`'s** config, since `apbmbp` is
+where that role runs. `jackdaw config hash <path>` prints it and a human pastes it, because #6 §5
+forbids the CLI writing config. Seven role files across two machines today.
 
 ### 7.2 Pull, and what happens to a local edit
 
@@ -317,6 +328,18 @@ novelty spent in the worst available place.
 by §7. #6 already took the `ssh -o BatchMode=yes` wrapping, the `zsh -lc` login-PATH workaround, the
 macOS-keychain trap and the HARD-GATE forbidding remote diagnosis from an SSH session; this document
 is what makes those removals real, because it supplies the transport underneath `machine:name`.
+
+## 9. CLI additions
+
+| Verb | Purpose |
+|---|---|
+| `jackdaw machine trust` | Prints this machine's certificate fingerprint, for pasting into a peer's config (§2.2) |
+| `jackdaw config hash <path>` | Prints the hash a config entry must declare for a role prompt file (§7.1) |
+| `jackdaw config sync` | Pulls declared artifacts from the source machine on demand (§7.2) |
+
+Everything else rides existing surface. `machine:name` already addresses a peer, `machine list|show`
+already reports a machine, and the always-present `degraded` already carries a blind peer's reason in
+a form a shell can test.
 
 ## What this does not settle
 
