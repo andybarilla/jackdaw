@@ -365,12 +365,16 @@ During those 102 seconds, `#{pane_pb_state}` read **`indeterminate`**, continuou
 100 ms and cross-tabulated with the pane title's leading glyph:
 
 ```
-window = submit .. approval          samples = 743
-   721  pb=indeterminate  title=idle-glyph (✳)      <-- 72.1 s of BLOCKED
+C4, submit .. approval keypress      samples = 924
+   902  pb=indeterminate  title=idle-glyph (✳)      <-- 90.2 s of BLOCKED
     22  pb=indeterminate  title=spinner   (◐◑)      <-- 2.2 s of genuine work before the dialog
 
-window = C1, a working turn          samples = 59
+C1, a no-tool working turn           samples = 59
     59  pb=indeterminate  title=spinner   (◐◑)      59/59
+C2, a one-tool working turn          samples = 55
+    55  pb=indeterminate  title=spinner   (◐◑)      55/55
+C5, the five-tool working turn       samples = 143
+   143  pb=indeterminate  title=spinner   (◐◑)      143/143
 ```
 
 So, for `claude`, on this channel alone:
@@ -387,7 +391,8 @@ a harness that cannot block. `claude` can, so this collapse hides the one event 
 
 There is one honest consolation, and it is a *pair*, not this channel: during the blocked window
 the title carried the **idle** glyph `✳` while `pb_state` said `indeterminate` — a combination that
-never occurs while genuinely working (0 of 59 working samples). `(pb_state, title-glyph-class)`
+never occurred while genuinely working (0 of 257 samples across three working turns, one of them
+five tool calls long). `(pb_state, title-glyph-class)`
 separates all three states:
 
 ```
@@ -398,8 +403,9 @@ finished  = (hidden,        idle glyph)
 
 Both halves are tmux **formats**, so this is not screen-scraping — but it does put weight back on
 the title, whose spinner #8 found flickers and produces phantom `-B` notifications. Read as a
-*class* (spinner vs not) rather than a value it was stable across all 3829 samples here. Offered as
-a lead, not a verdict: it was measured on one harness version in one permission mode.
+*class* (spinner vs not) rather than a value it separated the three states cleanly in every window
+sampled here. Offered as a lead, not a verdict: one harness version, one permission mode, one
+session.
 
 ### 4.4 There is no liveness beat
 
