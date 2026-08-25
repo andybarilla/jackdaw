@@ -645,7 +645,8 @@ raw stream (§7); `pi`'s `agent_end` is turn-scoped over a 7-tool turn (§8); `c
 
 ## Appendix: reproduction
 
-Scripts and raw logs are under the session scratchpad at `.../scratchpad/r18/` — not committed.
+Scripts and raw logs are under the session scratchpad at `.../scratchpad/r18/`, with a copy at
+**`~/.cache/jackdaw-r18/`** so a reboot cannot take them (as it did in #17) — not committed.
 The essentials:
 
 ```bash
