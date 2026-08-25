@@ -307,6 +307,25 @@ emitter is change-guarded with no keepalive. The registry answers that from a di
 So "the emitter is alive" is answerable by process liveness rather than by a beat on the wire, and
 "this status is old" is answerable by arithmetic. That is strictly better than what #8 asked for.
 
+**The liveness check is mandatory, not optional.** `SIGKILL` on a research session left the record
+on disk **unchanged** — `status` frozen at its last value, `updatedAt` never advanced, no tombstone
+— while `/proc/<pid>` disappeared:
+
+```
+before  {"pid":3807536, …, "status":"idle", "updatedAt":1787673294849}
+kill -9
+after   {"pid":3807536, …, "status":"idle", "updatedAt":1787673294849}   /proc/3807536: gone
+```
+
+A session killed while `status=waiting` therefore leaves a **permanent false blocked** in the
+registry. An adapter that reads `status` without checking `/proc/<pid>` and `procStart` will
+escalate on a corpse for ever.
+
+`SIGSTOP` is the other direction and `/proc` separates it too: a stopped `claude` reads state `T`
+in field 3 of `/proc/<pid>/stat` (`S` when resumed), while its record keeps whatever status it had.
+So the full liveness predicate an adapter needs is: `/proc/<pid>` exists, `procStart` matches, and
+the process state is not `T`/`Z`.
+
 ### 2.4 Cost of reading it
 
 ```
@@ -330,9 +349,17 @@ pid=3229972  ver=2.1.245  status=busy     procStart matches /proc
 … 16 entries, all live, all schema-identical
 ```
 
-**A live fleet pane was sitting at `status=waiting` while I looked.** That is the signal
-`supervisor.md` and `project-lead.md` need, present today, on panes nobody configured, three
-harness versions wide. `waitingFor` was absent on every live entry sampled — see §5.
+**A live fleet pane was sitting at `status=waiting` while I looked**, and ten minutes later it
+still was, with the reason attached:
+
+```
+pid=3238372  ver=2.1.245  status=waiting  waitingFor="permission prompt"  statusAge=612.9s
+```
+
+That is the escalation `supervisor.md` exists for — *blocked work that has not moved between two
+passes* — visible in a 0.4 ms file read, on a pane nobody configured, ten minutes before anyone
+noticed. It is the signal `supervisor.md` and `project-lead.md` need, present today, three harness
+versions wide, with the reason string intact on 2.1.245.
 
 The schema is identical across 2.1.231, 2.1.241 and 2.1.245: same keys, same status alphabet. That
 is the only cross-version evidence available and it is encouraging rather than conclusive.
@@ -583,33 +610,26 @@ message strings are unlocalised literals and the two #18 found are not the whole
 
 **Not established, and why:**
 
-1. **`waitingFor` was absent from every live-fleet entry sampled**, while my research panes carried
-   it reliably. Sixteen entries were sampled once each, and none was `waiting` with a reason at the
-   sampled instant except one entry that showed `status=waiting` with no `waitingFor` key. The
-   likely reading is that `waitingFor` is written only for the dialog kinds `BGE()` covers and that
-   the fleet pane was waiting for a different reason — but I did not confirm it, and an adapter
-   should therefore treat `waitingFor` as optional and `status=waiting` as the load-bearing field.
+1. **`waitingFor` is optional in the schema and I did not map when it is omitted.** It was present
+   on the one live-fleet `waiting` entry and on every research pane, but `BGE()` returns `undefined`
+   for states that are `waiting` for reasons outside its seven branches. Treat `status=waiting` as
+   the load-bearing field and `waitingFor` as a nicety.
 2. **Registry write atomicity was not tested.** I never observed a truncated or unparseable file
    across roughly 1000 polls of five files, but I did not read the writer's publish discipline
    (`Ovt` / `publishDiscipline`) or induce a torn read. An adapter should treat a parse failure as
    "no reading this pass", not as an error.
-3. **Behaviour when `claude` is stopped or killed.** `procStart` and `/proc` make the liveness check
-   sound in principle; I verified the stamps match for 16 live processes but did not SIGSTOP or
-   SIGKILL a session and watch the entry go stale. #17 established tmux holds a stale `pb_state`
-   indefinitely; the registry presumably holds a stale `status` the same way, which is what the
-   liveness check is for.
-4. **Whether the live fleet's missing `tmux` field has the same cause as my dropped-`$TMUX` panes**
+3. **Whether the live fleet's missing `tmux` field has the same cause as my dropped-`$TMUX` panes**
    (§1.4). Reading those processes' environments was refused and I did not route around it.
-5. **The 5.9 s permission debounce constant** — measured five times now across two studies, tightly
+4. **The 5.9 s permission debounce constant** — measured five times now across two studies, tightly
    clustered, still not located in the bundle. One timeboxed attempt was made. Operationally it does
    not matter for either escalation trigger (§4.1); it matters for a live indicator.
-6. **`TERM_PROGRAM=ghostty`'s cost** is still source-read only, exactly as #18 left it — but it is
+5. **`TERM_PROGRAM=ghostty`'s cost** is still source-read only, exactly as #18 left it — but it is
    now moot, because nothing in the recommendation uses the spoof. If a future design revives it,
    the modifier-key question is still open, and `ConEmuANSI=1` is still ruled out.
-7. **Teammate spawning with `$TMUX` dropped** (`PRu()`, §1.5) was not exercised functionally. Also
+6. **Teammate spawning with `$TMUX` dropped** (`PRu()`, §1.5) was not exercised functionally. Also
    moot under the recommendation.
-8. **`cursor`** — still not installed. Fourth study.
-9. **Everything here is one machine, one `claude` build for the controlled runs (2.1.231), one
+7. **`cursor`** — still not installed. Fourth study.
+8. **Everything here is one machine, one `claude` build for the controlled runs (2.1.231), one
    permission mode (`manual`), and one dialog kind (tool-use approval).** The plan-mode,
    cross-session-approval and browser-request dialogs listed in §3.4 were not driven; they are
    asserted from the bundle to produce `status=waiting` and were not observed doing so.
