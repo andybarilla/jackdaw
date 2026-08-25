@@ -198,8 +198,14 @@ the sparkle** for the entire turn:
 
 The harness demonstrably was working — the screen streamed a 250-word poem and the transcript
 line afterwards read `✻ Cooked for 14s`. So the title said *not working* for 14 s while the
-agent worked, and the summary updated during that window, which proves the harness was emitting
-titles and choosing the sparkle prefix.
+agent worked.
+
+Read precisely, the timeline says something sharper than "it picked the wrong glyph". The title
+changed **once**, about a second after submit, to `✳ Corvid poem` — and then nothing changed
+for 14 s. What is evidenced is one emission carrying the sparkle prefix followed by **silence**,
+with tmux faithfully holding the stale value. That is a different hazard, and a worse one for
+this design: a `-B` subscriber sees zero events either way and **cannot distinguish
+silence-because-nothing-changed from silence-because-the-emitter-stopped**.
 
 Two hypotheses were checked against the saved frames and **both were refuted**:
 
@@ -368,7 +374,9 @@ herdr's `live_turn_working` rule for claude, applied with its region faithfully 
 | run A, whole session | 246 | **0** | 181 |
 | run B, whole session | 230 | **0** | 204 |
 
-And the false-positive check — frames whose OSC title says idle (`✳`), i.e. ground-truth idle:
+And the false-positive check. Ground truth here is *the OSC title reading `✳`* — the signal this
+document argues is unreliable — over the 15 such frames in run B, the session where the title
+did behave. It is a weak oracle and is quoted as one:
 
 ```
 run B frames whose OSC title says IDLE (sparkle): 15
@@ -382,10 +390,14 @@ title reported `✳` throughout, the screen rule fired on 37 of 55 frames (67%),
 `'✻ Manifesting…'` and `'· Blanching…'`. Zero false positives on genuinely idle frames. For
 `working?` on Claude Code, the screen is *more* accurate than the title.
 
-**One of the two working alternatives is already dead.** `'^\s*[⏸⏵].*esc to interrupt(?:\s|·|$)'`
-matched **0 of 476 frames** across both sessions. Claude Code 2.1.241 never renders
-`esc to interrupt` in the captured pane. Whatever that rule was written against, it is not this
-build — and it is one of only two working alternatives in the highest-priority live-UI rule.
+**One of the two working alternatives never fired.** `'^\s*[⏸⏵].*esc to interrupt(?:\s|·|$)'`
+matched **0 of 476 frames** — every one of them captured from a pane with **no attached
+non-control client**, since the only client throughout was `tmux -C attach -f no-output`. The
+`⏸`/`⏵` glyphs are present in the mode line but the phrase never appears beside them. Whether an
+attached interactive client changes that was **not tested**, and #3 already established that a
+control client pollutes tmux's own notion of attachment. So this is measured behaviour under
+Jackdaw's own observation conditions — which is the condition that matters for Jackdaw — but it
+is not established as a property of 2.1.241 in general.
 
 ### 5.3 Width: a null result, and where the real fragility is
 
@@ -475,24 +487,29 @@ pessimistic figure. Cost is not the constraint; accuracy is.
    channel.** It is a cheap 1 Hz *hint* — good enough to schedule a `capture-pane`, not good
    enough to write an event from. Normalise glyph→state before timestamping, or the event log
    fills with spinner alternation.
-2. **Status detection for a no-channel harness is screen-scraping, and screen-scraping is
+2. **A `-B` design needs a per-pane staleness clock, not just change notifications.** §3.2's
+   false-idle is a harness that emitted once and went quiet while tmux held the stale value. A
+   subscriber sees no events in that case and no events when genuinely nothing changed. Without
+   "last emission was N seconds ago" the two are the same observation, and one of them is an
+   agent silently working.
+3. **Status detection for a no-channel harness is screen-scraping, and screen-scraping is
    per-harness rule maintenance.** There is no cheaper substrate underneath. Jackdaw must own
    region extraction (`bottom_non_empty_lines(N)`, prompt-box body, last horizontal rule) —
    that is where the precision lives, and it is more work than the regexes.
-3. **`#{alternate_on}` belongs in the adapter contract.** It decides whether history is
+4. **`#{alternate_on}` belongs in the adapter contract.** It decides whether history is
    available, whether history-scraping is safe, and whether scrollback poisoning is a threat.
    The two harnesses tested sit on opposite sides of it.
-4. **`pi` is second-class, and should be labelled so in the model.** No title signal, no
+5. **`pi` is second-class, and should be labelled so in the model.** No title signal, no
    approval concept (#2), one substring rule that its own output can poison indefinitely, and
    no way to distinguish blocked from idle. #11's **blind source** ranking — a source with no
    signal ranks 2nd, above every known-bad state — is exactly the right handling, and pi is its
    first real instance.
-5. **A false-idle is the failure that costs.** A working agent that reads as finished gets
+6. **A false-idle is the failure that costs.** A working agent that reads as finished gets
    escalated or handed new work. Both the title (§3.2) and the incumbent's dead
    `esc to interrupt` rule (§5.2) produced one. Detection should be biased so that the
    *absence* of positive idle evidence is not read as idle — which is precisely what herdr's
    `visible_idle` flag and its eleven idle-less manifests already concede.
-6. **OSC 133 from `pi` is a real lead worth a ticket** — reachable via `pipe-pane` today,
+7. **OSC 133 from `pi` is a real lead worth a ticket** — reachable via `pipe-pane` today,
    natively in tmux 3.8. Semantics unestablished.
 
 ## 8. Could not test
