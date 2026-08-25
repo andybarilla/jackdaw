@@ -19,8 +19,15 @@ _Avoid_: worker, bot, pane
 
 **Session**:
 One incarnation of an agent, from start to death. An agent that is restarted is the
-same agent and a new session.
+same agent and a new session. Carries a **cause** — how it came to be started — because a
+session born of a reboot needs handling a hand-started one does not.
 _Avoid_: run, instance, process
+
+**Quarantine**:
+A session that may observe but may not dispatch or write, until it **claims** it has rebuilt
+its context. The claim is the agent's own; Jackdaw records that it was made, never that it
+was deserved.
+_Avoid_: probation, unverified, cold start
 
 **Role**:
 The configured shape an agent takes — a name pattern, a prompt file, a machine, and a
@@ -57,9 +64,10 @@ every room.
 _Avoid_: channel, chat, scuttlebutt
 
 **Read cursor**:
-One member's position in one room — the last post it has been delivered. Per member, and the
-only read state a room keeps. Survives the member being absent: a member that comes back
-resumes from its cursor, never from the room's tail.
+One member's position in one room — the last post it has been delivered. Per member — keyed to
+the **agent**, never the session — and the only read state a room keeps. Survives the member
+being absent: a member that comes back resumes from its cursor, never from the room's tail. A
+reboot is the maximal absence and changes nothing about this.
 _Avoid_: read receipt, high-water mark, last-seen
 
 **Post**:
@@ -113,6 +121,12 @@ Not knowing a source's state, as distinct from knowing it holds nothing. An unre
 machine is blind; a machine with no agents is empty. Rendering the first as the second hides
 an outage behind an all-clear.
 _Avoid_: unavailable, offline, stale
+
+**Reconstructing**:
+A machine rebuilding its fleet after a reboot — a flavour of **blind**, timestamped from when
+the daemon started rather than from the boot, because a daemon cannot report on time it was
+not running for. It ends at roster reconciliation, which is not the same as being healthy.
+_Avoid_: booting, recovering, starting up
 
 ### Foreign state
 
