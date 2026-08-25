@@ -46,7 +46,9 @@ wrapped   \ePtmux;\e\e]9;4;3;\a\e\\        -> pb_state = hidden   (allow-passthr
 ```
 
 **There is a lever that recovers it, and it is a launch-time one.** The wrapper is selected by
-`$TMUX` alone. Launch `claude` with `TMUX` unset inside the pane and it emits the sequence bare,
+`$TMUX` alone. Launch `claude` with the capability gate forced open (`TERM_PROGRAM=ghostty`,
+`TERM_PROGRAM_VERSION=1.2.0` — the other route, `ConEmuANSI=1`, segfaults it) **and** with `TMUX`
+and `TMUX_PANE` unset in the pane, and it emits the sequence bare,
 and `#{pane_pb_state}` tracks the turn exactly: `indeterminate` 17–63 ms after submit, `hidden` at
 turn end, **one clean ON/OFF pair per turn including across five sequential tool calls**, and
 `hidden` 134 ms after `Esc`. That works with a real interactive client attached (§5).
@@ -147,8 +149,12 @@ Bv.useEffect(() => () => Or(null), [Or]);
 
 Three things follow before any experiment:
 
-- **`terminalProgressBarEnabled` defaults to `true`.** The setting is not the gate. Turning it on
-  in `settings.json` changes nothing, because it is already on.
+- **`terminalProgressBarEnabled` defaults to `true`** — so turning it *on* in `settings.json`
+  changes nothing, and it is not the gate that was closing under tmux. It is still honoured, and
+  therefore still a thing an adapter must not get wrong: a run with the gate forced open, `$TMUX`
+  unset, and `"terminalProgressBarEnabled": false` produced **zero** OSC 9;4 across a whole turn
+  (`ccE`, 6550 raw bytes, OSC inventory `0;<title>` only), while the pane title spun normally.
+  The setting is a second, default-open gate in series with `c6t()`.
 - **`error` and determinate `running` are dead code on this path.** The emitter supports all four
   (§2.2), but `bzm` can only ever return `indeterminate` or `completed`.
 - **There is no keepalive.** The `At.current === $e` guard means one write per state *change*.
@@ -204,6 +210,20 @@ object, itself populated by `progressReporting: c6t()` on the client side. The o
 overrides are environment: `ConEmuANSI`, or a `TERM_PROGRAM`/`TERM_PROGRAM_VERSION` pair.
 This environment has neither (`TERM=xterm-256color`, no `TERM_PROGRAM*`), which is the direct
 explanation of #8's and #17's zero-`9;4` captures for `claude`.
+
+**Of the two override routes, only one is usable, and it is the one with side effects.**
+
+```
+ConEmuANSI=1  ->  Segmentation fault (core dumped) claude       # 2 of 2 launches, 2.1.231
+```
+
+`ConEmuANSI` short-circuits `c6t()` before the `TERM_PROGRAM` branch and would otherwise be the
+inert choice on Linux; instead it **segfaults `claude` 2.1.231 on startup, reproducibly**, in a
+private server with and without `$TMUX` unset. (Unrelated to the fleet-wide 2.1.243 startup
+segfault, which this build does not have.) So the only route that works is spoofing
+`TERM_PROGRAM=ghostty` — and that is **not** inert: the bundle's `y9_` terminal set contains
+`"ghostty"` and `wwn()` keys modifier-key interpretation off `TERM_PROGRAM`, so the spoof also
+changes how `claude` reads keybindings. That side effect was not measured; see §11.
 
 ### 2.4 The finding that decides the ticket
 
@@ -337,6 +357,7 @@ That is the property a supervisor needs, and `claude` has it — once the bytes 
 …244.596  pb=indeterminate  title=◑ …                           C6  submit …244.569  ->  27 ms
 …252.642  pb=hidden         title=✳ …                           C6  Esc …252.508    -> 134 ms
 …321.409  pb=indeterminate  title=◑ …                           C7  submit …321.346  ->  63 ms
+…432.285  pb=hidden         title=✳ …                           C7  end
 ```
 
 Seven turns, fourteen transitions, **zero spurious ones**. Emitter-side latency 16–31 ms;
@@ -506,6 +527,14 @@ this signal is available on `pipe-pane` **whether or not the adapter unsets `TMU
 only blocked signal here that does not depend on the launch environment. tmux exposes no format for
 OSC 777, so it costs a `pipe-pane` (one per pane, #17 §5.2) and its latency is the debounce.
 
+**A byte-level extractor must handle both envelopes, and the wrapped one doubles every ESC.**
+`T5` does `replaceAll("\x1b", "\x1b\x1b")`, so on the wire the wrapped form is
+`\x1bPtmux;\x1b\x1b]777;…\x07\x1b\\` — the payload's own introducer appears as **two** ESC bytes.
+A naive `\x1b\]777;` match still hits it only by accident (it matches the second ESC). Any
+extractor Jackdaw builds must strip the DCS envelope and un-double the escapes explicitly, or it
+will silently mis-parse exactly the panes where the fallback matters most. The same applies to the
+`9;4` sequences in a `$TMUX`-set pane.
+
 I did not pin down the constant behind the 5.9 s permission debounce or whether it is configurable;
 two independent measurements (5.88 s in §7, 6.01 s in §6) agree, and that is all that is claimed.
 
@@ -548,18 +577,28 @@ three studies old as an untested gap and needs a machine that has it.
    API. OSC 9;4 does not replace it; it supplements it for two harnesses, both of which need the
    adapter to configure the launch.
 2. **The adapter contract needs a *launch environment*, not just launch arguments.** #2 asked for
-   launch arguments. `claude` needs `TMUX` and `TMUX_PANE` **removed** from the child environment,
-   which is a stronger and stranger requirement — and one with side effects Jackdaw must own,
-   because a `claude` that cannot see `$TMUX` also cannot use its own tmux integrations. That
-   trade is a design decision, not an implementation detail.
+   launch arguments. `claude` needs three environment edits at once: `TERM_PROGRAM`/
+   `TERM_PROGRAM_VERSION` spoofed to open the capability gate, `TMUX` and `TMUX_PANE` **removed**
+   so the sequence is not wrapped, and `terminalProgressBarEnabled` left alone or `true`. That is
+   a stronger and stranger requirement than a flag — and one with side effects Jackdaw must own,
+   because a `claude` that cannot see `$TMUX` also cannot use its own tmux integrations, and a
+   spoofed `TERM_PROGRAM` changes modifier-key handling. That trade is a design decision, not an
+   implementation detail.
 3. **The channel's alphabet is not the channel's semantics.** tmux gives four states; `claude`'s
    own state machine can produce two. The extra states exist only if Jackdaw writes them, via
    hooks.
 4. **`blocked` is available for `claude`, by three different mechanisms, none of them this
-   channel's default behaviour**: a `Notification` hook writing `9;4;2` (native format, 6 s late,
-   needs config write access); OSC 777 on the raw stream (needs `pipe-pane`, 6 s late, needs
-   nothing else); or the `(pb_state, title-glyph)` pair (two formats, immediate, but leans on the
-   title #8 distrusts). Jackdaw should pick one deliberately.
+   channel's default behaviour**, and only one of them is independent of the launch environment:
+   - a `Notification` hook writing `9;4;2` — native format, 6 s late, needs config write access,
+     and **inherits the `$TMUX`-unset precondition**, because `cja` routes the hook's sequence
+     through the same `T5` wrapper (§2.5). It is not an independent path.
+   - **OSC 777 on the raw stream** — needs a `pipe-pane`, 6 s late, and needs nothing else. It is
+     the **only** blocked signal here that works with `$TMUX` set, on tmux 3.2, unconfigured.
+   - the `(pb_state, title-glyph)` pair — two formats, immediate, but leans on the title #8
+     distrusts, and still needs the `$TMUX`-unset launch for the `pb_state` half.
+
+   Jackdaw should pick one deliberately, and should notice that the cheapest-to-deploy option is
+   the one that does not use this channel at all.
 5. **The staleness clock is still mandatory and now less optional than in #17.** `claude` has no
    keepalive, so neither reachability tier can prove the emitter is alive.
 6. **`#{alternate_on}` moves with the launch environment**, not only with runtime mode. Read it
@@ -571,7 +610,8 @@ three studies old as an untested gap and needs a machine that has it.
 
 ## 11. Where this stops
 
-**Established here:** `claude` emits OSC 9;4 when the gate is forced (§3.1); it is DCS-wrapped and
+**Established here:** `claude` emits OSC 9;4 when the gate is forced (§3.1), and does not when
+`terminalProgressBarEnabled` is `false` or when `ConEmuANSI` crashes it first (§2.1, §2.3); it is DCS-wrapped and
 therefore invisible to `#{pane_pb_state}` (§2.4, §3.1, §3.2); unsetting `$TMUX` recovers it with
 clean one-pair-per-turn semantics and 16–31 ms latency (§4.1–4.2); blocked reads as `indeterminate`
 and is indistinguishable from working (§4.3); it survives a real interactive client (§5); a
@@ -581,10 +621,17 @@ raw stream (§7); `pi`'s `agent_end` is turn-scoped over a 7-tool turn (§8); `c
 **Not established, and why:**
 
 1. **`cursor`** — still not installed on this machine. Untested for the third study running.
-2. **What unsetting `$TMUX` costs `claude`.** It was not measured. `y6s()` feeds a `mux` field
-   that other subsystems read, and teammate spawning has a `tmux` mode. Before #5 commits to this
-   lever, someone should run a `claude` with `TMUX` unset through a real task including
-   `/teammate`-style work and see what breaks.
+2. **What unsetting `$TMUX` costs `claude`.** It was not measured, and the entire positive half of
+   this verdict rests on it. `y6s()` feeds a `mux` field that other subsystems read, and teammate
+   spawning has a `tmux` mode. Before #5 commits to this lever, someone should run a `claude` with
+   `TMUX` unset through a real task including `/teammate`-style work and see what breaks. The one
+   difference already visible here is that the pane runs on the alternate screen
+   (`alternate_on=1`) instead of the main one — which changes what `capture-pane` and scrollback
+   see, i.e. it changes the scraping fallback too.
+2b. **What spoofing `TERM_PROGRAM=ghostty` costs.** Source-read only: `y9_` contains `"ghostty"`
+   and `wwn()` derives modifier-key behaviour from `TERM_PROGRAM`, so the spoof plausibly changes
+   keybinding interpretation. Not exercised. The alternative gate route, `ConEmuANSI=1`, is ruled
+   out — it segfaults 2.1.231 on startup (§2.3).
 3. **The 5.9 s permission-notification debounce** — measured twice, constant not located in the
    bundle, configurability unknown. If it is tunable, the hook route's latency is tunable with it.
 4. **`9;4;1;N` (determinate)** is emitted by no harness tested. `claude` has the code path
@@ -634,5 +681,6 @@ done
 > name explicitly in any rig that also switches windows.
 
 The private server was destroyed at the end of the session
-(`tmux -L jackdaw-research-18 kill-server`); the user's live fleet socket was never contacted and
-no live-fleet `claude` pane was restarted.
+(`tmux -L jackdaw-research-18 kill-server`, verified: `no server running on
+/tmp/tmux-1000/jackdaw-research-18`); the user's live fleet socket was never contacted and no
+live-fleet `claude` pane was restarted.
