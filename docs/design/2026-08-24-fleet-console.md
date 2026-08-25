@@ -84,7 +84,7 @@ severity.
 | # | Condition | Subject | Source |
 |---|---|---|---|
 | 1 | Uncommitted work with no live agent — stranded | Workspace | `status.md` |
-| 2 | Machine or source blind for a sustained period | Machine / Projection | new (#11) |
+| 2 | Machine or source blind past its blindness threshold | Machine / Projection | new (#11) |
 | 3 | Agent not `working` while its workspace is dirty | Agent | `status.md` |
 | 4 | Commits ahead of upstream with no open PR | Workspace | `status.md` |
 | 5 | Unheld handoff past its duration | Handoff | `supervisor.md` |
@@ -94,7 +94,7 @@ severity.
 | 9 | Effort tree with no live session | Workspace | `supervisor.md` |
 | 10 | Expected role missing from the roster | Project | #4 (`expected_roles`) |
 | 11 | Blocked work unmoved past its duration | Agent | `supervisor.md` |
-| 12 | Subscriber fell behind | — | #4 |
+| 12 | Subscriber fell behind | Agent | #4 |
 | 13 | `issue-<n>` workspace whose issue is closed | Workspace | `status.md` |
 | 14 | Open assigned issue with no workspace and no agent | Projection | `status.md` |
 | 15 | Fresh issue with no triage-state label, bounded to 7 days | Projection | `status.md` |
@@ -124,9 +124,19 @@ It renders **both ways**:
   an agent's derived state can each be `unknown`, and the row says so where the value would be.
 - **A banner** — when a whole source is down, listing every degraded source above the screen.
 
-A *momentary* degradation stops there. A **sustained** one — unreachable past a threshold, a
-refresh failing repeatedly — additionally raises a finding at rank 2, because at that point it
-is a fault someone must fix rather than a caveat on the reading.
+A *momentary* degradation stops there. A degradation past its **blindness threshold**
+additionally raises a finding at rank 2, because at that point it is a fault someone must fix
+rather than a caveat on the reading. The threshold has an owner per subject kind:
+
+- **`Machine`** — daemon config, alongside the mesh's peer settings. `supervision_policy` does
+  not cover it; a machine has no role.
+- **`Projection`** — a multiple of the adapter's own declared staleness threshold (below), so
+  a source that refreshes in seconds and one that refreshes in minutes are not held to one
+  number.
+
+A subscriber that fell behind is subjected to the **`Agent`** holding the cursor — the
+supervisor or lead whose view has a hole in it. `Subscriber` is not a noun; it is a role an
+agent plays against the event log.
 
 ### Staleness
 
