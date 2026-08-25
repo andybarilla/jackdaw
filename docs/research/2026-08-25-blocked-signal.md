@@ -43,8 +43,7 @@ looking for:
  "tmux": "ctl:@10.%10"}
 ```
 
-`status` is `busy` | `waiting` | `idle` | `shell`, and when it is `waiting` the `waitingFor` field
-says *why*. Measured on a pane launched with **no environment surgery, no settings change, no
+`status` is `busy` | `waiting` | `idle` | `shell`. Measured on a pane launched with **no environment surgery, no settings change, no
 hooks, no `pipe-pane`, and `$TMUX` intact**:
 
 ```
@@ -60,8 +59,13 @@ status=idle       …942.932
 Against the three candidates: OSC 777 is **5.9 s** late and needs the notification channel forced
 on; the hook is **6.0 s** late, needs a config write, needs `$TMUX` unset and needs Jackdaw to own
 every transition; the `(pb_state, title-glyph)` pair is immediate but needs the capability gate
-forced, `$TMUX` unset, tmux 3.7, and a title #8 distrusts. The registry is **~20 ms**, needs
-nothing, and works on tmux 3.2 because it does not involve tmux at all.
+forced, `$TMUX` unset, tmux 3.7, and a title #8 distrusts. The registry is **under 100 ms** (§2.2 —
+it is bounded by the observer, not by the harness), needs nothing, and works on tmux 3.2 because it
+does not involve tmux at all.
+
+`status=waiting` means precisely *a modal is open and nobody has answered it*. Every branch that
+produces it is a pending prompt, never a slow subprocess — a running tool is `busy`. §2.7 sets out
+what the reason string can and cannot be trusted to say.
 
 **And the cost the ticket was worried about is not there.** Unsetting `$TMUX` **does not** move
 `claude` to the alternate screen. `claude` is on the alternate screen in *every* configuration
@@ -381,7 +385,58 @@ E %11 pane_pid=3806854 claude_pid=3807536 -> idle   tmux=ctl:@11.%11
 So the mapping does not depend on the harness volunteering it, and therefore does not depend on the
 `$TMUX` lever. An adapter needs the pane's pid (a tmux format), `/proc`, and the registry directory.
 
-### 2.7 What it is not
+### 2.7 What `waiting` means, and what `waitingFor` is worth
+
+`waiting` is produced by exactly one predicate, `BGE()` (§2.1), and **every one of its seven
+branches is a prompt awaiting an answer**. There is no branch for "a tool is running" or "the API
+is slow" — those are `isLoading`, which yields `busy`. So `status=waiting` carries no risk of firing
+on a machine wait: it means a modal is open and unanswered. The residual ambiguity is *who* can
+answer it — `worker request` and `sandbox request` originate from another `claude` process and can
+in principle be answered by one, so a supervisor should treat `waiting` as *this pane is not making
+progress and something must answer it*, which is the trigger `supervisor.md` describes, rather than
+as *a human is required*.
+
+**`waitingFor` is a hint, not a discriminator, and it over-reports one value.** The dialog branch
+resolves through:
+
+```js
+function X$h(e){ return e === void 0 ? void 0 : yaw[e] ?? "permission prompt" }
+yaw = { [kRt.kind]:"input needed", [Xnt.kind]:"input needed",
+        [LJ.kind]:"dialog open",  [G9e.kind]:"dialog open",
+        [U6e.kind]:"goal proposal" }
+```
+
+`yaw` names **five** dialog kinds out of the ~25 in the sibling component map, and everything not
+named falls through to the literal `"permission prompt"`. So a plan-mode approval, a
+cross-session approval request, a browser request and a managed-settings prompt all report
+`waitingFor: "permission prompt"` — the string is the *default*, not a classification. Combined
+with the `BGE()` branches, the full alphabet an adapter can see is:
+
+```
+"permission prompt"   (default for every unnamed dialog kind — the catch-all)
+"input needed"        (elicitation, and two named dialog kinds)
+"dialog open"         (managed-settings security prompt, local JSX command, two named kinds)
+"sandbox request"     (sandbox host prompt, worker sandbox prompt, pending sandbox request)
+"worker request"      (pending worker request)
+"goal proposal"       (session-goal proposal)
+```
+
+The practical reading: **`status` is load-bearing, `waitingFor` is display material.** Do not build
+escalation policy that branches on the reason string, because the string cannot distinguish a tool
+approval from a plan approval, and treating `"permission prompt"` as the human-gated case while
+excluding the others would exclude `"input needed"`, which is also a human.
+
+### 2.8 The per-session socket, unexplored
+
+Every entry also carries `messagingSocketPath: /run/user/1000/cc-socks/<pid>.sock`, and those
+sockets exist — 19 of them on this machine, one per live session. Alongside `peerProtocol: 1` and
+`peerFeatures` in the record, the bundle shows a versioned inter-session message protocol
+(`interrupt_receipt_v1`, `msg_lifecycle_v1`) reached over that socket, and `claude`'s own peer
+discovery reads the same `sessions/` directory this recommendation reads. Whether the socket offers
+a *subscription* to status — which would replace polling with push — was **not established**. I did
+not connect to any socket belonging to a live-fleet session. Recorded as a lead, not a mechanism.
+
+### 2.9 What it is not
 
 It is an **internal file format with no supported interface**. `claude --help` exposes no
 session-listing command (`claude agents` covers background agents only). There is no documentation,
@@ -507,7 +562,7 @@ pane C's are bare, from the same binary. #18's warning holds and my extractor im
 
 | | registry | OSC 777 | `(pb_state, title-glyph)` | `Notification` hook |
 |---|---|---|---|---|
-| blocked latency | **< 100 ms** | 5.90 s | ~50 ms | 6.0 s |
+| blocked latency | **< 100 ms** (observer-bound) | 5.90 s | ~50 ms | 6.0 s |
 | tmux version floor | **none** | **none** (3.2 fine) | **3.7** | **3.7** |
 | needs `$TMUX` dropped | no | no | **yes** | **yes** |
 | needs `TERM_PROGRAM` spoof | no | no (config instead) | **yes** | **yes** |
@@ -516,7 +571,7 @@ pane C's are bare, from the same binary. #18's warning holds and my extractor im
 | works on adopted panes | **yes** | no | no | no |
 | distinguishes blocked from working | **yes** | yes | yes | yes |
 | distinguishes blocked from done | **yes** | yes (two strings) | yes | yes |
-| carries a reason | **yes** (`waitingFor`) | partially (string set, §3.4) | no | no |
+| carries a reason | a display hint only (§2.7) | partially (string set, §3.4) | no | no |
 | staleness clock | **built in** (`statusUpdatedAt`+`procStart`) | none | none | none |
 | stability | undocumented internal format | undocumented literals | two formats + a title #8 distrusts | documented hook API, fights the latch |
 
@@ -532,14 +587,11 @@ read.
 
 ### 4.1 On the objection the ticket raised about the 5.9 s debounce
 
-The ticket says a detector that "misses a prompt answered quickly is not [fine]". For the OSC 777
-tier that objection is real but narrower than it looks against the *named* triggers.
-`supervisor.md` escalates on **blocked work that has not moved between two passes**, and
-`project-lead.md` on **an IC stuck twice**. A prompt answered inside 5.9 s produces title movement
-(`✳` → spinner) and, at the next pass, `status`/screen movement — the trigger is "has not moved",
-so a prompt that is answered promptly is precisely the case that should not fire. The debounce
-costs a live "waiting on you" indicator its first six seconds; it does not cost either escalation
-trigger anything. With tier 1 in place the point is moot at 100 ms.
+The ticket says a detector that "misses a prompt answered quickly is not [fine]". Against the named
+triggers — `supervisor.md`'s *blocked work that has not moved between two passes* and
+`project-lead.md`'s *an IC stuck twice* — a prompt answered inside 5.9 s is precisely the case that
+should not fire, so the debounce costs a live "waiting on you" indicator its first six seconds and
+costs the escalation triggers nothing. With tier 1 in place at under 100 ms it is moot anyway.
 
 ---
 
@@ -569,8 +621,11 @@ Written for #5 to consume; not posted there by me.
 
 1. **A harness adapter must declare a `blocked` observation, and the contract must accept a
    read-only one.** For `claude` it is: read `<config-dir>/sessions/<pid>.json`, map pane→pid via
-   `#{pane_pid}` and one level of `/proc` children, and report `status=waiting` (with `waitingFor`
-   as the reason) as *blocked*, `busy` as *working*, `idle`/`shell` as *idle*.
+   `#{pane_pid}` and one level of `/proc` children, confirm liveness (`/proc/<pid>` exists,
+   `procStart` matches, state is not `T`/`Z`), and report `status=waiting` as *blocked*, `busy` as
+   *working*, `idle`/`shell` as *idle*. **Branch on `status`, never on `waitingFor`** — the reason
+   string defaults to `"permission prompt"` for every unnamed dialog kind and cannot classify
+   (§2.7). Carry `waitingFor` through to the console as display text.
 2. **Baseline capabilities must be read-only.** An adapter may write only into a config scope
    Jackdaw provisioned and owns. It must never write `~/.claude/settings.json` or `~/.claude.json`.
    Therefore an adapter may declare a *tier-2* signal that depends on a config key — but the
@@ -610,26 +665,31 @@ message strings are unlocalised literals and the two #18 found are not the whole
 
 **Not established, and why:**
 
-1. **`waitingFor` is optional in the schema and I did not map when it is omitted.** It was present
-   on the one live-fleet `waiting` entry and on every research pane, but `BGE()` returns `undefined`
-   for states that are `waiting` for reasons outside its seven branches. Treat `status=waiting` as
-   the load-bearing field and `waitingFor` as a nicety.
-2. **Registry write atomicity was not tested.** I never observed a truncated or unparseable file
+1. **Only one of the six `waitingFor` values was observed on the wire** (`"permission prompt"`,
+   in the tool-approval case). The other five, and the claim in §2.7 that the unnamed dialog kinds
+   fall through to the `"permission prompt"` default, are read from the bundle and were not driven.
+   The contract clause in §6.1 is written so that this does not matter: it branches on `status`.
+2. **The per-session UDS message socket** (§2.8) may or may not offer a status subscription that
+   would replace polling with push. Unexplored: the only sockets I could safely probe belong to
+   live-fleet sessions, and I did not connect to any of them. This is the most promising open lead
+   in the doc and it should be picked up before anyone builds a poller loop they will have to
+   throw away.
+3. **Registry write atomicity was not tested.** I never observed a truncated or unparseable file
    across roughly 1000 polls of five files, but I did not read the writer's publish discipline
    (`Ovt` / `publishDiscipline`) or induce a torn read. An adapter should treat a parse failure as
    "no reading this pass", not as an error.
-3. **Whether the live fleet's missing `tmux` field has the same cause as my dropped-`$TMUX` panes**
+4. **Whether the live fleet's missing `tmux` field has the same cause as my dropped-`$TMUX` panes**
    (§1.4). Reading those processes' environments was refused and I did not route around it.
-4. **The 5.9 s permission debounce constant** — measured five times now across two studies, tightly
+5. **The 5.9 s permission debounce constant** — measured five times now across two studies, tightly
    clustered, still not located in the bundle. One timeboxed attempt was made. Operationally it does
    not matter for either escalation trigger (§4.1); it matters for a live indicator.
-5. **`TERM_PROGRAM=ghostty`'s cost** is still source-read only, exactly as #18 left it — but it is
+6. **`TERM_PROGRAM=ghostty`'s cost** is still source-read only, exactly as #18 left it — but it is
    now moot, because nothing in the recommendation uses the spoof. If a future design revives it,
    the modifier-key question is still open, and `ConEmuANSI=1` is still ruled out.
-6. **Teammate spawning with `$TMUX` dropped** (`PRu()`, §1.5) was not exercised functionally. Also
+7. **Teammate spawning with `$TMUX` dropped** (`PRu()`, §1.5) was not exercised functionally. Also
    moot under the recommendation.
-7. **`cursor`** — still not installed. Fourth study.
-8. **Everything here is one machine, one `claude` build for the controlled runs (2.1.231), one
+8. **`cursor`** — still not installed. Fourth study.
+9. **Everything here is one machine, one `claude` build for the controlled runs (2.1.231), one
    permission mode (`manual`), and one dialog kind (tool-use approval).** The plan-mode,
    cross-session-approval and browser-request dialogs listed in §3.4 were not driven; they are
    asserted from the bundle to produce `status=waiting` and were not observed doing so.
